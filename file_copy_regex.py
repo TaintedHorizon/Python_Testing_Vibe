@@ -5,55 +5,35 @@
 import os  # Allows interaction with the operating system and file system
 import re   # Provides support for regular expressions
 import shutil  # Provides high-level file operations
-import argparse  # Import the argparse module for command-line argument parsing
+import argparse  # For command-line argument parsing
+from typing import List, Tuple # For type hinting
 
-def get_path(prompt):  # Function to ask user for a path and verify it exists
+def find_matching_files(source: str, pattern: str) -> List[Tuple[str, str, str]]:
     """
-    Asks for a path from user and checks if it exists.
-    
-    Args:
-        prompt (str): Prompt message to display to the user
-    
-    Returns:
-        str: The valid path entered by the user
-    """
-    while True:  # Loop until the path is valid
-        # Ask user for a path with the given prompt
-        path = input(prompt)
-        
-        # Check if the path exists as a directory
-        if os.path.exists(path) and os.path.isdir(path):
-            return path  # Return the valid path
-        else:
-            print("Invalid path. Please enter the correct directory path.")  # Display error message
-
-def copy_matching_files(source, destination, pattern):  # Function to find matching files and copy them
-    """
-    Copies all files from the source directory to the destination that match the given regex pattern.
+    Finds all files in the source directory that match the given regex pattern.
     
     Args:
         source (str): Path of the directory to search in
-        destination (str): Path where you want to copy matching files
         pattern (str): Regex pattern for file names
         
     Returns:
         list: List of tuples containing paths of matching files and their relative paths
+              Each tuple is (filename, absolute_path, relative_path)
     """
-    matches = []  # List to store paths of matching files
+    matches: List[Tuple[str, str, str]] = []  # List to store paths of matching files
     for root, dirs, files in os.walk(source):
         # For each file found
         for file in files:
-            # Construct full path of file
-            file_path = os.path.join(root, file)
-            
             # Check if the file matches the pattern (case-insensitive)
             if re.search(pattern, file, re.IGNORECASE):
+                # Construct full path of file
+                file_path = os.path.join(root, file)
                 # Add match to list with its full path and relative path
                 matches.append((file, file_path, os.path.relpath(file_path, start=source)))
 
     return matches  # Return list of matching files
 
-def main():  # Main function where the program starts execution
+def main() -> None:  # Main function where the program starts execution
     """
     The main entry point for the script.
     
@@ -74,24 +54,23 @@ def main():  # Main function where the program starts execution
     destination_path = os.path.abspath(args.destination)  # Get absolute path of destination directory
 
     if not os.path.exists(source_path):
-        print(f"Error: Source directory '{source_path}' does not exist.")
+        print(f"Error: Source directory '{source_path}' does not exist.") # Using f-string for formatted output
         return
 
-    if not os.path.exists(destination_path):
-        print(f"Error: Destination directory '{destination_path}' does not exist.")
-        return
+    # Create the destination directory if it doesn't exist for a better user experience.
+    os.makedirs(destination_path, exist_ok=True)
 
     pattern = args.pattern  # Get regex pattern from command-line argument
 
-    matches = copy_matching_files(source_path, destination_path, pattern)
+    matches = find_matching_files(source_path, pattern)
 
     if len(matches) == 0:
         print("No matches found.")
     else:
         print("Found matches:")
         
-        for i, (file, path, rel_path) in enumerate(matches):
-            print(f"{i+1}. {rel_path} ({path})")  # Display matching files
+        for i, (filename, abs_path, rel_path) in enumerate(matches):
+            print(f"{i+1}. {rel_path}")  # Display matching files
 
         response = input("Proceed with copying these files? (y/n): ")
         
@@ -99,12 +78,16 @@ def main():  # Main function where the program starts execution
             # If confirmed, proceed with copying the matching files
             print("Copying matching files...")
             
-            for match in matches:
+            for filename, source_file_path, relative_path in matches:
                 try:
-                    shutil.copy2(match[1], destination_path)  # Attempt to copy file from source to destination
-                    print(f"Copied {match[0]} to {destination_path}")  # Display success message
+                    # Recreate directory structure in the destination
+                    destination_file_path = os.path.join(destination_path, relative_path)
+                    os.makedirs(os.path.dirname(destination_file_path), exist_ok=True)
+                    
+                    shutil.copy2(source_file_path, destination_file_path)  # Attempt to copy file from source to destination
+                    print(f"Copied {relative_path}")  # Display success message
                 except Exception as e:
-                    print(f"Failed to copy {match[0]}: {str(e)}")  # Display error message if copying fails
+                    print(f"Failed to copy {filename}: {str(e)}")  # Display error message if copying fails
         else:
             print("Copy operation cancelled.")  # Display cancel message
 
