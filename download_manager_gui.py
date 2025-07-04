@@ -90,6 +90,15 @@ def get_file_list_with_sizes(url: str, status_callback=None) -> list:
         file_url = urljoin(url, href)
         # Extract the base filename from the URL path and URL-decode it (e.g., %20 becomes space).
         file_name = unquote(os.path.basename(urlparse(file_url).path))
+        
+        # --- FIX: Robust check for problematic file names ---
+        # Ensure file_name is not empty or a problematic path component (like '.' or '..')
+        # or contains path separators (which would indicate it's a directory or malformed).
+        if not file_name or file_name in ['.', '..'] or os.path.sep in file_name or os.path.altsep in file_name:
+            update_status(f"Skipping problematic file name: '{file_name}' derived from URL: {file_url}")
+            continue
+
+
         file_size = 0 # Initialize file size to 0.
 
         try:
@@ -276,6 +285,10 @@ def download_files_from_url(url: str, download_dir: str, max_retries: int = MAX_
                     
                     # Open the local file: 'ab' for append (if resuming), 'wb' for write (if new download/restart).
                     mode = 'ab' if downloaded_bytes_current_file > 0 and r.status_code == 206 else 'wb'
+                    
+                    # DEBUG: Print the final file_path before attempting to open
+                    update_status(f"DEBUG: Attempting to open file_path: '{file_path}' in mode '{mode}'")
+
                     with open(file_path, mode) as f:
                         # Iterate over the response content in chunks.
                         for chunk in r.iter_content(chunk_size=CHUNK_SIZE_BYTES):
