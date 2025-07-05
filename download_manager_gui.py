@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox # Specific Tkinter modules:
                                          # messagebox: Provides standard message boxes (e.g., error, info).
 from tkinter import ttk # Tkinter "themed widgets" extension, providing more modern-looking widgets like Progressbar.
 import threading # Used to run the download process in a separate thread, preventing the GUI from freezing.
+import re # Used for regular expressions, specifically for filename sanitization.
 
 # --- Configuration Constants ---
 # These constants define various parameters for the downloader, making them easy to adjust.
@@ -26,6 +27,32 @@ CHUNK_SIZE_BYTES = 8192 # Size of data chunks read from the network and written 
 # `threading.Event` is a thread-safe way to communicate between the main GUI thread
 # and the download thread. `set()` signals, `clear()` resets, `is_set()` checks.
 cancel_flag = threading.Event()
+
+# --- Security Enhancement: Filename Sanitization ---
+# This function removes or replaces characters that are typically invalid or problematic
+# in filenames across various operating systems (e.g., Windows, Linux).
+def sanitize_filename(filename: str) -> str:
+    """
+    Sanitizes a string to be used as a safe filename.
+    Removes characters that are illegal or reserved in common file systems.
+    """
+    # Define a regular expression pattern for characters that are generally
+    # illegal in filenames on Windows and often problematic on Linux.
+    # <>:"/\|?* are common illegal characters.
+    # \x00-\x1f are control characters.
+    invalid_chars_pattern = r'[<>:"/\\|?*\x00-\x1f]'
+    
+    # Replace invalid characters with an underscore.
+    sanitized = re.sub(invalid_chars_pattern, '_', filename)
+    
+    # Also, remove leading/trailing spaces and periods, which can be problematic on Windows.
+    sanitized = sanitized.strip().strip('.')
+    
+    # Ensure the filename is not empty after sanitization.
+    if not sanitized:
+        sanitized = "unnamed_file" # Provide a fallback name if sanitization results in an empty string.
+    
+    return sanitized
 
 def get_file_list_with_sizes(url: str, status_callback=None) -> list:
     """
@@ -42,7 +69,7 @@ def get_file_list_with_sizes(url: str, status_callback=None) -> list:
 
     Returns:
         list: A list of dictionaries. Each dictionary represents a file and contains:
-              - 'file_name' (str): The URL-decoded name of the file.
+              - 'file_name' (str): The URL-decoded and sanitized name of the file.
               - 'file_url' (str): The absolute URL of the file.
               - 'size' (int): The estimated size of the file in bytes. Defaults to 0
                               if the size cannot be determined or if the request fails.
@@ -88,14 +115,16 @@ def get_file_list_with_sizes(url: str, status_callback=None) -> list:
 
         # Construct the full, absolute URL for the file. `urljoin` handles relative paths correctly.
         file_url = urljoin(url, href)
-        # Extract the base filename from the URL path and URL-decode it (e.g., %20 becomes space).
-        file_name = unquote(os.path.basename(urlparse(file_url).path))
+        # Extract the base filename from the URL path, URL-decode it, and then sanitize it.
+        file_name = sanitize_filename(unquote(os.path.basename(urlparse(file_url).path)))
         
-        # --- FIX: Robust check for problematic file names ---
+        # --- Robust check for problematic file names (retained and enhanced) ---
         # Ensure file_name is not empty or a problematic path component (like '.' or '..')
         # or contains path separators (which would indicate it's a directory or malformed).
+        # The `sanitize_filename` function already handles many of these, but this provides
+        # an extra layer of explicit checking.
         if not file_name or file_name in ['.', '..'] or os.path.sep in file_name or os.path.altsep in file_name:
-            update_status(f"Skipping problematic file name: '{file_name}' derived from URL: {file_url}")
+            update_status(f"Skipping problematic or sanitized-to-empty file name: '{file_name}' derived from URL: {file_url}")
             continue
 
 
@@ -291,7 +320,7 @@ def download_files_from_url(url: str, download_dir: str, max_retries: int = MAX_
 
                     with open(file_path, mode) as f:
                         # Iterate over the response content in chunks.
-                        for chunk in r.iter_content(chunk_size=CHUNK_SIZE_BYTES):
+                        for chunk in r.iter_content(chunk_size=CHUNK_SIZE_BYTES): # Corrected from CHUNK_BYTES
                             # Check for cancellation signal during the actual chunk download.
                             if cancel_flag.is_set():
                                 update_status(f"Cancelled download of {file_name}.")
@@ -505,6 +534,20 @@ class DownloaderApp:
             messagebox.showerror("Input Error", "Please select a download directory.")
             return
 
+        # --- Security Enhancement: HTTPS Enforcement ---
+        # Warn the user if they are trying to download from an insecure HTTP URL.
+        if not target_url.lower().startswith("https://"):
+            response = messagebox.askyesno(
+                "Security Warning",
+                "You are attempting to download from an HTTP (insecure) URL. "
+                "This could expose you to risks like corrupted files or malicious content. "
+                "Do you want to proceed anyway?"
+            )
+            if not response: # If the user chooses NOT to proceed.
+                self.update_status_text("Download aborted due to insecure URL.")
+                return # Stop the download process.
+
+
         # Reset the global cancellation flag for a new download operation.
         cancel_flag.clear()
 
@@ -546,9 +589,31 @@ class DownloaderApp:
             subdirectory_name = "downloaded_content" # Default subdirectory name.
             if path_segments:
                 subdirectory_name = path_segments[-1] # Use the last segment as the subdirectory name.
-            subdirectory_name = unquote(subdirectory_name) # URL-decode the subdirectory name.
+            
+            # --- Security Enhancement: Sanitize Subdirectory Name ---
+            # URL-decode the subdirectory name and then sanitize it to remove problematic characters.
+            subdirectory_name = sanitize_filename(unquote(subdirectory_name))
+
             # Construct the final full path for the download directory.
             final_download_path = os.path.join(download_location, subdirectory_name)
+
+            # --- Security Enhancement: Robust Path Traversal Prevention ---
+            # Normalize paths to handle '..' and '.' correctly and get absolute paths.
+            abs_download_location = os.path.abspath(download_location)
+            abs_final_download_path = os.path.abspath(final_download_path)
+
+            # Check if the resolved download path is actually *within* the intended base download location.
+            # This prevents attempts to write files outside the designated directory using path traversal.
+            if not abs_final_download_path.startswith(abs_download_location):
+                messagebox.showerror(
+                    "Security Error",
+                    f"Potential path traversal detected! The resolved download path "
+                    f"'{abs_final_download_path}' is outside the designated base directory "
+                    f"'{abs_download_location}'. Aborting download."
+                )
+                self.update_status_text("Download aborted due to potential path traversal.")
+                return # Abort the download if traversal is detected.
+
 
             # Call the core download function, passing callbacks for status and progress updates.
             download_files_from_url(
