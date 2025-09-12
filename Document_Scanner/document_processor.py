@@ -188,6 +188,100 @@ def get_document_category(document_text):
     except (json.JSONDecodeError, IndexError, KeyError) as e:
         return "other", "untitled", f"JSON parsing error: {e}", user_query, "Invalid JSON response"
 
+def get_document_page_ranges(document_text):
+    """
+    Sends the extracted text of a multi-page document to the Google Gemini AI model
+    to identify page ranges for individual logical documents within it.
+
+    Args:
+        document_text (str): The full text extracted from the multi-page PDF.
+
+    Returns:
+        list: A list of dictionaries, where each dictionary contains 'start_page' and 'end_page'
+              indicating the page range for a logical document. Returns an empty list if no
+              ranges are identified or an error occurs.
+    """
+    if not API_KEY:
+        print("API_KEY is not set. Cannot use Google AI Studio for page range detection.")
+        return []
+
+    system_prompt = "You are a document segmentation assistant. Analyze the provided text from a multi-page PDF and identify the page ranges for each distinct logical document within it. Return a JSON array of objects, where each object has 'start_page' (1-indexed) and 'end_page' (1-indexed) fields. If there is only one document, return a single object covering all pages. If no clear boundaries are found, assume the entire text is one document."
+    user_query = f"Identify document page ranges in the following text:\n\n{document_text}"
+
+    payload = {
+        "contents": [{"parts": [{"text": user_query}]}],
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "start_page": {"type": "INTEGER"},
+                        "end_page": {"type": "INTEGER"}
+                    },
+                    "required": ["start_page", "end_page"]
+                }
+            }
+        },
+    }
+
+    headers = {'Content-Type': 'application/json'}
+    params = {'key': API_KEY} if API_KEY else {}
+    try:
+        response = requests.post(API_URL, headers=headers, json=payload, params=params)
+        response.raise_for_status()
+        result = response.json()
+
+        if result and 'candidates' in result and result['candidates'][0].get('content'):
+            response_json_str = result['candidates'][0]['content']['parts'][0]['text']
+            page_ranges = json.loads(response_json_str)
+            # Basic validation of the returned structure
+            if isinstance(page_ranges, list) and all(isinstance(r, dict) and 'start_page' in r and 'end_page' in r for r in page_ranges):
+                return page_ranges
+            else:
+                print(f"LLM returned invalid page range format: {response_json_str}")
+                return []
+        return []
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error during LLM page range detection request: {e}")
+        return []
+    except json.JSONDecodeError as e:
+        print(f"JSON decoding error from LLM page range detection: {e}")
+        return []
+
+def split_pdf_by_page_ranges(original_pdf_path, page_ranges):
+    """
+    Splits a multi-page PDF into individual PDF files based on a list of page ranges.
+    Args:
+        original_pdf_path (str): The path to the original multi-page PDF file.
+        page_ranges (list): A list of dictionaries, where each dictionary contains
+                            'start_page' and 'end_page' (1-indexed) for a logical document.
+
+    Returns:
+        list: A list of paths to the newly created temporary individual PDF files.
+    """
+    split_pdf_paths = []
+    try:
+        original_doc = fitz.open(original_pdf_path)
+        for i, page_range in enumerate(page_ranges):
+            start_page = page_range['start_page'] - 1  # Convert to 0-indexed
+            end_page = page_range['end_page']  # end_page is exclusive in PyMuPDF slice
+            # Create a new PDF for the current document
+            new_doc = fitz.open()
+            new_doc.insert_pdf(original_doc, from_page=start_page, to_page=end_page)
+            # Create a temporary file path for the split PDF
+            temp_pdf_path = os.path.join(os.path.dirname(original_pdf_path), f"temp_split_doc_{os.path.basename(original_pdf_path)}_{i}.pdf")
+            new_doc.save(temp_pdf_path)
+            new_doc.close()
+            split_pdf_paths.append(temp_pdf_path)
+        original_doc.close()
+    except Exception as e:
+        print(f"Error splitting PDF {original_pdf_path}: {e}")
+    return split_pdf_paths
+
 # --- OCR and Processing Functions ---
 def perform_ocr_on_pdf(file_path):
     """
@@ -392,8 +486,8 @@ def process_document(file_path):
 def main():
     """
     Main function to scan the intake directory for new documents and process them.
-    It iterates through all files in the INTAKE_DIR and calls process_document
-    for each file.
+    It iterates through all files in the INTAKE_DIR, performs document separation
+    if a multi-document PDF is detected, and then processes each individual document.
     """
     print(f"Starting document processing scan of {INTAKE_DIR}...")
 
@@ -402,7 +496,35 @@ def main():
         file_path = os.path.join(INTAKE_DIR, file_name) # Construct the full path to the file
         # Check if the current item is a file (and not a subdirectory).
         if os.path.isfile(file_path):
-            process_document(file_path) # Process the document
+            if file_path.lower().endswith(".pdf"):
+                print(f"Processing PDF: {file_name}")
+                # Perform OCR on the entire PDF to get text for page range detection
+                full_pdf_text, _ = perform_ocr_on_pdf(file_path)
+
+                if full_pdf_text:
+                    page_ranges = get_document_page_ranges(full_pdf_text)
+                    if page_ranges:
+                        print(f"Detected {len(page_ranges)} logical documents in {file_name}.")
+                        split_docs_paths = split_pdf_by_page_ranges(file_path, page_ranges)
+                        for doc_path in split_docs_paths:
+                            process_document(doc_path)
+                            # Clean up temporary split PDF file
+                            try:
+                                os.remove(doc_path)
+                                print(f"Removed temporary file: {doc_path}")
+                            except Exception as e:
+                                print(f"Error removing temporary file {doc_path}: {e}")
+                    else:
+                        print(f"Could not determine page ranges for {file_name}. Processing as a single document.")
+                        process_document(file_path)
+                else:
+                    print(f"Could not extract text from {file_name}. Skipping page range detection and processing as single document.")
+                    process_document(file_path)
+            else:
+                print(f"Skipping {file_name}. Only PDF files are supported for advanced processing.")
+                # For non-PDFs, we can still process them if process_document handles them,
+                # but for now, we'll just skip as per the original script's intent.
+                # process_document(file_path) # Uncomment if you want to process other file types
 
     print("Scan complete.") # Indicate that the scan has finished
 
