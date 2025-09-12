@@ -10,3 +10,4 @@ __pycache__/
 
 # Ignore sensitive configuration files
 Document_Scanner/config.py
+.venv/
