@@ -681,12 +681,7 @@ def main():
                         # Process each split document
                         for doc_path in split_docs_paths:
                             process_document(doc_path)
-                            # Clean up temporary split PDF file
-                            try:
-                                os.remove(doc_path)
-                                logging.info(f"Removed temporary split file: {doc_path}")
-                            except Exception as e:
-                                logging.error(f"Error removing temporary split file {doc_path}: {e}")
+                            # The temporary split PDF file is moved by process_document, so no explicit removal is needed here.
                         
                         # If the file_to_process was a temporary merged file, it's now done.
                         # If it was an original batch file, it's now done.
