@@ -7,3 +7,6 @@ __pycache__/
 
 # Ignore log files
 *.log
+
+# Ignore sensitive configuration files
+Document_Scanner/config.py
