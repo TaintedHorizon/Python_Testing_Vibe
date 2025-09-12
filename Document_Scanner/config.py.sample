@@ -1,0 +1,89 @@
+# config.py.sample
+
+# This file contains configuration settings for the document processing script.
+# To use it, rename this file to `config.py` and fill in your specific details.
+
+# --- Google Gemini API Configuration ---
+# Your Google Gemini API key.
+# Obtain this from Google AI Studio: https://aistudio.google.com/app/apikey
+# IMPORTANT: Replace "YOUR_GOOGLE_GEMINI_API_KEY" with your actual API key.
+API_KEY = "YOUR_GOOGLE_GEMINI_API_KEY"
+
+# API URL for Google's Gemini Flash model.
+# This is the endpoint to which document text will be sent for classification and title generation.
+API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+
+# --- Application Settings ---
+# DRY_RUN: If True, the script will simulate file operations (moving, saving)
+# and LLM interactions without actually making changes to the file system or API calls.
+# This is useful for testing and debugging.
+# Set to False to enable full functionality and allow the script to modify files.
+DRY_RUN = True
+
+# INTAKE_DIR: The absolute path to the directory where new, unprocessed PDF documents
+# are initially placed. The script will monitor this directory for new files.
+# Example: "/home/user/scans/intake" or "C:\\Users\\User\\Documents\\Scans\\Intake"
+INTAKE_DIR = "/mnt/scans_intake"
+
+# PROCESSED_DIR: The absolute path to the base directory where all processed and
+# categorized documents will be stored. Subdirectories for each category will be
+# created within this directory.
+# Example: "/home/user/scans/processed" or "C:\\Users\\User\\Documents\\Scans\\Processed"
+PROCESSED_DIR = "/mnt/scans_processed"
+
+# CATEGORIES: A dictionary mapping document categories to their respective subdirectories.
+# The script will attempt to classify documents into one of these categories.
+# If a document cannot be classified, it defaults to the "other" category.
+# The values are relative paths within the PROCESSED_DIR.
+CATEGORIES = {
+    "invoices": "invoices",
+    "receipts": "receipts",
+    "reports": "reports",
+    "letters": "letters",
+    "legal": "legal",
+    "medical": "medical",
+    "recipes": "recipes",
+    "pictures": "pictures",
+    "instruction_manuals": "instruction_manuals",
+    "other": "other" # Default category for unclassifiable documents
+}
+
+# --- Logging Configuration ---
+# LOG_FILE: The path to the log file where script activity will be recorded.
+# If set to None, logs will only be output to the console.
+# Example: "document_processor.log" (creates in the script's directory)
+# Example: "/var/log/document_processor.log" (for system-wide logging)
+LOG_FILE = "document_processor.log"
+
+# LOG_LEVEL: The minimum logging level to capture. Messages with a level less than
+# this will be ignored.
+# Options (in increasing order of severity):
+# - DEBUG: Detailed information, typically of interest only when diagnosing problems.
+# - INFO: Confirmation that things are working as expected.
+# - WARNING: An indication that something unexpected happened, or indicative of some
+#            problem in the near future (e.g., ‘disk space low’). The software is
+#            still working as expected.
+# - ERROR: Due to a more serious problem, the software has not been able to perform
+#          some function.
+# - CRITICAL: A serious error, indicating that the program itself may be unable to continue running.
+LOG_LEVEL = "INFO"
+
+# --- Archiving Configuration ---
+# ARCHIVE_DIR: The absolute path to the directory where original intake PDFs will be
+# moved after they have been successfully processed (i.e., their contents have been
+# split, categorized, and moved to PROCESSED_DIR).
+# Example: "/home/user/scans/archive" or "C:\\Users\\User\\Documents\\Scans\\Archive"
+ARCHIVE_DIR = "/mnt/scans_archive"
+
+# ARCHIVE_RETENTION_DAYS: The number of days to retain files in the ARCHIVE_DIR.
+# Files older than this many days will be automatically deleted by the cleanup function.
+# Set to 0 or a negative number to disable automatic cleanup (files will be kept indefinitely).
+ARCHIVE_RETENTION_DAYS = 30
+
+# --- Retry Mechanism Configuration ---
+# MAX_RETRIES: Maximum number of times to retry a failed API request.
+MAX_RETRIES = 3
+
+# RETRY_DELAY_SECONDS: Initial delay in seconds before the first retry.
+# Subsequent retries will use exponential backoff (delay * 2).
+RETRY_DELAY_SECONDS = 2
