@@ -62,7 +62,7 @@ except ImportError:
 
 # API URL for Google's Gemini Flash model. This is the endpoint to which
 # document text will be sent for classification and title generation.
-API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent"
+API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
 # Directories for document processing. These paths should be accessible by the script.
 # INTAKE_DIR: Where new, unprocessed documents are initially placed.
