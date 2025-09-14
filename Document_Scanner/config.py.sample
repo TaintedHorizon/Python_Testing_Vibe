@@ -50,9 +50,10 @@ CATEGORIES = {
 
 # --- Logging Configuration ---
 # LOG_FILE: The path to the log file where script activity will be recorded.
+# If set to a relative path (e.g., "document_processor.log"), the log file will be created
+# in the same directory as the document_processor.py script.
+# If set to an absolute path (e.g., "/var/log/document_processor.log"), it will be created there.
 # If set to None, logs will only be output to the console.
-# Example: "document_processor.log" (creates in the script's directory)
-# Example: "/var/log/document_processor.log" (for system-wide logging)
 LOG_FILE = "document_processor.log"
 
 # LOG_LEVEL: The minimum logging level to capture. Messages with a level less than
