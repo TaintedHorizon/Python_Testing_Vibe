@@ -34,6 +34,7 @@ This script automates the processing, categorization, and archiving of PDF docum
 
 *   **`document_processor.py`**: The main executable script that contains all the logic for processing the documents.
 *   **`config.py.sample`**: A sample configuration file. You must rename this to `config.py` and edit it to match your environment.
+*   **`prompts.py`**: Contains the system prompts used for interacting with the AI model, externalized for clarity and easier management.
 *   **`requirements.txt`**: A list of the Python libraries required to run the script.
 
 ## Setup and Usage
@@ -52,9 +53,13 @@ This script automates the processing, categorization, and archiving of PDF docum
         ```
 
 3.  **Configure the script:**
+    *   **Set your Google Gemini API Key:** The script now securely loads the API key from an environment variable. Set `GEMINI_API_KEY` in your environment before running the script:
+        ```bash
+        export GEMINI_API_KEY="YOUR_GOOGLE_GEMINI_API_KEY"
+        # For Windows, use: set GEMINI_API_KEY="YOUR_GOOGLE_GEMINI_API_KEY"
+        ```
     *   Rename `config.py.sample` to `config.py`.
     *   Open `config.py` and set the following variables:
-        *   `API_KEY`: Your Google Gemini API key.
         *   `INTAKE_DIR`: The absolute path to the directory where you will place new scans.
         *   `PROCESSED_DIR`: The absolute path to the directory where categorized documents will be saved.
         *   `ARCHIVE_DIR`: The absolute path to the directory where original files will be archived.
@@ -67,10 +72,10 @@ This script automates the processing, categorization, and archiving of PDF docum
 
 ## Configuration
 
-All configuration is handled in the `config.py` file.
+All configuration is handled in the `config.py` file, except for the API key.
 
-*   **`API_KEY`**: Your Google Gemini API key.
-*   **`API_URL`**: The endpoint for the Gemini model. The default is `gemini-1.5-flash`.
+*   **`GEMINI_API_KEY`**: Your Google Gemini API key, loaded from an environment variable.
+*   **`API_URL`**: The endpoint for the Gemini model. The default is `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`.
 *   **`DRY_RUN`**: `True` or `False`. If `True`, no files will be moved or saved.
 *   **`INTAKE_DIR`**: Path to your intake/scans folder.
 *   **`PROCESSED_DIR`**: Path to where the processed and categorized files will be saved.
