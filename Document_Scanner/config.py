@@ -5,9 +5,14 @@ import os
 # It is now tracked by Git as it no longer contains sensitive information.
 # Users should modify this file to suit their local environment.
 
+# API URL for Google's Gemini Flash model.
+# This is the endpoint to which document text will be sent for classification and title generation.
+API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+
 # --- Application Settings ---
 # DRY_RUN: If True, the script will simulate file operations (moving, saving)
 # and LLM interactions without actually making changes to the file system or API calls.
+# This is useful for testing and debugging.
 # Set to False to enable full functionality.
 DRY_RUN = False
 
