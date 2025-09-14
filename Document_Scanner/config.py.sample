@@ -6,12 +6,9 @@ import os
 # `config.py` is now tracked by Git as it no longer contains sensitive information.
 # To use it, rename this file to `config.py` and fill in your specific details.
 
-# --- Application Settings ---
-# DRY_RUN: If True, the script will simulate file operations (moving, saving)
-# and LLM interactions without actually making changes to the file system or API calls.
-# This is useful for testing and debugging.
-# Set to False to enable full functionality and allow the script to modify files.
-DRY_RUN = True
+# API URL for Google's Gemini Flash model.
+# This is the endpoint to which document text will be sent for classification and title generation.
+API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
 # INTAKE_DIR: The absolute path to the directory where new, unprocessed PDF documents
 # are initially placed. The script will monitor this directory for new files.
