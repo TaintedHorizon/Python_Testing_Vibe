@@ -74,7 +74,6 @@ This script automates the processing, categorization, and archiving of PDF docum
 
 All configuration is handled in the `config.py` file, except for the API key.
 
-*   **`GEMINI_API_KEY`**: Your Google Gemini API key, loaded from an environment variable.
 *   **`API_URL`**: The endpoint for the Gemini model. The default is `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`.
 *   **`DRY_RUN`**: `True` or `False`. If `True`, no files will be moved or saved.
 *   **`INTAKE_DIR`**: Path to your intake/scans folder.

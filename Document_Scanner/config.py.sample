@@ -3,12 +3,6 @@
 # This file contains configuration settings for the document processing script.
 # To use it, rename this file to `config.py` and fill in your specific details.
 
-# --- Google Gemini API Configuration ---
-# Your Google Gemini API key.
-# Obtain this from Google AI Studio: https://aistudio.google.com/app/apikey
-# IMPORTANT: Replace "YOUR_GOOGLE_GEMINI_API_KEY" with your actual API key.
-API_KEY = "YOUR_GOOGLE_GEMINI_API_KEY"
-
 # API URL for Google's Gemini Flash model.
 # This is the endpoint to which document text will be sent for classification and title generation.
 API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
