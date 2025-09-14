@@ -1,13 +1,10 @@
 import os
 
 # config.py.sample
-
-# This file contains configuration settings for the document processing script.
+# This file is a template for `config.py`.
+# It contains configuration settings for the document processing script.
+# `config.py` is now tracked by Git as it no longer contains sensitive information.
 # To use it, rename this file to `config.py` and fill in your specific details.
-
-# API URL for Google's Gemini Flash model.
-# This is the endpoint to which document text will be sent for classification and title generation.
-API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
 # --- Application Settings ---
 # DRY_RUN: If True, the script will simulate file operations (moving, saving)

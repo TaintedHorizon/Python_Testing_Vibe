@@ -9,5 +9,4 @@ __pycache__/
 *.log
 
 # Ignore sensitive configuration files
-Document_Scanner/config.py
 .venv/

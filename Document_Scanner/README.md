@@ -33,7 +33,8 @@ This script automates the processing, categorization, and archiving of PDF docum
 ## File Descriptions
 
 *   **`document_processor.py`**: The main executable script that contains all the logic for processing the documents.
-*   **`config.py.sample`**: A sample configuration file. You must rename this to `config.py` and edit it to match your environment.
+*   **`config.py`**: This file contains user-specific configuration settings for the script. It is now tracked by Git as it no longer contains sensitive information. Users should modify this file to suit their local environment.
+*   **`config.py.sample`**: This file is a template for `config.py`. It contains configuration settings for the document processing script. To use it, rename this file to `config.py` and fill in your specific details.
 *   **`prompts.py`**: Contains the system prompts used for interacting with the AI model, externalized for clarity and easier management.
 *   **`requirements.txt`**: A list of the Python libraries required to run the script.
 
