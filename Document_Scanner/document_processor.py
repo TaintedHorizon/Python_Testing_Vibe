@@ -1,8 +1,9 @@
 # document_processor.py
 #
 # This script is a robust, production-ready tool for processing PDF documents.
-# It uses a secure environment variable for the API key and externalized prompts for maintainability.
-# The 2-step AI process ensures high accuracy for both document grouping and page ordering.
+# It merges multiple input files, uses a secure environment variable for the API key,
+# and uses externalized prompts for maintainability. The 2-step AI process ensures
+# high accuracy for both document grouping and page ordering.
 
 import os
 import shutil
@@ -16,22 +17,18 @@ from datetime import datetime, timedelta
 import pytesseract
 from PIL import Image
 import logging
-# Improvement: Prompts are now imported from a separate file for clarity.
 from prompts import GROUPING_PROMPT_TEMPLATE, ORDERING_PROMPT
 
 # --- Environment Configuration ---
-# Improvement: API key is now securely loaded from an environment variable.
 API_KEY = os.getenv("GEMINI_API_KEY")
 
 try:
-    # API_KEY is no longer imported from config.py
     from config import DRY_RUN, API_URL, INTAKE_DIR, PROCESSED_DIR, CATEGORIES, LOG_FILE, LOG_LEVEL, ARCHIVE_DIR, ARCHIVE_RETENTION_DAYS, MAX_RETRIES, RETRY_DELAY_SECONDS
 except ImportError:
     print("Error: config.py not found or essential variables not set.")
     exit(1)
 
 # --- Constants ---
-# Improvement: "Magic strings" like the page marker are defined as constants.
 PAGE_MARKER_TEMPLATE = "\n\n--- Page {} ---\n\n"
 
 # --- Logging Setup ---
@@ -84,7 +81,6 @@ def analyze_and_group_document(document_text):
         return []
 
     categories_list = ', '.join(CATEGORIES.keys())
-    # Use the imported prompt template.
     system_prompt = GROUPING_PROMPT_TEMPLATE.format(categories_list=categories_list)
     user_query = f"Analyze and group the documents in the following text:\n\n{document_text}"
     
@@ -130,7 +126,6 @@ def get_correct_page_order(document_group_text):
         logging.error("API_KEY environment variable not set.")
         return None
 
-    # Use the imported static prompt.
     system_prompt = ORDERING_PROMPT
     user_query = f"Determine the correct page order for the following document text:\n\n{document_group_text}"
 
@@ -165,15 +160,31 @@ def get_correct_page_order(document_group_text):
                 time.sleep(RETRY_DELAY_SECONDS)
     return None
 
-# --- PYTHON HELPER FUNCTION ---
+# --- PYTHON HELPER FUNCTIONS ---
 def get_text_for_page(full_text, page_number):
     """Extracts the text for a single page from the full OCR text blob."""
-    # Use the page marker constant.
     start_marker = PAGE_MARKER_TEMPLATE.format(page_number).strip()
-    # This pattern is slightly more robust for finding the start and end.
     pattern = re.compile(re.escape(start_marker) + r'\n(.*?)(?=\n--- Page|\Z)', re.DOTALL)
     match = pattern.search(full_text)
     return match.group(1).strip() if match else ""
+
+def merge_pdfs(pdf_paths, output_path):
+    """
+    Merges multiple PDF files into a single PDF file.
+    """
+    try:
+        merged_doc = fitz.open()
+        for pdf_path in pdf_paths:
+            doc = fitz.open(pdf_path)
+            merged_doc.insert_pdf(doc)
+            doc.close()
+        merged_doc.save(output_path)
+        merged_doc.close()
+        logging.info(f"Successfully merged {len(pdf_paths)} PDFs into temporary file: {os.path.basename(output_path)}")
+        return output_path
+    except Exception as e:
+        logging.error(f"Error merging PDFs: {e}")
+        return None
 
 # --- PDF Processing Functions ---
 def split_pdf_by_page_groups(original_pdf_path, page_groups):
@@ -214,7 +225,6 @@ def perform_ocr_on_pdf(file_path: str) -> tuple[str, fitz.Document | None, int]:
         new_doc: fitz.Document = fitz.open()
         for i, page in enumerate(doc): # type: ignore
             page_number = i + 1
-            # Use the page marker constant.
             extracted_text += PAGE_MARKER_TEMPLATE.format(page_number)
             current_page_text = page.get_text()
             if not current_page_text.strip():
@@ -286,87 +296,118 @@ def main():
     logging.info(f"Starting document processing scan of {INTAKE_DIR}...")
     cleanup_archive(ARCHIVE_DIR, ARCHIVE_RETENTION_DAYS)
 
-    files_to_process = [
+    # Get a list of all PDF files to be processed.
+    initial_files = [
         os.path.join(INTAKE_DIR, f)
         for f in os.listdir(INTAKE_DIR)
         if f.lower().endswith(".pdf") and os.path.isfile(os.path.join(INTAKE_DIR, f))
     ]
     
-    if not files_to_process:
+    if not initial_files:
         logging.info("No new PDF files found. Scan complete.")
         return
 
-    for file_path in files_to_process:
-        file_name = os.path.basename(file_path)
-        logging.info(f"--- Starting analysis for: {file_name} ---")
-        
-        split_docs_paths = []
-        try:
-            full_pdf_text, _, page_count = perform_ocr_on_pdf(file_path)
+    # --- NEW: Mega-Merge Logic ---
+    file_to_process = None
+    temp_merged_path = None
+    
+    if len(initial_files) > 1:
+        logging.info(f"Found {len(initial_files)} PDF files. Merging them into a single batch for analysis.")
+        # Create a temporary path for the merged PDF in the intake directory.
+        temp_merged_name = f"temp_mega_batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        temp_merged_path = os.path.join(INTAKE_DIR, temp_merged_name)
+        # Merge all found PDFs into the temporary file.
+        file_to_process = merge_pdfs(initial_files, temp_merged_path)
+    elif len(initial_files) == 1:
+        logging.info("Found 1 PDF file. Processing it directly.")
+        file_to_process = initial_files[0]
+    
+    # If there's nothing to process (e.g., merge failed), exit.
+    if not file_to_process:
+        logging.error("Failed to prepare a file for processing. Aborting run.")
+        return
 
-            if full_pdf_text:
-                document_groups = analyze_and_group_document(full_pdf_text)
+    # This is the main processing block, now operating on a single file (either original or merged).
+    file_name = os.path.basename(file_to_process)
+    logging.info(f"--- Starting analysis for: {file_name} ---")
+    
+    split_docs_paths = []
+    try:
+        full_pdf_text, _, page_count = perform_ocr_on_pdf(file_to_process)
+
+        if full_pdf_text:
+            document_groups = analyze_and_group_document(full_pdf_text)
+            
+            if not isinstance(document_groups, list) or not document_groups:
+                logging.warning(f"AI grouping failed for {file_name}. Treating as a single document.")
+                document_groups = [{'category': 'other', 'title': file_name, 'pages': list(range(1, page_count + 1))}]
+
+            final_sorted_groups = []
+            for group in document_groups:
+                unordered_pages = group.get('pages', [])
+                if not unordered_pages: continue
                 
-                if not isinstance(document_groups, list) or not document_groups:
-                    logging.warning(f"AI grouping failed for {file_name}. Treating as a single document.")
-                    document_groups = [{'category': 'other', 'title': file_name, 'pages': list(range(1, page_count + 1))}]
-
-                final_sorted_groups = []
-                for group in document_groups:
-                    unordered_pages = group.get('pages', [])
-                    if not unordered_pages: continue
-                    
-                    logging.info(f"Found document group '{group.get('title')}' with {len(unordered_pages)} pages. Now determining correct page order...")
-                    
-                    group_text_blob = ""
-                    for page_num in unordered_pages:
-                        # Use the constant for the marker format
-                        page_text = get_text_for_page(full_pdf_text, page_num)
-                        group_text_blob += PAGE_MARKER_TEMPLATE.format(page_num) + page_text
-
-                    final_order = get_correct_page_order(group_text_blob)
-                    
-                    if not final_order:
-                        logging.warning(f"Page ordering AI call failed for group '{group.get('title')}'. Using original page order.")
-                    
-                    final_sorted_groups.append({
-                        'category': group.get('category', 'other'),
-                        'title': group.get('title', 'untitled'),
-                        'page_order': final_order if final_order else unordered_pages
-                    })
-
-                logging.info(f"Analysis complete. Found {len(final_sorted_groups)} logical document(s).")
-                split_docs_paths = split_pdf_by_page_groups(file_path, final_sorted_groups)
+                logging.info(f"Found document group '{group.get('title')}' with {len(unordered_pages)} pages. Now determining correct page order...")
                 
-                if split_docs_paths:
-                    for i, doc_path in enumerate(split_docs_paths):
-                        category = final_sorted_groups[i].get('category', 'other')
-                        title = final_sorted_groups[i].get('title', 'untitled')
-                        process_document(doc_path, category, title)
-            else:
-                logging.error(f"Initial OCR failed for {file_name}. It will be archived without processing.")
+                group_text_blob = ""
+                for page_num in unordered_pages:
+                    page_text = get_text_for_page(full_pdf_text, page_num)
+                    group_text_blob += PAGE_MARKER_TEMPLATE.format(page_num) + page_text
 
-        except Exception as e:
-            logging.critical(f"A critical error occurred while processing {file_name}: {e}")
-        finally:
-            if os.path.exists(file_path):
+                final_order = get_correct_page_order(group_text_blob)
+                
+                if not final_order:
+                    logging.warning(f"Page ordering AI call failed for group '{group.get('title')}'. Using original page order.")
+                
+                final_sorted_groups.append({
+                    'category': group.get('category', 'other'),
+                    'title': group.get('title', 'untitled'),
+                    'page_order': final_order if final_order else unordered_pages
+                })
+
+            logging.info(f"Analysis complete. Found {len(final_sorted_groups)} logical document(s).")
+            split_docs_paths = split_pdf_by_page_groups(file_to_process, final_sorted_groups)
+            
+            if split_docs_paths:
+                for i, doc_path in enumerate(split_docs_paths):
+                    category = final_sorted_groups[i].get('category', 'other')
+                    title = final_sorted_groups[i].get('title', 'untitled')
+                    process_document(doc_path, category, title)
+        else:
+            logging.error(f"Initial OCR failed for {file_name}. Original files will be archived.")
+
+    except Exception as e:
+        logging.critical(f"A critical error occurred while processing {file_name}: {e}")
+    finally:
+        # After all processing, archive the ORIGINAL files and clean up temporary files.
+        for original_file in initial_files:
+            if os.path.exists(original_file):
                 if DRY_RUN:
-                    logging.info(f"[DRY RUN] Would archive original file: {file_name}")
+                    logging.info(f"[DRY RUN] Would archive original file: {os.path.basename(original_file)}")
                 else:
                     try:
-                        shutil.move(file_path, os.path.join(ARCHIVE_DIR, file_name))
-                        logging.info(f"Archived original file: {file_name}")
+                        shutil.move(original_file, os.path.join(ARCHIVE_DIR, os.path.basename(original_file)))
+                        logging.info(f"Archived original file: {os.path.basename(original_file)}")
                     except Exception as e:
-                        logging.error(f"Failed to archive original file {file_name}: {e}")
+                        logging.error(f"Failed to archive original file {os.path.basename(original_file)}: {e}")
+        
+        # Clean up the temporary merged file if it was created.
+        if temp_merged_path and os.path.exists(temp_merged_path):
+            try:
+                os.remove(temp_merged_path)
+                logging.info(f"Cleaned up temporary merged file: {os.path.basename(temp_merged_path)}")
+            except Exception as e:
+                logging.error(f"Failed to remove temporary merged file: {e}")
 
-            if split_docs_paths:
-                logging.info(f"Cleaning up {len(split_docs_paths)} temporary split files for {file_name}.")
-                for temp_path in split_docs_paths:
-                    if os.path.exists(temp_path):
-                        try:
-                            os.remove(temp_path)
-                        except Exception as e:
-                            logging.error(f"Failed to remove temporary file {temp_path}: {e}")
+        # Clean up temporary split files.
+        if split_docs_paths:
+            logging.info(f"Cleaning up {len(split_docs_paths)} temporary split files for {file_name}.")
+            for temp_path in split_docs_paths:
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except Exception as e:
+                        logging.error(f"Failed to remove temporary file {temp_path}: {e}")
     
     logging.info("Scan complete.")
 

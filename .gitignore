@@ -9,4 +9,4 @@ __pycache__/
 *.log
 
 # Ignore sensitive configuration files
-.venv/
+Document_Scanner/run_scanner.sh
