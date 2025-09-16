@@ -1,85 +1,70 @@
-# document_processor.py (Ollama Version with Full Context from Config)
+# document_processor.py (Definitive AI Pipeline Version)
 #
-# This script automates the processing of PDF documents from an intake directory.
-# It performs the following key steps:
-# 1. Merges multiple input PDFs into a single file for batch processing.
-# 2. Uses Optical Character Recognition (OCR) to extract text from the PDFs.
-# 3. Leverages a local Ollama LLM to analyze the extracted text, group pages into
-#    logical documents, and determine the correct page order within each document.
-# 4. Splits the merged PDF into individual, correctly ordered documents.
-# 5. Saves the processed documents into categorized folders with standardized filenames.
-# 6. Generates a text-searchable OCR copy and a Markdown summary for each document.
-# 7. Archives the original files and performs regular cleanup of the archive.
-#
-# The script is designed to be robust, with features like retry logic for AI calls,
-# flexible parsing of AI responses, and detailed logging.
+# This script uses a robust pipeline:
+# 1. EasyOCR provides high-accuracy text and caches models locally.
+# 2. A simple AI call classifies each page individually with smart matching.
+# 3. Smart Python code groups consecutive pages of the same category.
+# 4. Focused AI calls generate a title and correct page order for each group.
+# 5. Enhanced logging provides clear status updates during execution.
 
 import os
 import shutil
-import fitz  # PyMuPDF for PDF manipulation
+import fitz  # PyMuPDF
+from typing import Any
 import json
 import time
 import io
 import re
 from datetime import datetime, timedelta
-import pytesseract  # For OCR
 from PIL import Image
 import logging
-import ollama  # Ollama's Python client
-from prompts import GROUPING_PROMPT_TEMPLATE, ORDERING_PROMPT
+import ollama 
+import easyocr
+import pytesseract
+from prompts import CLASSIFICATION_PROMPT_TEMPLATE, TITLING_PROMPT_TEMPLATE, ORDERING_PROMPT
 
 # --- Environment and Configuration ---
-# This section loads all necessary settings from the 'config.py' file.
-# It's wrapped in a try-except block to handle cases where the config is missing
-# or key variables are not defined, preventing the script from running with errors.
 try:
-    # Import all configuration variables. A key update is the inclusion of
-    # OLLAMA_CONTEXT_WINDOW, which allows the script to specify the context size for the LLM.
-    from config import (
-        DRY_RUN, OLLAMA_HOST, OLLAMA_MODEL, OLLAMA_CONTEXT_WINDOW,
-        INTAKE_DIR, PROCESSED_DIR, CATEGORIES, LOG_FILE, LOG_LEVEL,
-        ARCHIVE_DIR, ARCHIVE_RETENTION_DAYS, MAX_RETRIES, RETRY_DELAY_SECONDS
-    )
+    from config import DRY_RUN, OLLAMA_HOST, OLLAMA_MODEL, OLLAMA_CONTEXT_WINDOW, INTAKE_DIR, PROCESSED_DIR, CATEGORIES, LOG_FILE, LOG_LEVEL, ARCHIVE_DIR, ARCHIVE_RETENTION_DAYS, MAX_RETRIES, RETRY_DELAY_SECONDS
 except ImportError:
     print("Error: config.py not found or essential variables not set.")
     exit(1)
 
-# Initialize the Ollama client. This is also in a try-except block to catch
-# critical errors if the Ollama service is not running or accessible.
+# --- Logging Setup (Moved to Top) ---
+# Logging is configured here, immediately after imports, to ensure it is
+# initialized before any other library (like EasyOCR) can set up a default logger.
+PAGE_MARKER_TEMPLATE = "\n\n--- Page {} ---\n\n"
+log_level_map = {"DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARNING": logging.WARNING, "ERROR": logging.ERROR, "CRITICAL": logging.CRITICAL}
+logging.basicConfig(level=log_level_map.get(LOG_LEVEL.upper(), logging.INFO), format='%(asctime)s - %(levelname)s - %(message)s', handlers=[logging.FileHandler(LOG_FILE) if LOG_FILE else logging.NullHandler(), logging.StreamHandler()])
+
+# --- Initialize External Services ---
 try:
     ollama_client = ollama.Client(host=OLLAMA_HOST)
 except Exception as e:
-    print(f"CRITICAL: Failed to create Ollama client for host {OLLAMA_HOST}. Is Ollama running? Error: {e}")
+    logging.critical(f"Failed to create Ollama client for host {OLLAMA_HOST}. Is Ollama running? Error: {e}")
     exit(1)
 
-# --- Constants, Logging, and Path Setup ---
-# A consistent marker to separate pages when they are concatenated into a single text block.
-PAGE_MARKER_TEMPLATE = "\n\n--- Page {} ---\n\n"
+try:
+    logging.info("Initializing EasyOCR reader... This may take a moment on first run.")
+    # Define a permanent path for the model cache within your project.
+    model_cache_dir = os.path.join(os.path.dirname(__file__), "model_cache")
+    os.makedirs(model_cache_dir, exist_ok=True)
+    # Tell EasyOCR to use this directory for storing and loading models.
+    ocr_reader = easyocr.Reader(['en'], model_storage_directory=model_cache_dir)
+    logging.info("EasyOCR reader initialized successfully.")
+except Exception as e:
+    logging.critical(f"Failed to initialize EasyOCR. Error: {e}")
+    exit(1)
 
-# Configure the logging system. It can log to a file and/or the console,
-# with the level determined by the LOG_LEVEL setting in config.py.
-log_level_map = {"DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARNING": logging.WARNING, "ERROR": logging.ERROR, "CRITICAL": logging.CRITICAL}
-logging.basicConfig(
-    level=log_level_map.get(LOG_LEVEL.upper(), logging.INFO),
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE) if LOG_FILE else logging.NullHandler(),
-        logging.StreamHandler()
-    ]
-)
 
-# Create absolute paths for all destination category directories and the archive directory.
-# This ensures the script can reliably move files to their final locations.
+# --- Path Setup ---
 ABSOLUTE_CATEGORIES = {category_name: os.path.join(PROCESSED_DIR, relative_path) for category_name, relative_path in CATEGORIES.items()}
 for category_path in ABSOLUTE_CATEGORIES.values():
     os.makedirs(category_path, exist_ok=True)
 os.makedirs(ARCHIVE_DIR, exist_ok=True)
 
 def cleanup_archive(directory, retention_days):
-    """
-    Removes files from the archive directory that are older than the specified retention period.
-    This helps manage disk space by deleting outdated original files.
-    """
+    """Deletes files in the archive directory older than the specified retention period."""
     logging.info(f"Starting archive cleanup in {directory}. Deleting files older than {retention_days} days.")
     now = datetime.now()
     for filename in os.listdir(directory):
@@ -88,301 +73,244 @@ def cleanup_archive(directory, retention_days):
             try:
                 mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
                 if (now - mod_time).days > retention_days:
-                    if DRY_RUN:
-                        logging.info(f"[DRY RUN] Would have deleted old archive file: {file_path}")
+                    if DRY_RUN: logging.info(f"[DRY RUN] Would have deleted old archive file: {file_path}")
                     else:
                         os.remove(file_path)
                         logging.info(f"Deleted old archive file: {file_path}")
-            except Exception as e:
-                logging.error(f"Error cleaning up archive file {file_path}: {e}")
+            except Exception as e: logging.error(f"Error cleaning up archive file {file_path}: {e}")
     logging.info("Archive cleanup complete.")
 
 
-# --- LLM Functions (with Full Context Enabled) ---
-def analyze_and_group_document(document_text):
-    """
-    AI CALL #1: Sends the full text of all documents to the Ollama model and asks it
-    to group pages into logical documents based on content.
-    
-    This function includes robust logic to parse potentially inconsistent JSON output
-    from the LLM, making the system more reliable.
-    """
-    categories_list = ', '.join(CATEGORIES.keys())
-    system_prompt = GROUPING_PROMPT_TEMPLATE.format(categories_list=categories_list)
-    user_query = f"Analyze and group the documents in the following text:\n\n{document_text}"
-    messages = [{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': user_query}]
-    
-    # Set the context window size for the Ollama model. This is crucial for ensuring
-    # the model can "see" all the text from a large batch of documents at once.
-    options = {'num_ctx': OLLAMA_CONTEXT_WINDOW}
-
+# --- LLM and Helper Functions ---
+def classify_single_page(page_text: str) -> str:
+    """AI Task 1: Takes the text of a single page and returns its category."""
+    categories_list_str = "\n".join(f"- {cat}" for cat in CATEGORIES.keys())
+    system_prompt = CLASSIFICATION_PROMPT_TEMPLATE.format(categories_list=categories_list_str)
+    messages = [{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': page_text}]
+    options = {'num_ctx': 4096} 
     for attempt in range(MAX_RETRIES):
         try:
-            logging.info(f"Sending grouping request to Ollama model '{OLLAMA_MODEL}' (Attempt {attempt + 1})...")
-            response = ollama_client.chat(model=OLLAMA_MODEL, messages=messages, format='json', options=options)
-            response_content = response['message']['content']
-            logging.debug(f"Raw Ollama grouping response content:\n---\n{response_content}\n---")
+            response = ollama_client.chat(model=OLLAMA_MODEL, messages=messages, options=options)
+            category = response['message']['content'].strip().lower().replace(" ", "_")
             
-            parsed_json = json.loads(response_content)
-
-            # --- NEW, MORE ROBUST PARSING LOGIC ---
-            # This block handles various JSON formats the AI might return.
-            if isinstance(parsed_json, list):
-                # Case 1: The AI returned the correct format (a list of document objects).
-                logging.debug("AI returned a valid list of documents.")
-                return parsed_json
-            elif isinstance(parsed_json, dict):
-                # Case 2: The AI wrapped the list in a dictionary (e.g., {"documents": [...]}).
-                for key, value in parsed_json.items():
-                    if isinstance(value, list):
-                        logging.debug(f"AI returned a dictionary; extracting the list from key '{key}'.")
-                        return value
-                # Case 3: The AI returned a single document object, not in a list.
-                logging.debug("AI returned a single dictionary with no list inside; wrapping it in a list.")
-                return [parsed_json]
-
-            logging.warning(f"AI returned an unknown JSON structure of type {type(parsed_json)}.")
-            return []
-
-        except (ollama.ResponseError, json.JSONDecodeError, KeyError) as e:
-            logging.error(f"Attempt {attempt + 1}/{MAX_RETRIES}: Document grouping analysis failed: {e}")
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(RETRY_DELAY_SECONDS)
+            # More robust matching for singular/plural categories.
+            if category in CATEGORIES:
+                return category
+            else:
+                for key in CATEGORIES:
+                    if category.startswith(key.lower().replace(" ", "_").rstrip('s')):
+                        logging.warning(f"AI returned non-standard category '{category}', matched to '{key}'.")
+                        return key
+                
+                logging.warning(f"AI returned unknown category '{category}'. Defaulting to 'other'.")
+                return "other"
         except Exception as e:
-            logging.critical(f"An unexpected error occurred during Ollama grouping call: {e}")
-            break
-    return []
+            logging.error(f"Attempt {attempt + 1}/{MAX_RETRIES}: Single page classification failed: {e}")
+            if attempt < MAX_RETRIES - 1: time.sleep(RETRY_DELAY_SECONDS)
+    return "other"
 
-def get_correct_page_order(document_group_text):
-    """
-    AI CALL #2: For a single logical document (a group of pages), this function asks
-    the Ollama model to determine the correct reading order of the pages.
-    """
+def generate_title_for_group(group_text: str, category: str) -> str:
+    """AI Task 2: Creates a concise title for a pre-grouped document."""
+    system_prompt = TITLING_PROMPT_TEMPLATE.format(category=category)
+    messages = [{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': group_text}]
+    options = {'num_ctx': OLLAMA_CONTEXT_WINDOW}
+    for attempt in range(MAX_RETRIES):
+        try:
+            logging.info(f"Generating title for '{category}' group...")
+            response = ollama_client.chat(model=OLLAMA_MODEL, messages=messages, options=options)
+            return response['message']['content'].strip()
+        except Exception as e:
+            logging.error(f"Attempt {attempt + 1}/{MAX_RETRIES}: Titling failed: {e}")
+            if attempt < MAX_RETRIES - 1: time.sleep(RETRY_DELAY_SECONDS)
+    return "Untitled Document"
+
+def get_correct_page_order(document_group_text: str, original_page_numbers: list[int]) -> list[int] | None:
+    """AI Task 3: Takes a single document's text and returns the pages in the correct reading order."""
     system_prompt = ORDERING_PROMPT
     user_query = f"Determine the correct page order for the following document text:\n\n{document_group_text}"
     messages = [{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': user_query}]
-    
-    # Again, use the full context window to ensure the model sees all pages of the subgroup.
     options = {'num_ctx': OLLAMA_CONTEXT_WINDOW}
-
     for attempt in range(MAX_RETRIES):
         try:
             logging.info(f"Sending ordering request to Ollama model '{OLLAMA_MODEL}' (Attempt {attempt + 1})...")
             response = ollama_client.chat(model=OLLAMA_MODEL, messages=messages, format='json', options=options)
             response_content = response['message']['content']
             logging.debug(f"Raw Ollama ordering response content:\n---\n{response_content}\n---")
-            return json.loads(response_content).get("page_order")
-        except (ollama.ResponseError, json.JSONDecodeError, KeyError) as e:
-            logging.error(f"Attempt {attempt + 1}/{MAX_RETRIES}: Page ordering analysis failed: {e}")
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(RETRY_DELAY_SECONDS)
+            page_order = json.loads(response_content).get("page_order")
+            if page_order and isinstance(page_order, list):
+                clean_order: list[int] = []
+                for item in page_order:
+                    if isinstance(item, int): clean_order.append(item)
+                    elif isinstance(item, str):
+                        match = re.search(r'\d+', item)
+                        if match: clean_order.append(int(match.group(0)))
+                return [p for p in clean_order if p in original_page_numbers]
+            return None
         except Exception as e:
-            logging.critical(f"An unexpected error occurred during Ollama ordering call: {e}")
-            break
+            logging.error(f"Attempt {attempt + 1}/{MAX_RETRIES}: Page ordering analysis failed: {e}")
+            if attempt < MAX_RETRIES - 1: time.sleep(RETRY_DELAY_SECONDS)
     return None
 
-# --- Helper and PDF Processing Functions ---
-def get_text_for_page(full_text, page_number):
-    """
-    Extracts the text of a specific page from the concatenated full text string,
-    using the page markers that were inserted during OCR.
-    """
-    start_marker = PAGE_MARKER_TEMPLATE.format(page_number).strip()
-    pattern = re.compile(re.escape(start_marker) + r'\n(.*?)(?=\n--- Page|\Z)', re.DOTALL)
+def get_text_for_page(full_text: str, page_number: int) -> str:
+    """Extracts the text for a single page from the concatenated full text string."""
+    pattern = re.compile(r'--- Page ' + str(page_number) + r' ---\n(.*?)(?=\n--- Page|\Z)', re.DOTALL)
     match = pattern.search(full_text)
     return match.group(1).strip() if match else ""
 
-def merge_pdfs(pdf_paths, output_path):
-    """
-    Combines multiple PDF files into a single PDF file. This is done to create a
-    single "batch" document that can be processed by the AI in one go.
-    """
-    try:
-        merged_doc = fitz.open()
-        for pdf_path in pdf_paths:
-            with fitz.open(pdf_path) as doc:
-                merged_doc.insert_pdf(doc)
-        merged_doc.save(output_path)
-        merged_doc.close()
-        logging.info(f"Successfully merged {len(pdf_paths)} PDFs into temporary file: {os.path.basename(output_path)}")
-        return output_path
-    except Exception as e:
-        logging.error(f"Error merging PDFs: {e}")
-        return None
-        
-def split_pdf_by_page_groups(original_pdf_path, page_groups):
-    """
-    Splits the main PDF into multiple smaller PDFs, one for each logical document
-    identified by the AI. The pages in each new PDF are arranged in the
-    correct order determined by the `get_correct_page_order` function.
-    """
-    split_pdf_paths = []
-    try:
-        with fitz.open(original_pdf_path) as original_doc:
-            for i, group in enumerate(page_groups):
-                pages_from_ai = group.get('page_order', [])
-                if not pages_from_ai:
-                    logging.warning(f"Skipping empty page group {i}.")
-                    continue
-                
-                # **NEW ROBUSTNESS CHECK**: This block intelligently parses the list of pages
-                # from the AI. It can handle integers (e.g., 3) or strings (e.g., "Page 3"),
-                # making the page selection more reliable.
-                pages_to_include = []
-                for item in pages_from_ai:
-                    if isinstance(item, int):
-                        pages_to_include.append(item)
-                    elif isinstance(item, str):
-                        match = re.search(r'\d+', item)
-                        if match:
-                            pages_to_include.append(int(match.group(0)))
-                
-                if not pages_to_include:
-                    logging.warning(f"Could not extract any valid page numbers for group {i}. Skipping.")
-                    continue
+# --- PDF Processing Functions ---
+def merge_pdfs(pdf_list: list[str], output_path: str) -> str | None:
+    """Merges a list of PDFs into a single PDF."""
+    logging.info(f"Merging {len(pdf_list)} files into {os.path.basename(output_path)}...")
+    result_pdf = fitz.open()
+    for pdf_path in pdf_list:
+        try:
+            with fitz.open(pdf_path) as pdf_doc:
+                result_pdf.insert_pdf(pdf_doc)
+        except Exception as e:
+            logging.error(f"Could not process {pdf_path} during merge: {e}")
+    
+    result_pdf.save(output_path)
+    result_pdf.close()
+    return output_path
 
-                new_doc = fitz.open()
-                # Convert 1-based page numbers from AI to 0-based indices for PyMuPDF.
-                zero_indexed_pages = [p - 1 for p in pages_to_include]
-                
-                for page_num in zero_indexed_pages:
-                    if 0 <= page_num < original_doc.page_count:
-                        new_doc.insert_pdf(original_doc, from_page=page_num, to_page=page_num)
-
-                temp_pdf_path = os.path.join(os.path.dirname(original_pdf_path), f"temp_split_{i}_{os.path.basename(original_pdf_path)}")
-                new_doc.save(temp_pdf_path)
-                new_doc.close()
-                split_pdf_paths.append(temp_pdf_path)
-    except Exception as e:
-        logging.error(f"Error splitting PDF {original_pdf_path} by page groups: {e}")
-    return split_pdf_paths
-
-def perform_ocr_on_pdf(file_path: str) -> tuple[str, fitz.Document | None, int]:
-    """
-    Processes a PDF file, performing OCR on each page to extract text.
-    If a page contains no selectable text, it's treated as an image and OCR'd.
-    It returns the full extracted text, a new searchable PDF document object, and the page count.
-    """
+def perform_ocr_on_pdf(file_path: str) -> tuple[str, int]:
+    """Performs OCR using EasyOCR on a PDF, returning its full text and page count."""
     page_count = 0
     try:
-        with fitz.open(file_path) as doc:
-            page_count = doc.page_count
-            extracted_text = ""
-            new_doc = fitz.open()  # This will be the new, text-searchable PDF.
-            for i, page in enumerate(doc): # type: ignore
-                page_number = i + 1
-                extracted_text += PAGE_MARKER_TEMPLATE.format(page_number)
-                
-                # Try to get text directly. If it's empty, assume it's an image and use OCR.
-                current_page_text = page.get_text().strip()
-                if not current_page_text:
-                    logging.info(f"Page {page_number} of {os.path.basename(file_path)} has no text layer; performing OCR.")
-                    # Increase resolution for better OCR results.
-                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                    img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
-                    current_page_text = pytesseract.image_to_string(img)
-                
-                extracted_text += current_page_text
-                
-                # Create a new page in the output PDF that includes the original image
-                # and an invisible text layer, making it searchable.
-                new_page = new_doc.new_page(width=page.rect.width, height=page.rect.height) # type: ignore
-                pix = page.get_pixmap()
-                new_page.insert_image(new_page.rect, stream=io.BytesIO(pix.tobytes("png")))
-                new_page.insert_text(page.rect.tl, current_page_text, render_mode=3) # render_mode=3 makes text invisible but searchable
-
-            return extracted_text, new_doc, page_count
+        doc: fitz.Document = fitz.open(file_path)
+        page_count = doc.page_count
+        extracted_text = ""
+        for i, page in enumerate(doc):
+            page: fitz.Page
+            
+            page_number = i + 1
+            extracted_text += PAGE_MARKER_TEMPLATE.format(page_number)
+            current_page_text = (page: Any).get_text().strip()
+            if not current_page_text:
+                pix = (page: Any).get_pixmap(matrix=fitz.Matrix(2, 2))
+                img_bytes = pix.tobytes("png")
+                results = ocr_reader.readtext(img_bytes, detail=0, paragraph=True)
+                current_page_text = "\n".join([str(item) for item in results]) # type: ignore
+            extracted_text += current_page_text
+        doc.close()
+        return extracted_text, page_count
     except Exception as e:
         logging.error(f"Error performing OCR on {file_path}: {e}")
-        return "", None, page_count
+        return "", page_count
+    
+def create_output_files(source_pdf_path: str, category: str, title: str):
+    """Creates the final OCR'd PDF and Markdown report from a temporary split PDF."""
+    file_name = os.path.basename(source_pdf_path)
+    logging.info(f"Creating final output files for '{file_name}' -> Category: {category}, Title: {title}")
+    
+    text_for_report, ocr_doc_obj = "", None
+    try:
+        doc: fitz.Document = fitz.open(source_pdf_path)
+        ocr_doc_obj = fitz.open()
+        for page in doc:
+            page: fitz.Page
 
-def process_document(file_path, category, title):
-    """
-    Handles the final processing of a single, split document. This includes:
-    - Performing a final OCR pass to create a searchable PDF.
-    - Generating a standardized filename.
-    - Moving the final PDF to the correct category folder.
-    - Saving the searchable OCR version and a Markdown summary report.
-    """
-    file_name = os.path.basename(file_path)
-    logging.info(f"Processing final document '{file_name}' -> Category: {category}, Title: {title}")
+            page_text = page.get_text().strip()
+            if not page_text:
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                img = Image.open(io.BytesIO(pix.tobytes("png")))
+                try:
+                    osd = pytesseract.image_to_osd(img, output_type=pytesseract.Output.DICT)
+                    rotation = osd.get('rotate', 0)
+                    if rotation > 0:
+                        img = img.rotate(-rotation, expand=True)
+                except Exception as e:
+                    logging.warning(f"Could not perform orientation detection on final page: {e}")
+                
+                img_byte_arr = io.BytesIO()
+                img.save(img_byte_arr, format='PNG')
+                img_bytes = img_byte_arr.getvalue()
+                
+                results = ocr_reader.readtext(img_bytes, detail=0, paragraph=True)
+                page_text = "\n".join(map(str, results))
 
-    # Although OCR was done on the merged file, we do it again on the split file
-    # to create a clean, self-contained searchable PDF and its text content.
-    document_text, ocr_doc, _ = perform_ocr_on_pdf(file_path)
-    reason = "Success" if document_text else "Text extraction failed during final processing."
+            text_for_report += page_text + "\n\n"
+            
+            new_page = ocr_doc_obj.new_page(width=page.rect.width, height=page.rect.height)
+            pix = (page: Any).get_pixmap()
+            new_page.insert_image(new_page.rect, stream=io.BytesIO(pix.tobytes("png")))
+            new_page.insert_text(page.rect.tl, page_text, render_mode=3)
+        doc.close()
+        reason = "Success"
+    except Exception as e:
+        logging.error(f"Error during final OCR pass for {file_name}: {e}")
+        reason = "Final OCR pass failed."
 
-    # Sanitize the title provided by the AI to create a valid filename.
+    # --- This part of the function remains the same ---
     sanitized_title = "".join(c for c in title if c.isalnum() or c in (' ', '.', '-', '_', '(', ')')).rstrip().replace(' ', '_')
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    # Define the names and paths for the final output files.
-    new_name = f"{category}_{sanitized_title}_{timestamp}.pdf"
-    new_ocr_name = f"{category}_{sanitized_title}_{timestamp}_ocr.pdf"
-    markdown_name = f"{category}_{sanitized_title}_{timestamp}.md"
+    new_name_base = f"{category}_{sanitized_title}_{timestamp}"
     destination_dir = ABSOLUTE_CATEGORIES.get(category, ABSOLUTE_CATEGORIES["other"])
-    destination_path = os.path.join(destination_dir, new_name)
-    destination_ocr_path = os.path.join(destination_dir, new_ocr_name)
-    markdown_path = os.path.join(destination_dir, markdown_name)
-
+    
+    original_copy_path = os.path.join(destination_dir, f"{new_name_base}.pdf")
+    ocr_copy_path = os.path.join(destination_dir, f"{new_name_base}_ocr.pdf")
+    markdown_path = os.path.join(destination_dir, f"{new_name_base}.md")
+    
+    os.makedirs(destination_dir, exist_ok=True)
     try:
         if DRY_RUN:
-            logging.info(f"[DRY RUN] Would move/process {file_name} to {destination_dir}")
+            logging.info(f"[DRY RUN] Would create files for {file_name} in {destination_dir}")
         else:
-            # Move the split PDF (which is just the original page images) to its final destination.
-            shutil.move(file_path, destination_path)
-            logging.info(f"Moved final document to: {destination_path}")
-
-            # Save the new, text-searchable OCR version.
-            if ocr_doc:
-                ocr_doc.save(destination_ocr_path, garbage=4, deflate=True)
-                logging.info(f"Saved OCR copy to: {destination_ocr_path}")
-            
-            # Create and save a Markdown file with a summary of the processing.
-            markdown_content = f"""# Document Analysis Report
-
-## Original File: {file_name}
-## Assigned Category: {category}
-## Assigned Title: {title}
-
----
-
-## Extracted Text (OCR)
-
-```
-{document_text}
-```
-
----
-
-## Processing Summary
-- **Status:** {reason}
-- Note: Category and title were determined during the initial batch analysis."""
+            shutil.copy2(source_pdf_path, original_copy_path)
+            logging.info(f"Saved original copy to: {original_copy_path}")
+            if ocr_doc_obj:
+                ocr_doc_obj.save(ocr_copy_path, garbage=4, deflate=True)
+                logging.info(f"Saved OCR copy to: {ocr_copy_path}")
+            markdown_content = f"""# Document Analysis Report\n\n## Source File: {file_name}\n## Assigned Category: {category}\n## Assigned Title: {title}\n\n---\n\n## Extracted Text (OCR)\n\n```\n{text_for_report.strip()}\n```\n\n---\n\n## Processing Summary\n- **Status:** {reason}"""
             with open(markdown_path, "w", encoding="utf-8") as md_file:
                 md_file.write(markdown_content)
             logging.info(f"Saved Markdown report to: {markdown_path}")
     except Exception as e:
         logging.error(f"Error saving final files for {file_name}: {e}")
     finally:
-        if ocr_doc:
-            ocr_doc.close()
+        if ocr_doc_obj:
+            ocr_doc_obj.close()
 
+def split_and_process_pdf(original_pdf_path: str, final_documents: list[dict]):
+    """Splits the source PDF and sends each new temp file for final processing."""
+    temp_files_to_clean = []
+    try:
+        original_doc: fitz.Document = fitz.open(original_pdf_path)
+        for i, doc_details in enumerate(final_documents):
+            pages_to_include = doc_details.get('page_order', [])
+            category = doc_details.get('category')
+            title = doc_details.get('title')
+            if not pages_to_include or not category or not title:
+                logging.warning(f"Skipping incomplete document group #{i}.")
+                continue
+            
+            new_doc = fitz.open()
+            zero_indexed_pages = [p - 1 for p in pages_to_include]
+            for page_num in zero_indexed_pages:
+                if 0 <= page_num < original_doc.page_count:
+                    new_doc.insert_pdf(original_doc, from_page=page_num, to_page=page_num)
+
+            temp_pdf_path = os.path.join(os.path.dirname(original_pdf_path), f"temp_split_{i}_{os.path.basename(original_pdf_path)}")
+            new_doc.save(temp_pdf_path)
+            new_doc.close()
+            temp_files_to_clean.append(temp_pdf_path)
+            
+            create_output_files(temp_pdf_path, category, title)
+        original_doc.close()
+        return temp_files_to_clean
+    except Exception as e:
+        logging.error(f"Error during splitting and processing for {original_pdf_path}: {e}")
+        return temp_files_to_clean
+    
 # --- Main Logic ---
 def main():
-    """
-    The main function that orchestrates the entire document processing workflow.
-    It scans the intake directory, processes all found PDFs, and handles cleanup.
-    """
-    logging.info(f"Starting document processing scan of {INTAKE_DIR}...")
+    """Main function that orchestrates the AI Pipeline workflow."""
+    logging.info("\n" + "="*60 + "\n========== STARTING NEW DOCUMENT PROCESSING RUN ==========\n" + "="*60)
     cleanup_archive(ARCHIVE_DIR, ARCHIVE_RETENTION_DAYS)
-
-    # Find all PDF files in the intake directory.
-    initial_files = [
-        os.path.join(INTAKE_DIR, f)
-        for f in os.listdir(INTAKE_DIR)
-        if f.lower().endswith(".pdf") and os.path.isfile(os.path.join(INTAKE_DIR, f))
-    ]
     
+    # --- STAGE 1 of 5: Preparing Batch File ---
+    logging.info("--- STAGE 1 of 5: Preparing Batch File ---")
+    initial_files = [os.path.join(INTAKE_DIR, f) for f in os.listdir(INTAKE_DIR) if f.lower().endswith(".pdf") and os.path.isfile(os.path.join(INTAKE_DIR, f))]
     if not initial_files:
         logging.info("No new PDF files found. Scan complete.")
         return
@@ -390,85 +318,104 @@ def main():
     file_to_process = None
     temp_merged_path = None
     
-    # If there are multiple files, merge them. Otherwise, process the single file.
     if len(initial_files) > 1:
-        logging.info(f"Found {len(initial_files)} PDF files. Merging them into a single batch for analysis.")
+        logging.info(f"Found {len(initial_files)} PDF files. Merging them into a single batch.")
         temp_merged_name = f"temp_mega_batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         temp_merged_path = os.path.join(INTAKE_DIR, temp_merged_name)
         file_to_process = merge_pdfs(initial_files, temp_merged_path)
     elif len(initial_files) == 1:
+        logging.info("Found 1 PDF file. Processing it directly.")
         file_to_process = initial_files[0]
     
     if not file_to_process:
-        logging.error("Failed to prepare a file for processing. Original files will be retried on next run.")
+        logging.error("Failed to prepare a file for processing.")
         return
-
-    file_name = os.path.basename(file_to_process)
-    logging.info(f"--- Starting analysis for: {file_name} ---")
+    logging.info("--- STAGE 1 COMPLETE ---")
     
-    split_docs_paths = []
-    processed_successfully = False 
+    file_name = os.path.basename(file_to_process)
+    logging.info(f"\n***************** PROCESSING BATCH: {file_name} *****************")
+    
+    processed_successfully = False
+    temp_split_paths: list[str] = []
     try:
-        # Step 1: Perform OCR on the entire batch file to get all text content.
-        full_pdf_text, _, page_count = perform_ocr_on_pdf(file_to_process)
+        # --- STAGE 2 of 5: Performing Initial OCR on Batch ---
+        logging.info("--- STAGE 2 of 5: Performing Initial OCR on Batch ---")
+        full_pdf_text, page_count = perform_ocr_on_pdf(file_to_process)
+        if not full_pdf_text:
+            logging.error(f"Initial OCR failed for {file_name}. Halting.")
+            return
 
-        if full_pdf_text:
-            # Step 2: Send the text to the AI for grouping into logical documents.
-            document_groups = analyze_and_group_document(full_pdf_text)
+        # --- STAGE 3 of 5: Classifying Pages (AI Task) ---
+        logging.info("--- STAGE 3 of 5: Classifying Pages (AI Task) ---")
+        page_classifications = []
+        for i in range(1, page_count + 1):
+            page_text = get_text_for_page(full_pdf_text, i)
+            if not page_text.strip():
+                logging.warning(f"Page {i} has no text, skipping classification.")
+                page_classifications.append({'page_num': i, 'category': 'other'})
+                continue
             
-            if not isinstance(document_groups, list) or not document_groups:
-                logging.error(f"AI grouping failed for {file_name}. Halting processing.")
-                return
+            logging.info(f"Classifying page {i}/{page_count}...")
+            category = classify_single_page(page_text)
+            page_classifications.append({'page_num': i, 'category': category})
+        
+        logging.info("--- STAGE 3 COMPLETE ---")
+        logging.debug(f"Classification results: {page_classifications}")
 
-            # Step 3: For each group, determine the correct page order.
-            final_sorted_groups = []
-            for group in document_groups:
-                unordered_pages = group.get('pages', [])
-                if not unordered_pages: continue
-                
-                logging.info(f"Found document group '{group.get('title')}' with {len(unordered_pages)} pages. Determining page order...")
-                
-                # Create a text "blob" containing only the pages for this specific group.
-                group_text_blob = ""
-                for page_num in unordered_pages:
-                    page_text = get_text_for_page(full_pdf_text, page_num)
-                    group_text_blob += PAGE_MARKER_TEMPLATE.format(page_num) + page_text
+        # --- STAGE 4 of 5: Grouping, Titling, and Ordering Documents ---
+        logging.info("--- STAGE 4 of 5: Grouping, Titling, and Ordering ---")
+        if not page_classifications:
+            logging.warning(f"No pages were classified for {file_name}. Halting.")
+            return
 
-                # Ask the AI to sort the pages in this group.
-                final_order = get_correct_page_order(group_text_blob)
-                
-                if not final_order:
-                    logging.warning(f"Page ordering AI call failed for group '{group.get('title')}'. Using original page order as a fallback.")
-                
-                final_sorted_groups.append({
-                    'category': group.get('category'),
-                    'title': group.get('title'),
-                    'page_order': final_order if final_order else unordered_pages
-                })
+        document_groups: list[dict] = []
+        if page_classifications:
+            current_group_pages = [page_classifications[0]['page_num']]
+            current_category = page_classifications[0]['category']
 
-            # Step 4: Split the merged PDF into final, sorted documents.
-            logging.info(f"Analysis complete. Found {len(final_sorted_groups)} logical document(s).")
-            split_docs_paths = split_pdf_by_page_groups(file_to_process, final_sorted_groups)
+            for i in range(1, len(page_classifications)):
+                page_num, category = page_classifications[i]['page_num'], page_classifications[i]['category']
+                if category == current_category:
+                    current_group_pages.append(page_num)
+                else:
+                    document_groups.append({'category': current_category, 'pages': current_group_pages})
+                    current_group_pages = [page_num]
+                    current_category = category
+            document_groups.append({'category': current_category, 'pages': current_group_pages})
+
+        logging.info(f"Found {len(document_groups)} logical document(s) based on classification blocks.")
+
+        final_documents = []
+        for group in document_groups:
+            pages = group['pages']
+            category = group['category']
             
-            # Step 5: Process each split document (move, rename, save OCR/Markdown).
-            if split_docs_paths:
-                for i, doc_path in enumerate(split_docs_paths):
-                    category = final_sorted_groups[i].get('category')
-                    title = final_sorted_groups[i].get('title')
-                    process_document(doc_path, category, title)
-                
-                processed_successfully = True
-        else:
-            logging.error(f"Initial OCR failed for {file_name}. Halting processing.")
+            group_text_blob = ""
+            for page_num in pages:
+                group_text_blob += PAGE_MARKER_TEMPLATE.format(page_num) + get_text_for_page(full_pdf_text, page_num)
+            
+            title = generate_title_for_group(group_text_blob, category)
+            page_order = get_correct_page_order(group_text_blob, pages)
+            
+            final_documents.append({
+                'category': category,
+                'title': title,
+                'page_order': page_order if page_order else pages
+            })
+        logging.info("--- STAGE 4 COMPLETE ---")
+
+        # --- STAGE 5 of 5: Splitting and Creating Final Files ---
+        logging.info("--- STAGE 5 of 5: Splitting and Creating Final Files ---")
+        temp_split_paths = split_and_process_pdf(file_to_process, final_documents)
+        logging.info("--- STAGE 5 COMPLETE ---")
+
+        processed_successfully = True
 
     except Exception as e:
         logging.critical(f"A critical error occurred while processing {file_name}: {e}")
     finally:
-        # --- Cleanup Phase ---
-        # This block ensures that all original and temporary files are handled correctly,
-        # regardless of whether the processing was successful or not.
+        # --- Final Cleanup ---
         if processed_successfully:
-            # If everything worked, archive the original input files.
             for original_file in initial_files:
                 if os.path.exists(original_file):
                     if DRY_RUN:
@@ -480,30 +427,22 @@ def main():
                         except Exception as e:
                             logging.error(f"Failed to archive original file {os.path.basename(original_file)}: {e}")
         else:
-            # If processing failed, leave the original files in the intake directory
-            # so they can be retried on the next run.
-            logging.info(f"Processing was not successful. Original files will remain in {INTAKE_DIR} for the next run.")
+            logging.info(f"Processing for {file_name} was not successful. It will remain in {INTAKE_DIR} for the next run.")
         
-        # Clean up the large temporary file created by merging all the PDFs.
         if temp_merged_path and os.path.exists(temp_merged_path):
-            try:
-                os.remove(temp_merged_path)
-                logging.info(f"Cleaned up temporary merged file: {os.path.basename(temp_merged_path)}")
-            except Exception as e:
-                logging.error(f"Failed to remove temporary merged file: {e}")
-
-        # Clean up the smaller temporary files created when splitting the merged PDF.
-        if split_docs_paths:
-            logging.info(f"Cleaning up {len(split_docs_paths)} temporary split files for {file_name}.")
-            for temp_path in split_docs_paths:
+            try: os.remove(temp_merged_path)
+            except Exception as e: logging.error(f"Failed to remove temporary merged file: {e}")
+        
+        if temp_split_paths:
+            for temp_path in temp_split_paths:
                 if os.path.exists(temp_path):
                     try:
                         os.remove(temp_path)
                     except Exception as e:
                         logging.error(f"Failed to remove temporary file {temp_path}: {e}")
     
-    logging.info("Scan complete.")
+    logging.info(f"***************** FINISHED PROCESSING BATCH: {file_name} *****************")
+    logging.info("\n" + "="*60 + "\n============== DOCUMENT PROCESSING RUN COMPLETE ==============\n" + "="*60)
 
 if __name__ == "__main__":
-    # This allows the script to be run directly from the command line.
     main()

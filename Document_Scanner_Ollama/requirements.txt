@@ -3,18 +3,10 @@
 # You can install all of them at once using the command:
 # pip install -r requirements.txt
 
-# The official Python client for interacting with the Ollama service.
 ollama
-
-# Also known as PyMuPDF, this library is used for all PDF manipulation tasks:
-# reading, merging, splitting, and creating text-searchable PDFs.
 PyMuPDF
-
-# The Python wrapper for Google's Tesseract-OCR Engine. This is used to extract
-# text from pages that are image-based and do not have a text layer.
-pytesseract
-
-# The Python Imaging Library (PIL) fork. It's used to handle image data during
-# the OCR process, specifically for converting PDF page images into a format
-# that Tesseract can read.
 Pillow
+easyocr
+torch
+torchvision
+pytesseract
