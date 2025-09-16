@@ -9,5 +9,6 @@ __pycache__/
 *.log
 
 # Ignore sensitive configuration files
-Document_Scanner_Gemini/run_scanner.sh
-Document_Scanner_Ollama/run_scanner.sh
+
+# Ignore environment files
+.env

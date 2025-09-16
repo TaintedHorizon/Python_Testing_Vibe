@@ -19,6 +19,8 @@ import shutil
 import fitz  # PyMuPDF for PDF manipulation
 import json
 import time
+# Pylance can't find source for 'requests'. This is likely an environment issue.
+# Ensure your VS Code Python interpreter is set to the project's .venv where 'requests' is installed.
 import requests # To make API calls to the Gemini API
 import io
 import re
@@ -235,7 +237,7 @@ def split_pdf_by_page_groups(original_pdf_path, page_groups):
                     logging.warning(f"Skipping empty page group {i}.")
                     continue
                 
-                new_doc = fitz.open()
+                new_doc: fitz.Document = fitz.open()
                 zero_indexed_pages = [p - 1 for p in pages_to_include]
                 
                 for page_num in zero_indexed_pages:
@@ -253,31 +255,36 @@ def split_pdf_by_page_groups(original_pdf_path, page_groups):
 def perform_ocr_on_pdf(file_path: str) -> tuple[str, fitz.Document | None, int]:
     """Processes a PDF, performs OCR if needed, and returns text and a searchable PDF object."""
     page_count = 0
+    doc = None
     try:
-        with fitz.open(file_path) as doc:
-            page_count = doc.page_count
-            extracted_text = ""
-            new_doc = fitz.open()
-            for i, page in enumerate(doc):
-                page_number = i + 1
-                extracted_text += PAGE_MARKER_TEMPLATE.format(page_number)
-                
-                current_page_text = page.get_text().strip()
-                if not current_page_text:
-                    logging.info(f"Page {page_number} of {os.path.basename(file_path)} has no text layer; performing OCR.")
-                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                    img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
-                    current_page_text = pytesseract.image_to_string(img)
-                
-                extracted_text += current_page_text
-                
-                new_page = new_doc.new_page(width=page.rect.width, height=page.rect.height)
-                pix = page.get_pixmap()
-                new_page.insert_image(new_page.rect, stream=io.BytesIO(pix.tobytes("png")))
-                new_page.insert_text(page.rect.tl, current_page_text, render_mode=3)
-
-            return extracted_text, new_doc, page_count
+        doc = fitz.open(file_path)
+        page_count = doc.page_count
+        extracted_text = ""
+        new_doc: fitz.Document = fitz.open()
+        # FIX: Iterate over doc.pages() which is the correct iterable object
+        for i, page in enumerate(doc.pages()):
+            page_number = i + 1
+            extracted_text += PAGE_MARKER_TEMPLATE.format(page_number)
+            
+            current_page_text = page.get_text().strip()
+            if not current_page_text:
+                logging.info(f"Page {page_number} of {os.path.basename(file_path)} has no text layer; performing OCR.")
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
+                current_page_text = pytesseract.image_to_string(img)
+            
+            extracted_text += current_page_text
+            
+            new_page = new_doc.new_page(width=page.rect.width, height=page.rect.height)  # type: ignore
+            pix = page.get_pixmap()
+            new_page.insert_image(new_page.rect, stream=io.BytesIO(pix.tobytes("png")))
+            new_page.insert_text(page.rect.tl, current_page_text, render_mode=3)
+        
+        doc.close()
+        return extracted_text, new_doc, page_count
     except Exception as e:
+        if doc:
+            doc.close()
         logging.error(f"Error performing OCR on {file_path}: {e}")
         return "", None, page_count
 
@@ -320,6 +327,7 @@ def process_document(file_path, category, title):
     finally:
         if ocr_doc:
             ocr_doc.close()
+
 
 # --- Main Logic ---
 def main():
