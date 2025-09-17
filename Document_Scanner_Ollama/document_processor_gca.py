@@ -29,7 +29,16 @@ import io # Core tools for working with I/O streams, used for handling image dat
 import re # Regular expression operations, used for pattern matching in text extraction and page ordering.
 from datetime import datetime, timedelta # Classes for working with dates and times, used for archiving and retention policies.
 from PIL import Image # Python Imaging Library (Pillow) - Used for image manipulation, especially for OCR preprocessing.
-import logging # Flexible event logging system for tracking script execution, debugging, and status updates.
+import logging # Flexible event logging system for tracking script execution, debugging, and status updates. 
+
+# --- Suppress Specific Warnings ---
+import warnings
+# This will hide the specific "pin_memory" UserWarning from EasyOCR/PyTorch when no GPU is found.
+# It does NOT disable GPU acceleration if a GPU is available.
+warnings.filterwarnings(
+    "ignore", 
+    message=".*'pin_memory' argument is set as true but no accelerator is found.*"
+)
 
 # --- Third-Party Library Imports ---
 import ollama # Client library for interacting with Ollama, a platform for running large language models locally.
@@ -768,6 +777,18 @@ def main():
     file_name = os.path.basename(file_to_process)
     logging.info(f"\n***************** PROCESSING BATCH: {file_name} *****************")
 
+    # --- Safety Net Initialization ---
+    all_input_pages = set()
+    try:
+        # Get the total page count to create a set of all pages that *should* be processed.
+        with fitz.open(file_to_process) as doc:
+            all_input_pages = set(range(1, doc.page_count + 1))
+        logging.info(f"Initialized safety net: Found {len(all_input_pages)} total pages in the input batch.")
+    except Exception as e:
+        logging.critical(f"Could not open and count pages in '{file_name}'. Halting. Error: {e}")
+        return
+    # --- End Safety Net Initialization ---
+
     processed_successfully = False
     temp_split_paths: list[str] = []
     try:
@@ -845,6 +866,34 @@ def main():
             })
         logging.info("--- STAGE 4 COMPLETE ---")
 
+        # --- Safety Net Verification ---
+        all_processed_pages = set()
+        for doc in final_documents:
+            all_processed_pages.update(doc.get('page_order', []))
+
+        lost_pages = sorted(list(all_input_pages - all_processed_pages))
+
+        if lost_pages:
+            logging.critical(f"CRITICAL: {len(lost_pages)} pages were lost during processing! Pages: {lost_pages}. Creating a '_lost_and_found' document for them.")
+            
+            # Ensure the category exists for the lost pages
+            lost_category_name = "_lost_and_found"
+            if lost_category_name not in ABSOLUTE_CATEGORIES:
+                lost_path = os.path.join(PROCESSED_DIR, lost_category_name)
+                os.makedirs(lost_path, exist_ok=True)
+                ABSOLUTE_CATEGORIES[lost_category_name] = lost_path
+                logging.info(f"Created directory for lost pages: {lost_path}")
+
+            final_documents.append({
+                'category': lost_category_name,
+                'title': f"Lost_Pages_from_{os.path.splitext(file_name)[0]}",
+                'page_order': lost_pages
+            })
+            logging.info(f"Added '_lost_and_found' document group with pages: {lost_pages}")
+        else:
+            logging.info("Safety net check passed: All input pages are accounted for in the final document groups.")
+        # --- End Safety Net Verification ---
+
         # --- STAGE 5 of 5: Splitting and Creating Final Files ---
         logging.info("--- STAGE 5 of 5: Splitting and Creating Final Files ---")
         temp_split_paths = split_and_process_pdf(file_to_process, final_documents)
@@ -895,6 +944,7 @@ def main():
 
     logging.info(f"***************** FINISHED PROCESSING BATCH: {file_name} *****************")
     logging.info("\n" + "="*60 + "\n============== DOCUMENT PROCESSING RUN COMPLETE ===============\n" + "="*60)
+
 
 
 # This standard Python construct ensures that the `main()` function is called only when

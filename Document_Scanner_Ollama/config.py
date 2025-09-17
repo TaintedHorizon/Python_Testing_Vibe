@@ -1,92 +1,49 @@
 # config.py
-# This file centralizes all the configuration settings for the document processing script.
-# By modifying the variables in this file, you can change the behavior of the script
-# without altering the main application logic.
-
 import os
 
-# --- Ollama Configuration ---
-# Specifies the connection details for the Ollama service, which runs the local LLM.
-
-# OLLAMA_HOST: The full URL, including the port, where the Ollama service is running.
-# **ACTION**: Change this to the IP address and port of your Ollama instance.
-OLLAMA_HOST = "http://192.168.2.225:11434"
-
-# OLLAMA_MODEL: The name of the specific Ollama model to use for analysis.
-# This should be a model that you have downloaded and is available on your Ollama server.
-# **ACTION**: Update this to a model name available on your workstation (e.g., "llama3:8b").
-OLLAMA_MODEL = "llama3.1:8b"
-
-# OLLAMA_CONTEXT_WINDOW: The size of the context window for the LLM, in tokens.
-# A larger context window allows the model to analyze more text at once, which is
-# essential for processing large batches of documents. This value should be set
-# based on the model's capabilities and available system RAM.
-OLLAMA_CONTEXT_WINDOW = 16384
-
-# --- Application Settings ---
-# General operational settings for the script.
-
-# DRY_RUN: If set to True, the script will log the actions it would have taken
-# (like moving or deleting files) without actually performing them. This is useful for testing.
-# Set to False for normal operation.
+# --- General Settings ---
+# Set to True to prevent the script from making any actual file changes (moving, deleting).
+# It will only log the actions it would have taken.
 DRY_RUN = False
 
-# --- Directory Configuration ---
-# Defines the file paths for intake, processing, and archiving.
+# --- Ollama LLM Configuration ---
+# The hostname or IP address of your Ollama server.
+OLLAMA_HOST = "http://192.168.2.225:11434"
+# The specific model to use for analysis (e.g., "llama3.1:8b", "llava:latest").
+OLLAMA_MODEL = "llama3.1:8b"
+# The maximum context window size the model should use. For llama3, 8192 is a safe default.
+OLLAMA_CONTEXT_WINDOW = 8192
 
-# INTAKE_DIR: The folder where the script looks for new PDF files to process.
+# --- Directory Paths ---
+# The absolute path to the folder where new scans are placed.
 INTAKE_DIR = "/mnt/scans_intake"
-
-# PROCESSED_DIR: The root folder where categorized documents will be saved.
+# The absolute path to the root folder where processed documents will be saved.
 PROCESSED_DIR = "/mnt/scans_processed"
-
-# ARCHIVE_DIR: The folder where original, successfully processed files are moved.
-# This is automatically created inside the PROCESSED_DIR.
+# The absolute path to the folder where original files will be moved after successful processing.
 ARCHIVE_DIR = os.path.join(PROCESSED_DIR, "archive")
 
-# --- Category Configuration ---
-# Defines the document categories and their corresponding subfolder names.
-# The keys are the category names the AI will be instructed to use.
-# The values are the directory paths (relative to PROCESSED_DIR) where the files will be saved.
+# --- Document Categories ---
+# A dictionary defining the BROAD document categories and their target subdirectories within PROCESSED_DIR.
+# The AI will first group documents into these high-level categories.
 CATEGORIES = {
-    "invoices": "invoices",
-    "receipts": "receipts",
-    "reports": "reports",
-    "letters": "letters",
-    "legal": "legal",
-    "medical": "medical",
-    "recipes": "recipes",
-    "pictures": "pictures",
-    "instruction_manuals": "instruction_manuals",
-    "travel": "travel",
-    "Confirmation Program": "religious/confirmation",
-    "Marriage Encounter": "religious/marriage_encounter",
-    "other": "other"  # A fallback category for documents that don't fit elsewhere.
+    "Travel Documents": "travel",
+    "Vehicle Documents": "vehicle",
+    "Financial Documents": "financial",
+    "Religious Documents": "religious",
+    "Personal Documents": "personal",
+    "other": "other",
 }
 
 # --- Logging Configuration ---
-# Settings for how the script records its activities.
-
-# LOG_FILE: The full path to the log file. The script will create this file if it doesn't exist.
+# The absolute path to the log file.
 LOG_FILE = os.path.join(os.path.dirname(__file__), "document_processor_ollama.log")
+# Minimum logging level. Options: "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
+LOG_LEVEL = "INFO"
 
-# LOG_LEVEL: The verbosity of the logs. Options are DEBUG, INFO, WARNING, ERROR, CRITICAL.
-# "DEBUG" is the most verbose and is useful for development and troubleshooting.
-# "INFO" is recommended for normal operation.
-LOG_LEVEL = "DEBUG"
-
-# --- Archiving Configuration ---
-# Settings for managing the archive of original files.
-
-# ARCHIVE_RETENTION_DAYS: The number of days to keep files in the archive before deleting them.
-# This helps to automatically manage disk space.
+# --- Archiving and Retries ---
+# The number of days to keep original files in the archive before deleting them.
 ARCHIVE_RETENTION_DAYS = 30
-
-# --- Retry Mechanism Configuration ---
-# Settings for handling transient errors when communicating with the Ollama API.
-
-# MAX_RETRIES: The maximum number of times the script will retry a failed API call.
+# The number of times to retry a failed AI call.
 MAX_RETRIES = 3
-
-# RETRY_DELAY_SECONDS: The number of seconds to wait between retry attempts.
+# The number of seconds to wait between retries.
 RETRY_DELAY_SECONDS = 5
