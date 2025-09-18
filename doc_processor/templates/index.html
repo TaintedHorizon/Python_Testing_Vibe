@@ -1,29 +1,21 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document Processing Dashboard</title>
-    <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 5em; }
-        h1 { color: #333; }
-        button { font-size: 1.2em; padding: 10px 20px; cursor: pointer; }
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
-        .message { margin-top: 2em; font-weight: bold; color: green; }
-    </style>
-</head>
-<body>
-    <h1>HITL Document Processing System</h1>
-    <p>Click the button below to start processing all documents in the intake folder.</p>
-    <br>
-    
-    <form id="batch-form" action="/process_new_batch" method="post">
-        <button id="start-button" type="submit">Start New Batch</button>
-    </form>
+{% extends 'base.html' %}
 
-    {% if message %}
-        <p class="message">{{ message }}</p>
-    {% endif %}
+{% block title %}New Batch{% endblock %}
+
+{% block content %}
+    <div style="text-align: center;">
+        <h1>Start a New Processing Batch</h1>
+        <p>Click the button below to start processing all documents in the intake folder.</p>
+        <br>
+        
+        <form id="batch-form" action="{{ url_for('handle_batch_processing') }}" method="post">
+            <button id="start-button" type="submit">Start New Batch</button>
+        </form>
+
+        {% if message %}
+            <p style="margin-top: 2em; font-weight: bold; color: green;">{{ message }}</p>
+        {% endif %}
+    </div>
 
     <script>
         document.getElementById('batch-form').addEventListener('submit', function() {
@@ -32,6 +24,4 @@
             button.innerText = 'Processing... Please Wait...';
         });
     </script>
-
-</body>
-</html>
+{% endblock %}

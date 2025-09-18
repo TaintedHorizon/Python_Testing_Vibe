@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Document Processor{% endblock %}</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; background-color: #f4f4f9; }
+        .navbar { background-color: #333; overflow: hidden; }
+        .navbar a { float: left; display: block; color: white; text-align: center; padding: 14px 20px; text-decoration: none; }
+        .navbar a:hover { background-color: #575757; }
+        .navbar a.active { background-color: #007BFF; }
+        .content { padding: 20px; }
+    </style>
+</head>
+<body>
+
+<div class="navbar">
+    <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint == 'index' else '' }}">New Batch</a>
+    <a href="{{ url_for('verify_batch_entry') }}" class="{{ 'active' if 'verify' in request.endpoint else '' }}">Verify Batch</a>
+    <a href="{{ url_for('review_batch_entry') }}" class="{{ 'active' if 'review' in request.endpoint else '' }}">Review Queue</a>
+</div>
+
+<div class="content">
+    {% block content %}{% endblock %}
+</div>
+
+</body>
+</html>

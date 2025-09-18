@@ -1,185 +1,21 @@
 import os
 import sqlite3
-import shutil
-import json
-import requests
-from flask import Flask, render_template, request, redirect, url_for
-from dotenv import load_dotenv
-from pdf2image import convert_from_path
-from PIL import Image
-import pytesseract
-import easyocr
-import warnings
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory
+from processing import process_batch, rerun_ocr_on_page, BROAD_CATEGORIES
+from database import get_pages_for_batch, update_page_data, get_flagged_pages_for_batch, delete_page_by_id, get_all_unique_categories
 
-# --- INITIAL SETUP ---
-
-# Suppress the specific UserWarning from PyTorch/EasyOCR
-warnings.filterwarnings("ignore", message=".*'pin_memory' argument is set as true.*")
-
-# Load environment variables from the .env file
-load_dotenv()
-
-# Initialize the Flask application
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# Initialize the EasyOCR reader
-print("Initializing EasyOCR Reader (this may take a moment)...")
-reader = easyocr.Reader(['en'], gpu=False)
-print("EasyOCR Reader initialized.")
-
-# --- AI CLASSIFICATION LOGIC ---
-
-# Define the broad categories for the AI's first pass.
-BROAD_CATEGORIES = [
-    "Financial Document", "Legal Document", "Personal Correspondence",
-    "Technical Document", "Medical Record", "Educational Material",
-    "Receipt or Invoice", "Form or Application", "News Article or Publication",
-    "Other"
-]
-
-def get_ai_classification(page_text, seen_categories):
-    """
-    Gets a 'first guess' classification from the Ollama LLM.
-    Includes a list of already seen categories for context.
-    """
-    ollama_host = os.getenv('OLLAMA_HOST')
-    ollama_model = os.getenv('OLLAMA_MODEL')
-    
-    prompt = f"""
-    Analyze the following text from a scanned document page. Based on the text, which of the following categories best describes it?
-    
-    Available Categories: {', '.join(BROAD_CATEGORIES)}
-    
-    Context: So far in this batch, we have already seen documents of the following types: {', '.join(seen_categories)}. Please be consistent.
-    
-    Respond with ONLY the single best category name from the list. For example: "Financial Document".
-
-    ---
-    TEXT TO ANALYZE:
-    {page_text[:4000]} 
-    ---
-    """
-    
-    try:
-        response = requests.post(
-            f"{ollama_host}/api/generate",
-            json={"model": ollama_model, "prompt": prompt, "stream": False},
-            timeout=60
-        )
-        response.raise_for_status()
-        
-        response_json = response.json()
-        category = response_json.get('response', 'Other').strip()
-        
-        if category not in BROAD_CATEGORIES:
-            print(f"  [AI WARNING] Model returned an invalid category: '{category}'. Defaulting to 'Other'.")
-            return "Other"
-        
-        print(f"    - AI classification successful: {category}")
-        return category
-        
-    except requests.exceptions.RequestException as e:
-        print(f"  [AI ERROR] Could not connect to Ollama server: {e}")
-        return "AI_Error"
-
-# --- CORE PROCESSING LOGIC ---
-
-def process_batch():
-    print("--- Starting New Batch ---")
+# --- DATABASE HELPER ---
+def get_db_connection():
     db_path = os.getenv('DATABASE_PATH')
-    conn = None
-    batch_id = -1
-    
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO batches (status) VALUES ('processing')")
-        batch_id = cursor.lastrowid
-        conn.commit()
-        print(f"Created new batch with ID: {batch_id}")
-
-        intake_dir = os.getenv('INTAKE_DIR')
-        processed_dir = os.getenv('PROCESSED_DIR')
-        archive_dir = os.getenv('ARCHIVE_DIR')
-        batch_image_dir = os.path.join(processed_dir, str(batch_id))
-        os.makedirs(batch_image_dir, exist_ok=True)
-
-        pdf_files = [f for f in os.listdir(intake_dir) if f.lower().endswith('.pdf')]
-        print(f"Found {len(pdf_files)} PDF(s) to process.")
-
-        for filename in pdf_files:
-            source_pdf_path = os.path.join(intake_dir, filename)
-            print(f"\nProcessing file: {filename}")
-            pages = convert_from_path(source_pdf_path, 300)
-
-            for i, page_image in enumerate(pages):
-                page_num = i + 1
-                print(f"  - Processing Page {page_num}...")
-                
-                try:
-                    osd = pytesseract.image_to_osd(page_image, output_type=pytesseract.Output.DICT)
-                    rotation = osd.get('rotate', 0)
-                    if rotation > 0:
-                        print(f"    - Rotating page by {rotation} degrees.")
-                        page_image = page_image.rotate(rotation, expand=True)
-                except Exception as e:
-                    print(f"    - [WARNING] Could not determine page orientation: {e}")
-
-                image_filename = f"page_{page_num}.png"
-                processed_image_path = os.path.join(batch_image_dir, image_filename)
-                page_image.save(processed_image_path, 'PNG')
-                
-                print("    - Performing OCR...")
-                ocr_results = reader.readtext(processed_image_path)
-                ocr_text = " ".join([text for _, text, _ in ocr_results])
-                
-                cursor.execute(
-                    'INSERT INTO pages (batch_id, source_filename, page_number, processed_image_path, ocr_text) VALUES (?, ?, ?, ?, ?)',
-                    (batch_id, filename, page_num, processed_image_path, ocr_text)
-                )
-            
-            conn.commit()
-            print(f"  - Successfully processed and saved {len(pages)} pages.")
-            archive_pdf_path = os.path.join(archive_dir, filename)
-            shutil.move(source_pdf_path, archive_pdf_path)
-            print(f"  - Archived original file to: {archive_pdf_path}")
-
-        print("\n--- Starting AI 'First Guess' Classification ---")
-        cursor.execute("SELECT id, ocr_text FROM pages WHERE batch_id = ?", (batch_id,))
-        pages_to_classify = cursor.fetchall()
-        
-        seen_categories = set()
-        for page_id, ocr_text in pages_to_classify:
-            print(f"  - Classifying Page ID: {page_id}")
-            if not ocr_text or ocr_text.isspace():
-                print("    - Skipping page with no OCR text.")
-                ai_category = "Unreadable"
-            else:
-                ai_category = get_ai_classification(ocr_text, list(seen_categories))
-            
-            if ai_category not in ["AI_Error", "Unreadable"]:
-                seen_categories.add(ai_category)
-
-            cursor.execute("UPDATE pages SET ai_suggested_category = ? WHERE id = ?", (ai_category, page_id))
-            conn.commit()
-
-        cursor.execute("UPDATE batches SET status = 'complete' WHERE id = ?", (batch_id,))
-        conn.commit()
-        print("\n--- Batch Processing Complete ---")
-        return True
-
-    except Exception as e:
-        print(f"[CRITICAL ERROR] An error occurred during batch processing: {e}")
-        if conn and batch_id != -1:
-            cursor.execute("UPDATE batches SET status = 'failed' WHERE id = ?", (batch_id,))
-            conn.commit()
-        return False
-    finally:
-        if conn:
-            conn.close()
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 # --- FLASK ROUTES ---
+
 @app.route('/')
 def index():
     message = request.args.get('message')
@@ -189,9 +25,150 @@ def index():
 def handle_batch_processing():
     success = process_batch()
     if success:
-        return redirect(url_for('index', message="Batch processing and AI classification completed successfully!"))
+        return redirect(url_for('verify_batch_entry'))
     else:
         return redirect(url_for('index', message="An error occurred during processing."))
+
+# --- VERIFICATION ROUTES ---
+
+@app.route('/verify')
+def verify_batch_entry():
+    """
+    Finds the most recent batch that is still pending verification and redirects.
+    """
+    conn = get_db_connection()
+    # MODIFIED: Look for the next batch that needs work
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM batches WHERE status = 'pending_verification' ORDER BY id DESC LIMIT 1")
+    next_batch = cursor.fetchone()
+    conn.close()
+
+    if next_batch:
+        return redirect(url_for('verify_batch_page', batch_id=next_batch['id']))
+    else:
+        return redirect(url_for('index', message="No batches are currently waiting for verification."))
+
+@app.route('/verify/<int:batch_id>')
+def verify_batch_page(batch_id):
+    pages = get_pages_for_batch(batch_id)
+    if not pages:
+        return redirect(url_for('index', message=f"No pages found for Batch #{batch_id}."))
+
+    processed_dir = os.getenv('PROCESSED_DIR')
+    pages_with_relative_paths = [dict(p, relative_image_path=os.path.relpath(p['processed_image_path'], processed_dir)) for p in pages]
+
+    page_num = request.args.get('page', 1, type=int)
+    if page_num < 1: page_num = 1
+    if page_num > len(pages_with_relative_paths): page_num = len(pages_with_relative_paths)
+    current_page = pages_with_relative_paths[page_num - 1]
+    
+    db_categories = get_all_unique_categories()
+    combined_categories = sorted(list(set(BROAD_CATEGORIES + db_categories)))
+    
+    return render_template('verify.html', 
+                           batch_id=batch_id,
+                           pages=pages_with_relative_paths,
+                           current_page=current_page,
+                           current_page_num=page_num,
+                           total_pages=len(pages_with_relative_paths),
+                           categories=combined_categories)
+
+# --- REVIEW QUEUE ROUTES ---
+
+@app.route('/review')
+def review_batch_entry():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM batches ORDER BY id DESC LIMIT 1")
+    last_batch = cursor.fetchone()
+    conn.close()
+    if last_batch:
+        return redirect(url_for('review_batch_page', batch_id=last_batch['id']))
+    else:
+        return redirect(url_for('index', message="No batches found to review."))
+
+@app.route('/review/<int:batch_id>')
+def review_batch_page(batch_id):
+    flagged_pages = get_flagged_pages_for_batch(batch_id)
+    processed_dir = os.getenv('PROCESSED_DIR')
+    pages_with_relative_paths = [dict(p, relative_image_path=os.path.relpath(p['processed_image_path'], processed_dir)) for p in flagged_pages]
+    
+    db_categories = get_all_unique_categories()
+    combined_categories = sorted(list(set(BROAD_CATEGORIES + db_categories)))
+    
+    return render_template('review.html', 
+                           batch_id=batch_id, 
+                           flagged_pages=pages_with_relative_paths,
+                           categories=combined_categories)
+
+# --- ACTION ROUTES ---
+
+@app.route('/update_page', methods=['POST'])
+def update_page():
+    action = request.form.get('action')
+    page_id = request.form.get('page_id', type=int)
+    batch_id = request.form.get('batch_id', type=int)
+    rotation = request.form.get('rotation', 0, type=int)
+    current_page_num = request.form.get('current_page_num', type=int)
+    total_pages = request.form.get('total_pages', type=int)
+
+    category = ''
+    status = ''
+    dropdown_choice = request.form.get('category_dropdown')
+    other_choice = request.form.get('other_category', '').strip()
+
+    if action == 'flag':
+        status = 'flagged'
+        category = 'NEEDS_REVIEW'
+    else:
+        status = 'verified'
+        if dropdown_choice == 'other_new' and other_choice:
+            category = other_choice
+        elif dropdown_choice and dropdown_choice != 'other_new':
+            category = dropdown_choice
+        else:
+            category = request.form.get('ai_suggestion')
+
+    update_page_data(page_id, category, status, rotation)
+
+    # MODIFIED: Logic to complete the batch
+    if request.referrer and 'verify' in request.referrer and current_page_num == total_pages:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE batches SET status = 'verification_complete' WHERE id = ?", (batch_id,))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('index', message=f"Batch #{batch_id} verification complete! You can now review flagged pages or start grouping."))
+
+    # Redirect logic for review page
+    if request.referrer and 'review' in request.referrer:
+        return redirect(url_for('review_batch_page', batch_id=batch_id))
+    
+    # Default verification page behavior
+    if current_page_num < total_pages:
+        return redirect(url_for('verify_batch_page', batch_id=batch_id, page=current_page_num + 1))
+    else:
+        return redirect(url_for('index', message=f"Batch #{batch_id} verification complete!"))
+
+
+@app.route('/delete_page/<int:page_id>', methods=['POST'])
+def delete_page_action(page_id):
+    batch_id = request.form.get('batch_id')
+    delete_page_by_id(page_id)
+    return redirect(url_for('review_batch_page', batch_id=batch_id))
+
+@app.route('/rerun_ocr', methods=['POST'])
+def rerun_ocr_action():
+    page_id = request.form.get('page_id', type=int)
+    batch_id = request.form.get('batch_id', type=int)
+    rotation = request.form.get('rotation', 0, type=int)
+    rerun_ocr_on_page(page_id, rotation)
+    return redirect(url_for('review_batch_page', batch_id=batch_id))
+
+@app.route('/processed_files/<path:filepath>')
+def serve_processed_file(filepath):
+    processed_dir = os.getenv('PROCESSED_DIR')
+    return send_from_directory(processed_dir, filepath)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
