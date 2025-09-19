@@ -28,26 +28,37 @@ BROAD_CATEGORIES = [
 # --- ROBUST HELPER FUNCTION ---
 def _process_single_page_from_file(cursor, image_path, batch_id, source_filename, page_num):
     """
-    Securely processes a single page from its file path to prevent data leakage.
-    Returns True on success, False on failure.
+    Securely processes a single page from its file path.
+    If DEBUG_SKIP_OCR is True, it bypasses slow OCR and AI steps.
     """
     try:
         print(f"  - Processing Page {page_num} from file: {os.path.basename(image_path)}")
-        image = Image.open(image_path)
-        osd = pytesseract.image_to_osd(image, output_type=pytesseract.Output.DICT)
-        rotation = osd.get('rotate', 0)
-        if rotation > 0:
-            print(f"    - Rotating page by {rotation} degrees.")
-            image = image.rotate(rotation, expand=True)
-            image.save(image_path, 'PNG')
+        
+        # Check for the debug flag
+        skip_ocr = os.getenv('DEBUG_SKIP_OCR', 'False').lower() in ('true', '1', 't')
 
-        print("    - Performing OCR...")
-        ocr_results = reader.readtext(image_path)
-        ocr_text = " ".join([text for _, text, _ in ocr_results])
+        if skip_ocr:
+            # If skipping, just save a record with placeholder text
+            print("    - DEBUG_SKIP_OCR is True. Skipping OCR and rotation.")
+            ocr_text = f"OCR SKIPPED FOR DEBUG - Page {page_num} of {source_filename}"
+        else:
+            # Otherwise, run the normal full process
+            image = Image.open(image_path)
+            osd = pytesseract.image_to_osd(image, output_type=pytesseract.Output.DICT)
+            rotation = osd.get('rotate', 0)
+            if rotation > 0:
+                print(f"    - Rotating page by {rotation} degrees.")
+                image = image.rotate(rotation, expand=True)
+                image.save(image_path, 'PNG')
 
+            print("    - Performing OCR...")
+            ocr_results = reader.readtext(image_path)
+            ocr_text = " ".join([text for _, text, _ in ocr_results])
+
+        # Save page data to the database
         cursor.execute(
             'INSERT INTO pages (batch_id, source_filename, page_number, processed_image_path, ocr_text, status) VALUES (?, ?, ?, ?, ?, ?)',
-            (batch_id, source_filename, page_num, image_path, ocr_text, 'pending')
+            (batch_id, source_filename, page_num, image_path, ocr_text, 'pending_verification')
         )
         return True
     except Exception as e:
@@ -55,7 +66,7 @@ def _process_single_page_from_file(cursor, image_path, batch_id, source_filename
         if os.path.exists(image_path):
             os.remove(image_path)
         return False
-
+    
 # --- FULL AI CLASSIFICATION FUNCTION ---
 def get_ai_classification(page_text, seen_categories):
     """

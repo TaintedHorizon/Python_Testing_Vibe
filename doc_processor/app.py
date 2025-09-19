@@ -7,14 +7,11 @@ from database import get_pages_for_batch, update_page_data, get_flagged_pages_fo
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# --- DATABASE HELPER ---
 def get_db_connection():
     db_path = os.getenv('DATABASE_PATH')
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
-
-# --- FLASK ROUTES ---
 
 @app.route('/')
 def index():
@@ -29,20 +26,13 @@ def handle_batch_processing():
     else:
         return redirect(url_for('index', message="An error occurred during processing."))
 
-# --- VERIFICATION ROUTES ---
-
 @app.route('/verify')
 def verify_batch_entry():
-    """
-    Finds the most recent batch that is still pending verification and redirects.
-    """
     conn = get_db_connection()
-    # MODIFIED: Look for the next batch that needs work
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM batches WHERE status = 'pending_verification' ORDER BY id DESC LIMIT 1")
     next_batch = cursor.fetchone()
     conn.close()
-
     if next_batch:
         return redirect(url_for('verify_batch_page', batch_id=next_batch['id']))
     else:
@@ -73,8 +63,6 @@ def verify_batch_page(batch_id):
                            total_pages=len(pages_with_relative_paths),
                            categories=combined_categories)
 
-# --- REVIEW QUEUE ROUTES ---
-
 @app.route('/review')
 def review_batch_entry():
     conn = get_db_connection()
@@ -87,24 +75,23 @@ def review_batch_entry():
     else:
         return redirect(url_for('index', message="No batches found to review."))
 
+
 @app.route('/review/<int:batch_id>')
 def review_batch_page(batch_id):
     flagged_pages = get_flagged_pages_for_batch(batch_id)
     processed_dir = os.getenv('PROCESSED_DIR')
     pages_with_relative_paths = [dict(p, relative_image_path=os.path.relpath(p['processed_image_path'], processed_dir)) for p in flagged_pages]
-    
     db_categories = get_all_unique_categories()
     combined_categories = sorted(list(set(BROAD_CATEGORIES + db_categories)))
-    
     return render_template('review.html', 
                            batch_id=batch_id, 
                            flagged_pages=pages_with_relative_paths,
                            categories=combined_categories)
 
-# --- ACTION ROUTES ---
 
 @app.route('/update_page', methods=['POST'])
 def update_page():
+    # Rewritten with smarter logic
     action = request.form.get('action')
     page_id = request.form.get('page_id', type=int)
     batch_id = request.form.get('batch_id', type=int)
@@ -114,6 +101,7 @@ def update_page():
 
     category = ''
     status = ''
+    
     dropdown_choice = request.form.get('category_dropdown')
     other_choice = request.form.get('other_category', '').strip()
 
@@ -122,34 +110,33 @@ def update_page():
         category = 'NEEDS_REVIEW'
     else:
         status = 'verified'
+        # HIGHEST PRIORITY: If the user typed a new category, use it.
         if dropdown_choice == 'other_new' and other_choice:
             category = other_choice
-        elif dropdown_choice and dropdown_choice != 'other_new':
-            category = dropdown_choice
+        # NEXT PRIORITY: If they chose from the dropdown and clicked "Correct".
+        elif dropdown_choice and dropdown_choice != 'other_new' and action == 'correct':
+             category = dropdown_choice
+        # DEFAULT: If no choice was made (or they clicked approve), use the AI's suggestion.
         else:
             category = request.form.get('ai_suggestion')
 
+    # You can now remove the debug print statement from here if you wish
+    # print(f"DEBUG: SAVING TO DB -> Page ID: {page_id}, Category: '{category}', Status: '{status}', Rotation: {rotation}")
     update_page_data(page_id, category, status, rotation)
 
-    # MODIFIED: Logic to complete the batch
-    if request.referrer and 'verify' in request.referrer and current_page_num == total_pages:
+    # Redirect logic
+    if request.referrer and 'review' in request.referrer:
+        return redirect(url_for('review_batch_page', batch_id=batch_id))
+    
+    if current_page_num < total_pages:
+        return redirect(url_for('verify_batch_page', batch_id=batch_id, page=current_page_num + 1))
+    else:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("UPDATE batches SET status = 'verification_complete' WHERE id = ?", (batch_id,))
         conn.commit()
         conn.close()
-        return redirect(url_for('index', message=f"Batch #{batch_id} verification complete! You can now review flagged pages or start grouping."))
-
-    # Redirect logic for review page
-    if request.referrer and 'review' in request.referrer:
-        return redirect(url_for('review_batch_page', batch_id=batch_id))
-    
-    # Default verification page behavior
-    if current_page_num < total_pages:
-        return redirect(url_for('verify_batch_page', batch_id=batch_id, page=current_page_num + 1))
-    else:
         return redirect(url_for('index', message=f"Batch #{batch_id} verification complete!"))
-
 
 @app.route('/delete_page/<int:page_id>', methods=['POST'])
 def delete_page_action(page_id):
