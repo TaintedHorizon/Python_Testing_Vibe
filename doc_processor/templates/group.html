@@ -3,27 +3,74 @@
 {% block title %}Group Documents for Batch {{ batch_id }}{% endblock %}
 
 {% block content %}
-    <h1>Group Documents for Batch #{{ batch_id }}</h1>
+<style>
+    .group-container { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; align-items: start; }
+    .created-docs, .new-doc-form { border: 1px solid #ccc; padding: 15px; background-color: white; border-radius: 5px; }
+    .page-list { max-height: 70vh; overflow-y: auto; border: 1px solid #ddd; padding: 10px; margin-top: 10px; }
+    .category-group { margin-bottom: 20px; }
+    .category-group h4 { margin: 0 0 10px 0; padding-bottom: 5px; border-bottom: 1px solid #eee; }
+    .page-item { display: flex; align-items: center; margin-bottom: 8px; background-color: #fafafa; padding: 5px; border-radius: 3px; }
+    .page-item input { margin-right: 10px; transform: scale(1.5); }
+    .page-item img { width: 50px; height: 65px; object-fit: cover; border: 1px solid #ccc; margin-right: 10px; }
+    .doc-list-item { background-color: #f9f9f9; border: 1px solid #eee; padding: 8px; margin-bottom: 5px; border-radius: 3px; }
+    .error-message { color: red; font-weight: bold; margin-bottom: 10px; }
+</style>
 
-    {% if grouped_pages %}
-        <p>This batch has {{ grouped_pages.keys()|length }} categories ready for grouping.</p>
-        
-        <div style="font-family: monospace; background-color: #f0f0f0; border: 1px solid #ccc; padding: 15px; margin-top: 20px;">
-            <h3>Data Received from Backend:</h3>
-            {% for category, pages in grouped_pages.items() %}
-                <p>
-                    <strong>{{ category }}</strong> ({{ pages|length }} pages)
-                    <ul>
-                        {% for page in pages %}
-                            <li>Page ID: {{ page.id }} ({{ page.source_filename }}, Page {{ page.page_number }})</li>
-                        {% endfor %}
-                    </ul>
-                </p>
-            {% endfor %}
+<h1>Group Documents for Batch #{{ batch_id }}</h1>
+<hr>
+
+<div class="group-container">
+    <div class="created-docs">
+        <h3>Created Documents</h3>
+        <div id="doc-list">
+            {% if created_docs %}
+                {% for doc in created_docs %}
+                    <div class="doc-list-item">{{ doc.document_name }}</div>
+                {% endfor %}
+            {% else %}
+                <p>No documents have been created yet.</p>
+            {% endif %}
         </div>
+        <hr>
+        <p><i>Next, we will add a button here to finalize the batch.</i></p>
+    </div>
 
-    {% else %}
-        <p style="color: green;">🎉 All pages in this batch have already been grouped into documents!</p>
-    {% endif %}
+    <div class="new-doc-form">
+        <h3>Create a New Document</h3>
+        {% if request.args.get('error') %}
+            <p class="error-message">{{ request.args.get('error') }}</p>
+        {% endif %}
 
+        {% if grouped_pages %}
+            <form action="{{ url_for('save_document_action') }}" method="post">
+                <input type="hidden" name="batch_id" value="{{ batch_id }}">
+                
+                <div style="margin-bottom: 15px;">
+                    <label for="document_name" style="font-weight: bold;">New Document Name:</label>
+                    <input type="text" id="document_name" name="document_name" required style="width: 100%; padding: 8px;">
+                </div>
+
+                <label style="font-weight: bold;">Select Pages to Include:</label>
+                <div class="page-list">
+                    {% for category, pages in grouped_pages.items() %}
+                        <div class="category-group">
+                            <h4>{{ category }} ({{ pages|length }} available)</h4>
+                            {% for page in pages %}
+                                <label class="page-item">
+                                    <input type="checkbox" name="page_ids" value="{{ page.id }}">
+                                    <img src="{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}" alt="Thumbnail">
+                                    <span>ID: {{ page.id }} ({{ page.source_filename }}, Pg {{ page.page_number }})</span>
+                                </label>
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+                </div>
+                
+                <button type="submit" style="width: 100%; padding: 10px; margin-top: 15px; background-color: #28a745; color: white; border: none; font-size: 1.2em;">Save New Document</button>
+            </form>
+        {% else %}
+            <p style="color: green; font-weight: bold;">🎉 All verified pages in this batch have been grouped into documents!</p>
+        {% endif %}
+    </div>
+</div>
 {% endblock %}

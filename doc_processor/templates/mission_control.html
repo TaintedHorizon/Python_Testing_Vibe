@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block title %}Mission Control{% endblock %}
+
+{% block content %}
+<style>
+    .history-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    .history-table th, .history-table td { border: 1px solid #ddd; padding: 12px; text-align: left; vertical-align: middle; }
+    .history-table th { background-color: #f2f2f2; }
+    .action-btn { display: inline-block; padding: 8px 12px; text-decoration: none; color: white; border-radius: 5px; font-size: 0.9em; margin-right: 5px; margin-bottom: 5px; }
+    .btn-verify { background-color: #007BFF; }
+    .btn-review { background-color: #ffc107; color: black; }
+    .btn-group { background-color: #28a745; }
+    .btn-revisit { background-color: #6c757d; }
+    .new-batch-form { padding: 20px; background-color: white; border: 1px solid #ccc; border-radius: 5px; margin-bottom: 30px; }
+    .new-batch-form button { font-size: 1.2em; padding: 10px 20px; cursor: pointer; width: 100%; }
+</style>
+
+<h1>Mission Control</h1>
+<p>This is the central hub for managing all batches. Start a new batch or continue with an existing one below.</p>
+
+<div class="new-batch-form">
+    <form id="batch-form" action="{{ url_for('handle_batch_processing') }}" method="post">
+        <button id="start-button" type="submit">Start New Batch</button>
+    </form>
+</div>
+
+<table class="history-table">
+    <thead>
+        <tr>
+            <th>Batch ID</th>
+            <th>Start Time</th>
+            <th>Status</th>
+            <th>Next Action</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for batch in batches %}
+        <tr>
+            <td>{{ batch.id }}</td>
+            <td>{{ batch.start_time }}</td>
+            <td>{{ batch.status }}</td>
+            <td>
+                {% if batch.status == 'pending_verification' %}
+                    <a href="{{ url_for('verify_batch_page', batch_id=batch.id) }}" class="action-btn btn-verify">Verify</a>
+                {% elif batch.status == 'verification_complete' and batch.flagged_count > 0 %}
+                    <a href="{{ url_for('review_batch_page', batch_id=batch.id) }}" class="action-btn btn-review">Review ({{ batch.flagged_count }} flagged)</a>
+                    <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit</a>
+                {% elif batch.status == 'verification_complete' and batch.flagged_count == 0 %}
+                    <a href="{{ url_for('group_batch_page', batch_id=batch.id) }}" class="action-btn btn-group">Group</a>
+                    <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit</a>
+                {% else %}
+                     <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit</a>
+                {% endif %}
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="4">No batches have been processed yet.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<script>
+    const batchForm = document.getElementById('batch-form');
+    if (batchForm) {
+        batchForm.addEventListener('submit', function() {
+            const button = document.getElementById('start-button');
+            button.disabled = true;
+            button.innerText = 'Processing... Please Wait...';
+        });
+    }
+</script>
+{% endblock %}
