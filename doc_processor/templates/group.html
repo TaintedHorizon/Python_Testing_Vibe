@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+
+{% block title %}Group Documents for Batch {{ batch_id }}{% endblock %}
+
+{% block content %}
+    <h1>Group Documents for Batch #{{ batch_id }}</h1>
+
+    {% if grouped_pages %}
+        <p>This batch has {{ grouped_pages.keys()|length }} categories ready for grouping.</p>
+        
+        <div style="font-family: monospace; background-color: #f0f0f0; border: 1px solid #ccc; padding: 15px; margin-top: 20px;">
+            <h3>Data Received from Backend:</h3>
+            {% for category, pages in grouped_pages.items() %}
+                <p>
+                    <strong>{{ category }}</strong> ({{ pages|length }} pages)
+                    <ul>
+                        {% for page in pages %}
+                            <li>Page ID: {{ page.id }} ({{ page.source_filename }}, Page {{ page.page_number }})</li>
+                        {% endfor %}
+                    </ul>
+                </p>
+            {% endfor %}
+        </div>
+
+    {% else %}
+        <p style="color: green;">🎉 All pages in this batch have already been grouped into documents!</p>
+    {% endif %}
+
+{% endblock %}

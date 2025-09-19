@@ -19,6 +19,7 @@
     <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint == 'index' else '' }}">New Batch</a>
     <a href="{{ url_for('verify_batch_entry') }}" class="{{ 'active' if 'verify' in request.endpoint else '' }}">Verify Batch</a>
     <a href="{{ url_for('review_batch_entry') }}" class="{{ 'active' if 'review' in request.endpoint else '' }}">Review Queue</a>
+    <a href="{{ url_for('group_batch_entry') }}" class="{{ 'active' if 'group' in request.endpoint else '' }}">Group Documents</a>
 </div>
 
 <div class="content">

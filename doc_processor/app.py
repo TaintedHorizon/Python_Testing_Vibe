@@ -2,16 +2,23 @@ import os
 import sqlite3
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory
 from processing import process_batch, rerun_ocr_on_page, BROAD_CATEGORIES
-from database import get_pages_for_batch, update_page_data, get_flagged_pages_for_batch, delete_page_by_id, get_all_unique_categories
+from database import (
+    get_pages_for_batch, update_page_data, get_flagged_pages_for_batch, 
+    delete_page_by_id, get_all_unique_categories, get_verified_pages_for_grouping, 
+    create_document_and_link_pages
+)
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
+# --- DATABASE HELPER ---
 def get_db_connection():
     db_path = os.getenv('DATABASE_PATH')
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
+
+# --- FLASK ROUTES ---
 
 @app.route('/')
 def index():
@@ -25,6 +32,8 @@ def handle_batch_processing():
         return redirect(url_for('verify_batch_entry'))
     else:
         return redirect(url_for('index', message="An error occurred during processing."))
+
+# --- VERIFICATION & REVIEW ROUTES ---
 
 @app.route('/verify')
 def verify_batch_entry():
@@ -88,10 +97,64 @@ def review_batch_page(batch_id):
                            flagged_pages=pages_with_relative_paths,
                            categories=combined_categories)
 
+# --- NEW GROUPING ROUTES ---
+
+@app.route('/group')
+def group_batch_entry():
+    """Finds a batch ready for grouping and enforces the 'hard gate'."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Find the most recent batch that has finished verification
+    cursor.execute("SELECT id FROM batches WHERE status = 'verification_complete' ORDER BY id DESC LIMIT 1")
+    batch_to_group = cursor.fetchone()
+    
+    if not batch_to_group:
+        return redirect(url_for('index', message="No batches are ready for grouping."))
+
+    batch_id = batch_to_group['id']
+    # HARD GATE: Check if this batch still has flagged pages
+    flagged_pages = get_flagged_pages_for_batch(batch_id)
+    if flagged_pages:
+        message = f"Cannot group Batch #{batch_id} yet. Please resolve the {len(flagged_pages)} flagged page(s) in the Review Queue."
+        conn.close()
+        return redirect(url_for('review_batch_page', batch_id=batch_id, message=message))
+
+    conn.close()
+    return redirect(url_for('group_batch_page', batch_id=batch_id))
+
+@app.route('/group/<int:batch_id>')
+def group_batch_page(batch_id):
+    """Displays the UI for grouping verified pages into documents."""
+    grouped_pages = get_verified_pages_for_grouping(batch_id)
+    
+    return render_template('group.html', 
+                           batch_id=batch_id,
+                           grouped_pages=grouped_pages)
+
+@app.route('/save_document', methods=['POST'])
+def save_document_action():
+    """Receives data from the grouping form and creates a new document."""
+    batch_id = request.form.get('batch_id', type=int)
+    document_name = request.form.get('document_name', '').strip()
+    # Get the list of page IDs from the form's checkboxes
+    page_ids = request.form.getlist('page_ids')
+
+    if not document_name or not page_ids:
+        # Basic validation
+        return redirect(url_for('group_batch_page', batch_id=batch_id, error="Document name and at least one page are required."))
+
+    # Convert page_ids from string to int
+    page_ids = [int(pid) for pid in page_ids]
+
+    create_document_and_link_pages(batch_id, document_name, page_ids)
+
+    # After saving, just redirect back to the grouping page to continue
+    return redirect(url_for('group_batch_page', batch_id=batch_id))
+
+# --- ACTION ROUTES ---
 
 @app.route('/update_page', methods=['POST'])
 def update_page():
-    # Rewritten with smarter logic
     action = request.form.get('action')
     page_id = request.form.get('page_id', type=int)
     batch_id = request.form.get('batch_id', type=int)
@@ -110,21 +173,16 @@ def update_page():
         category = 'NEEDS_REVIEW'
     else:
         status = 'verified'
-        # HIGHEST PRIORITY: If the user typed a new category, use it.
         if dropdown_choice == 'other_new' and other_choice:
             category = other_choice
-        # NEXT PRIORITY: If they chose from the dropdown and clicked "Correct".
-        elif dropdown_choice and dropdown_choice != 'other_new' and action == 'correct':
-             category = dropdown_choice
-        # DEFAULT: If no choice was made (or they clicked approve), use the AI's suggestion.
+        elif dropdown_choice and dropdown_choice != 'other_new':
+            category = dropdown_choice
         else:
             category = request.form.get('ai_suggestion')
 
-    # You can now remove the debug print statement from here if you wish
-    # print(f"DEBUG: SAVING TO DB -> Page ID: {page_id}, Category: '{category}', Status: '{status}', Rotation: {rotation}")
     update_page_data(page_id, category, status, rotation)
 
-    # Redirect logic
+    # Smart Redirect Logic
     if request.referrer and 'review' in request.referrer:
         return redirect(url_for('review_batch_page', batch_id=batch_id))
     
