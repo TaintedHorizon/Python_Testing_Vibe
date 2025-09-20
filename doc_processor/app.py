@@ -3,10 +3,11 @@ import sqlite3
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory
 from processing import process_batch, rerun_ocr_on_page, BROAD_CATEGORIES
 from database import (
-    get_pages_for_batch, update_page_data, get_flagged_pages_for_batch, 
-    delete_page_by_id, get_all_unique_categories, get_verified_pages_for_grouping, 
+    get_pages_for_batch, update_page_data, get_flagged_pages_for_batch,
+    delete_page_by_id, get_all_unique_categories, get_verified_pages_for_grouping,
     create_document_and_link_pages, get_created_documents_for_batch, get_batch_by_id,
-    count_flagged_pages_for_batch, get_db_connection
+    count_flagged_pages_for_batch, get_db_connection, count_ungrouped_verified_pages,
+    reset_batch_grouping
 )
 
 app = Flask(__name__)
@@ -26,16 +27,16 @@ def mission_control_page():
     conn = get_db_connection()
     all_batches_raw = conn.execute("SELECT * FROM batches ORDER BY id DESC").fetchall()
     conn.close()
-    
     all_batches = []
     for batch in all_batches_raw:
         batch_dict = dict(batch)
-        batch_dict['flagged_count'] = count_flagged_pages_for_batch(batch['id'])
+        batch_id = batch_dict['id']
+        batch_dict['flagged_count'] = count_flagged_pages_for_batch(batch_id)
+        batch_dict['ungrouped_count'] = count_ungrouped_verified_pages(batch_id)
         all_batches.append(batch_dict)
-
     return render_template('mission_control.html', batches=all_batches)
 
-# --- DIRECT ACTION ROUTES ---
+# --- DIRECT ACTION ROUTES (Accessed from Mission Control) ---
 @app.route('/verify/<int:batch_id>')
 def verify_batch_page(batch_id):
     batch = get_batch_by_id(batch_id)
@@ -63,7 +64,7 @@ def review_batch_page(batch_id):
     pages_with_relative_paths = [dict(p, relative_image_path=os.path.relpath(p['processed_image_path'], processed_dir)) for p in flagged_pages]
     db_categories = get_all_unique_categories()
     combined_categories = sorted(list(set(BROAD_CATEGORIES + db_categories)))
-    return render_template('review.html', batch_id=batch_id, 
+    return render_template('review.html', batch_id=batch_id,
                            flagged_pages=pages_with_relative_paths, categories=combined_categories)
 
 @app.route('/revisit/<int:batch_id>')
@@ -79,7 +80,7 @@ def revisit_batch_page(batch_id):
     db_categories = get_all_unique_categories()
     combined_categories = sorted(list(set(BROAD_CATEGORIES + db_categories)))
     return render_template('revisit.html', batch_id=batch_id, batch=batch,
-                           current_page=current_page, current_page_num=page_num, 
+                           current_page=current_page, current_page_num=page_num,
                            total_pages=len(pages_with_relative_paths), categories=combined_categories)
 
 @app.route('/group/<int:batch_id>')
@@ -102,7 +103,21 @@ def save_document_action():
     page_ids = request.form.getlist('page_ids', type=int)
     if not document_name or not page_ids:
         return redirect(url_for('group_batch_page', batch_id=batch_id, error="Document name and at least one page are required."))
+
     create_document_and_link_pages(batch_id, document_name, page_ids)
+
+    if count_ungrouped_verified_pages(batch_id) == 0:
+        conn = get_db_connection()
+        conn.execute("UPDATE batches SET status = 'grouping_complete' WHERE id = ?", (batch_id,))
+        conn.commit()
+        conn.close()
+
+    return redirect(url_for('group_batch_page', batch_id=batch_id))
+
+@app.route('/reset_grouping/<int:batch_id>', methods=['POST'])
+def reset_grouping_action(batch_id):
+    """Resets the grouping for a batch, deleting documents but keeping pages."""
+    reset_batch_grouping(batch_id)
     return redirect(url_for('group_batch_page', batch_id=batch_id))
 
 @app.route('/update_page', methods=['POST'])
@@ -116,7 +131,7 @@ def update_page():
     category = ''; status = ''
     dropdown_choice = request.form.get('category_dropdown')
     other_choice = request.form.get('other_category', '').strip()
-    
+
     if action == 'flag':
         status = 'flagged'; category = 'NEEDS_REVIEW'
     else:
@@ -126,19 +141,10 @@ def update_page():
         else: category = request.form.get('ai_suggestion')
     update_page_data(page_id, category, status, rotation)
 
-    # Definitive Redirect Logic
     if 'revisit' in request.referrer:
         return redirect(url_for('revisit_batch_page', batch_id=batch_id, page=current_page_num))
     if 'review' in request.referrer:
-        # After updating, check if any flagged pages remain
-        remaining_flagged = get_flagged_pages_for_batch(batch_id)
-        if not remaining_flagged:
-            # If queue is empty, go back to mission control
-            return redirect(url_for('mission_control_page'))
-        else:
-            # Otherwise, refresh the queue
-            return redirect(url_for('review_batch_page', batch_id=batch_id))
-
+        return redirect(url_for('review_batch_page', batch_id=batch_id))
     if current_page_num < total_pages:
         return redirect(url_for('verify_batch_page', batch_id=batch_id, page=current_page_num + 1))
     else:
@@ -146,14 +152,7 @@ def update_page():
         conn.execute("UPDATE batches SET status = 'verification_complete' WHERE id = ?", (batch_id,))
         conn.commit()
         conn.close()
-        # After completing verification, check the review queue
-        remaining_flagged = get_flagged_pages_for_batch(batch_id)
-        if not remaining_flagged:
-            # If no pages were flagged, go straight to grouping
-            return redirect(url_for('group_batch_page', batch_id=batch_id))
-        else:
-            # Otherwise, go to the review queue as the next step
-            return redirect(url_for('review_batch_page', batch_id=batch_id))
+        return redirect(url_for('mission_control_page'))
 
 @app.route('/delete_page/<int:page_id>', methods=['POST'])
 def delete_page_action(page_id):

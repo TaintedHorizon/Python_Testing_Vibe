@@ -1,76 +1,113 @@
 {% extends 'base.html' %}
-
 {% block title %}Group Documents for Batch {{ batch_id }}{% endblock %}
-
 {% block content %}
 <style>
-    .group-container { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; align-items: start; }
-    .created-docs, .new-doc-form { border: 1px solid #ccc; padding: 15px; background-color: white; border-radius: 5px; }
-    .page-list { max-height: 70vh; overflow-y: auto; border: 1px solid #ddd; padding: 10px; margin-top: 10px; }
+    .group-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+    .preview-pane, .selection-pane { border: 1px solid #ccc; padding: 15px; background-color: white; border-radius: 5px; }
+    .preview-wrapper { width: 100%; height: 75vh; border: 1px solid #ddd; background-color: #f0f0f0; display: flex; align-items: center; justify-content: center; overflow: hidden; color: #888; }
+    .preview-wrapper img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .page-list { max-height: 40vh; overflow-y: auto; border: 1px solid #ddd; padding: 10px; margin-top: 10px; }
     .category-group { margin-bottom: 20px; }
-    .category-group h4 { margin: 0 0 10px 0; padding-bottom: 5px; border-bottom: 1px solid #eee; }
-    .page-item { display: flex; align-items: center; margin-bottom: 8px; background-color: #fafafa; padding: 5px; border-radius: 3px; }
+    .category-header { display: flex; justify-content: space-between; align-items: center; margin: 0 0 10px 0; padding-bottom: 5px; border-bottom: 1px solid #eee; }
+    .page-item { display: flex; align-items: center; margin-bottom: 8px; background-color: #fafafa; padding: 5px; border-radius: 3px; cursor: pointer; }
+    .page-item:hover { background-color: #e9e9e9; }
     .page-item input { margin-right: 10px; transform: scale(1.5); }
-    .page-item img { width: 50px; height: 65px; object-fit: cover; border: 1px solid #ccc; margin-right: 10px; }
+    .page-item img { width: 40px; height: 52px; object-fit: cover; border: 1px solid #ccc; margin-right: 10px; }
+    .doc-list { max-height: 20vh; overflow-y: auto; }
     .doc-list-item { background-color: #f9f9f9; border: 1px solid #eee; padding: 8px; margin-bottom: 5px; border-radius: 3px; }
     .error-message { color: red; font-weight: bold; margin-bottom: 10px; }
+    .finish-button { width: 100%; padding: 10px; margin-top: 15px; background-color: #17a2b8; color: white; border: none; font-size: 1.2em; text-align: center; text-decoration: none; display: inline-block; border-radius: 5px; }
+    .reset-grouping-btn { background-color: #dc3545; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; float: right;}
 </style>
 
 <h1>Group Documents for Batch #{{ batch_id }}</h1>
 <hr>
-
 <div class="group-container">
-    <div class="created-docs">
+    <div class="preview-pane">
+        <h3>Page Preview</h3>
+        <div class="preview-wrapper">
+            <span id="previewPlaceholder">Select a page from the right to preview it here.</span>
+            <img id="previewImage" src="" alt="Page Preview" style="display: none;">
+        </div>
+    </div>
+    <div class="selection-pane">
         <h3>Created Documents</h3>
-        <div id="doc-list">
+        <div id="doc-list" class="doc-list">
             {% if created_docs %}
+                <form action="{{ url_for('reset_grouping_action', batch_id=batch_id) }}" method="post" onsubmit="return confirm('Are you sure you want to reset all grouping for this batch? This cannot be undone.');">
+                    <button type="submit" class="reset-grouping-btn">Reset All Groups</button>
+                </form>
                 {% for doc in created_docs %}
                     <div class="doc-list-item">{{ doc.document_name }}</div>
                 {% endfor %}
             {% else %}
-                <p>No documents have been created yet.</p>
+                <p>No documents have been created for this batch yet.</p>
             {% endif %}
         </div>
-        <hr>
-        <p><i>Next, we will add a button here to finalize the batch.</i></p>
-    </div>
+        <hr style="clear:both; margin-top: 40px; margin-bottom: 20px;">
 
-    <div class="new-doc-form">
         <h3>Create a New Document</h3>
         {% if request.args.get('error') %}
             <p class="error-message">{{ request.args.get('error') }}</p>
         {% endif %}
-
         {% if grouped_pages %}
             <form action="{{ url_for('save_document_action') }}" method="post">
                 <input type="hidden" name="batch_id" value="{{ batch_id }}">
-                
                 <div style="margin-bottom: 15px;">
                     <label for="document_name" style="font-weight: bold;">New Document Name:</label>
                     <input type="text" id="document_name" name="document_name" required style="width: 100%; padding: 8px;">
                 </div>
-
                 <label style="font-weight: bold;">Select Pages to Include:</label>
                 <div class="page-list">
                     {% for category, pages in grouped_pages.items() %}
+                        {% set category_slug = category|replace(' ', '-')|replace('/', '-') %}
                         <div class="category-group">
-                            <h4>{{ category }} ({{ pages|length }} available)</h4>
+                            <div class="category-header">
+                                <h4>{{ category }} ({{ pages|length }} available)</h4>
+                                <label><input type="checkbox" class="select-all-checkbox" data-category="{{ category_slug }}"> Select All</label>
+                            </div>
                             {% for page in pages %}
-                                <label class="page-item">
-                                    <input type="checkbox" name="page_ids" value="{{ page.id }}">
+                                <div class="page-item" onclick="showPreview('{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}')">
+                                    <input type="checkbox" name="page_ids" value="{{ page.id }}" class="page-checkbox-{{ category_slug }}" onclick="event.stopPropagation();">
                                     <img src="{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}" alt="Thumbnail">
                                     <span>ID: {{ page.id }} ({{ page.source_filename }}, Pg {{ page.page_number }})</span>
-                                </label>
+                                </div>
                             {% endfor %}
                         </div>
                     {% endfor %}
                 </div>
-                
                 <button type="submit" style="width: 100%; padding: 10px; margin-top: 15px; background-color: #28a745; color: white; border: none; font-size: 1.2em;">Save New Document</button>
             </form>
         {% else %}
-            <p style="color: green; font-weight: bold;">🎉 All verified pages in this batch have been grouped into documents!</p>
+            <div style="text-align: center;">
+                <p style="color: green; font-weight: bold;">🎉 Grouping is complete for this batch!</p>
+                <a href="{{ url_for('mission_control_page') }}" class="finish-button">Return to Mission Control</a>
+            </div>
         {% endif %}
     </div>
 </div>
+
+<script>
+    const previewImage = document.getElementById('previewImage');
+    const previewPlaceholder = document.getElementById('previewPlaceholder');
+    function showPreview(imageUrl) {
+        if (previewPlaceholder) previewPlaceholder.style.display = 'none';
+        if (previewImage) {
+            previewImage.style.display = 'block';
+            previewImage.src = imageUrl;
+        }
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+        const selectAllCheckboxes = document.querySelectorAll('.select-all-checkbox');
+        selectAllCheckboxes.forEach(headerCheckbox => {
+            headerCheckbox.addEventListener('change', function() {
+                const category = this.dataset.category;
+                const pageCheckboxes = document.querySelectorAll(`.page-checkbox-${category}`);
+                pageCheckboxes.forEach(pageCheckbox => {
+                    pageCheckbox.checked = this.checked;
+                });
+            });
+        });
+    });
+</script>
 {% endblock %}

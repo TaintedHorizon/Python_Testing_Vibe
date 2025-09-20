@@ -1,7 +1,5 @@
 {% extends 'base.html' %}
-
 {% block title %}Mission Control{% endblock %}
-
 {% block content %}
 <style>
     .history-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
@@ -18,7 +16,6 @@
 
 <h1>Mission Control</h1>
 <p>This is the central hub for managing all batches. Start a new batch or continue with an existing one below.</p>
-
 <div class="new-batch-form">
     <form id="batch-form" action="{{ url_for('handle_batch_processing') }}" method="post">
         <button id="start-button" type="submit">Start New Batch</button>
@@ -45,12 +42,15 @@
                     <a href="{{ url_for('verify_batch_page', batch_id=batch.id) }}" class="action-btn btn-verify">Verify</a>
                 {% elif batch.status == 'verification_complete' and batch.flagged_count > 0 %}
                     <a href="{{ url_for('review_batch_page', batch_id=batch.id) }}" class="action-btn btn-review">Review ({{ batch.flagged_count }} flagged)</a>
-                    <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit</a>
+                    <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Pages</a>
                 {% elif batch.status == 'verification_complete' and batch.flagged_count == 0 %}
                     <a href="{{ url_for('group_batch_page', batch_id=batch.id) }}" class="action-btn btn-group">Group</a>
-                    <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit</a>
+                    <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Pages</a>
+                {% elif batch.status == 'grouping_complete' %}
+                    <a href="{{ url_for('group_batch_page', batch_id=batch.id) }}" class="action-btn btn-group">Revisit Grouping</a>
+                    <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Pages</a>
                 {% else %}
-                     <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit</a>
+                     <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Batch</a>
                 {% endif %}
             </td>
         </tr>
