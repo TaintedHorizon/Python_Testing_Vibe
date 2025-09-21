@@ -1,27 +1,14 @@
 {% extends 'base.html' %}
+
 {% block title %}Revisiting Batch {{ batch_id }}{% endblock %}
+
 {% block content %}
 <style>
-    /* --- COPIED DIRECTLY FROM YOUR WORKING verify.html --- */
+    /* Styles are largely copied from verify.html for a consistent look and feel */
     .container { display: flex; gap: 20px; align-items: flex-start; }
-    .image-pane { flex: 1; text-align: center; }
-    .image-wrapper {
-        width: 100%;
-        height: 80vh;
-        border: 1px solid #ccc;
-        background-color: #f0f0f0;
-        margin-bottom: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-    }
-    .image-wrapper img {
-        max-width: 100%;
-        max-height: 100%;
-        object-fit: contain;
-        transition: transform 0.2s;
-    }
+    .image-pane { flex: 1; text-align: center; position: sticky; top: 20px; }
+    .image-wrapper { width: 100%; height: 80vh; border: 1px solid #ccc; background-color: #f0f0f0; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .image-wrapper img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform 0.2s; }
     .info-pane { flex: 1; }
     .pagination { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     .pagination a, .pagination span { padding: 10px 20px; text-decoration: none; border: 1px solid #ddd; background-color: #007BFF; color: white; border-radius: 5px; }
@@ -38,14 +25,26 @@
 </style>
 
 <h1>Revisiting Batch #{{ batch_id }} <span style="font-size: 0.6em; color: #666;">(Status: {{ batch.status }})</span></h1>
+<p>This is a read-only view of the pages in this batch. You can review the verified categories and make corrections if needed.</p>
 
+<!-- Pagination controls to navigate between pages -->
 <div class="pagination">
-    {% if current_page_num > 1 %}<a href="{{ url_for('revisit_batch_page', batch_id=batch_id, page=current_page_num - 1) }}">&laquo; Previous Page</a>{% else %}<span>&laquo; Previous Page</span>{% endif %}
+    {% if current_page_num > 1 %}
+        <a href="{{ url_for('revisit_batch_page', batch_id=batch_id, page=current_page_num - 1) }}">&laquo; Previous Page</a>
+    {% else %}
+        <span>&laquo; Previous Page</span>
+    {% endif %}
     <strong>Page {{ current_page_num }} of {{ total_pages }}</strong>
-    {% if current_page_num < total_pages %}<a href="{{ url_for('revisit_batch_page', batch_id=batch_id, page=current_page_num + 1) }}">Next Page &raquo;</a>{% else %}<a href="{{ url_for('mission_control_page') }}" style="background-color: #17a2b8;">Finish Revisiting</a>{% endif %}
+    {% if current_page_num < total_pages %}
+        <a href="{{ url_for('revisit_batch_page', batch_id=batch_id, page=current_page_num + 1) }}">Next Page &raquo;</a>
+    {% else %}
+        <!-- On the last page, the "Next" button becomes a "Finish" button -->
+        <a href="{{ url_for('mission_control_page') }}" style="background-color: #17a2b8;">Finish Revisiting</a>
+    {% endif %}
 </div>
 
 <div class="container">
+    <!-- Left Pane: Image and Rotation -->
     <div class="image-pane">
         <div class="image-wrapper">
             <img id="pageImage" src="{{ url_for('serve_processed_file', filepath=current_page.relative_image_path) }}" alt="Scanned page">
@@ -55,11 +54,21 @@
             <button onclick="rotateImage(90)">Rotate Right ↻</button>
         </div>
     </div>
+
+    <!-- Right Pane: Information and Actions -->
     <div class="info-pane">
         <form id="correction-form" action="{{ url_for('update_page') }}" method="post">
-            <input type="hidden" name="page_id" value="{{ current_page.id }}"><input type="hidden" name="batch_id" value="{{ batch_id }}"><input type="hidden" name="current_page_num" value="{{ current_page_num }}"><input type="hidden" name="total_pages" value="{{ total_pages }}"><input type="hidden" id="rotation-input" name="rotation" value="{{ current_page.rotation_angle or 0 }}"><input type="hidden" name="ai_suggestion" value="{{ current_page.ai_suggested_category }}">
+            <!-- Hidden fields to pass context to the server on form submission -->
+            <input type="hidden" name="page_id" value="{{ current_page.id }}">
+            <input type="hidden" name="batch_id" value="{{ batch_id }}">
+            <input type="hidden" name="current_page_num" value="{{ current_page_num }}">
+            <input type="hidden" name="total_pages" value="{{ total_pages }}">
+            <input type="hidden" id="rotation-input" name="rotation" value="{{ current_page.rotation_angle or 0 }}">
+            <input type="hidden" name="ai_suggestion" value="{{ current_page.ai_suggested_category }}">
+            
             <div class="info-box">
-                <p><strong>Current Verified Category:</strong><br>{{ current_page.human_verified_category or 'N/A' }}</p><hr>
+                <p><strong>Current Verified Category:</strong><br>{{ current_page.human_verified_category or 'N/A' }}</p>
+                <hr>
                 <div class="form-group">
                     <label for="category-select">Make a Correction:</label>
                     <select id="category-select" name="category_dropdown">
@@ -68,13 +77,18 @@
                         <option value="other_new">Other (Create New)...</option>
                     </select>
                 </div>
-                <div class="form-group" id="other-category-group" style="display:none;"><label for="other-category-input">New Category Name</label><input type="text" id="other-category-input" name="other_category"></div>
+                <div class="form-group" id="other-category-group" style="display:none;">
+                    <label for="other-category-input">New Category Name</label>
+                    <input type="text" id="other-category-input" name="other_category">
+                </div>
                 <div class="actions">
                     <button type="submit" name="action" value="correct" class="btn-correct">Save Change</button>
                     <button type="submit" name="action" value="flag" class="btn-flag">Flag for Review</button>
                 </div>
             </div>
         </form>
+        
+        <!-- Box to display the OCR text -->
         <div class="info-box" style="margin-top: 20px;">
             <h3>Extracted OCR Text</h3>
             <div class="ocr-text"><pre>{{ current_page.ocr_text }}</pre></div>
@@ -83,11 +97,11 @@
 </div>
 
 <script>
-    // --- COPIED DIRECTLY FROM YOUR WORKING verify.html ---
     let currentRotation = 0;
     const rotationInput = document.getElementById('rotation-input');
     const pageImage = document.getElementById('pageImage');
     
+    // Function to handle client-side image rotation.
     function rotateImage(degrees) {
         currentRotation = (currentRotation + 360 + degrees) % 360;
         if (rotationInput) rotationInput.value = currentRotation;
@@ -95,13 +109,19 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        // Set the initial rotation of the image based on the value from the database.
         if (rotationInput) { currentRotation = parseInt(rotationInput.value) || 0; }
         if (pageImage) { pageImage.style.transform = `rotate(${currentRotation}deg)`; }
         
+        // Logic to show/hide the "New Category Name" input field.
         const categorySelect = document.getElementById('category-select');
         const otherCategoryGroup = document.getElementById('other-category-group');
         if (categorySelect) {
-            categorySelect.addEventListener('change', function() { if (otherCategoryGroup) { otherCategoryGroup.style.display = (this.value === 'other_new') ? 'block' : 'none'; } });
+            categorySelect.addEventListener('change', function() { 
+                if (otherCategoryGroup) { 
+                    otherCategoryGroup.style.display = (this.value === 'other_new') ? 'block' : 'none'; 
+                }
+            });
         }
     });
 </script>

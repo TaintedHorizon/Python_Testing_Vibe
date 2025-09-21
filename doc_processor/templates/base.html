@@ -1,25 +1,70 @@
+<!-- 
+This is the base template for the entire application.
+All other templates will inherit from this file.
+It provides the basic HTML structure, including the head, a common navigation bar,
+and a content block that child templates will override.
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- The title block can be overridden by child templates to set a custom page title. -->
     <title>{% block title %}Document Processor{% endblock %}</title>
+    
+    <!-- Basic styling for the application. For a larger application, this would be moved to a separate CSS file. -->
     <style>
-        body { font-family: sans-serif; margin: 0; background-color: #f4f4f9; }
-        .navbar { background-color: #333; overflow: hidden; }
-        .navbar a { float: left; display: block; color: white; text-align: center; padding: 14px 20px; text-decoration: none; }
-        .navbar a:hover { background-color: #575757; }
-        .navbar a.active { background-color: #007BFF; }
-        .content { padding: 20px; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+        .navbar {
+            background-color: #4a5568; /* Darker gray-blue */
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .navbar a {
+            float: left;
+            display: block;
+            color: white;
+            text-align: center;
+            padding: 14px 20px;
+            text-decoration: none;
+            transition: background-color 0.3s;
+        }
+        .navbar a:hover {
+            background-color: #718096; /* Lighter gray-blue */
+        }
+        .navbar a.active {
+            background-color: #2c5282; /* Dark blue */
+        }
+        .content {
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto; /* Center the content */
+        }
     </style>
+    
+    <!-- The head block can be used by child templates to include additional CSS files or meta tags. -->
+    {% block head %}{% endblock %}
 </head>
 <body>
 
+<!-- The main navigation bar. It is consistent across all pages. -->
 <div class="navbar">
-    <a href="{{ url_for('mission_control_page') }}" class="active">Mission Control</a>
+    <!-- The link always points back to the main dashboard (Mission Control). -->
+    <a href="{{ url_for('mission_control_page') }}" class="{% if request.endpoint == 'mission_control_page' %}active{% endif %}">Mission Control</a>
 </div>
 
+<!-- The main content area. -->
 <div class="content">
+    <!-- 
+    This is the content block. Child templates (like verify.html, group.html, etc.)
+    will replace this block with their own specific HTML content.
+    -->
     {% block content %}{% endblock %}
 </div>
 

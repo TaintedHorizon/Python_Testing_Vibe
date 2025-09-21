@@ -3,24 +3,35 @@
 {% block title %}New Batch{% endblock %}
 
 {% block content %}
+    <!-- 
+    This page provides a simple user interface to start a new batch process.
+    It is often the initial landing page or a direct action page.
+    Note: In the current application flow, users are redirected to 'mission_control.html'
+    and this page might not be directly used, but it remains functional.
+    -->
     <div style="text-align: center;">
         <h1>Start a New Processing Batch</h1>
         <p>Click the button below to start processing all documents in the intake folder.</p>
         <br>
         
+        <!-- The form submits a POST request to the 'handle_batch_processing' endpoint. -->
         <form id="batch-form" action="{{ url_for('handle_batch_processing') }}" method="post">
             <button id="start-button" type="submit">Start New Batch</button>
         </form>
 
+        <!-- A message can be passed to this template to show status updates. -->
         {% if message %}
             <p style="margin-top: 2em; font-weight: bold; color: green;">{{ message }}</p>
         {% endif %}
     </div>
 
     <script>
+        // This script provides simple feedback to the user after they click the button.
         document.getElementById('batch-form').addEventListener('submit', function() {
             var button = document.getElementById('start-button');
+            // Disable the button to prevent multiple submissions.
             button.disabled = true;
+            // Change the button text to indicate that processing has started.
             button.innerText = 'Processing... Please Wait...';
         });
     </script>

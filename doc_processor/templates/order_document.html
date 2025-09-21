@@ -1,27 +1,36 @@
 {% extends 'base.html' %}
-{% block title %}Order Pages{% endblock %}
+
+{% block title %}Order Pages for Document{% endblock %}
+
+{% block head %}
+    <!-- Include the SortableJS library from a CDN for drag-and-drop functionality -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <style>
-    /* --- FIX: New two-column layout styles --- */
+    /* Main layout for the ordering page: a two-column grid */
     .main-container {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr 1fr; /* Two equal columns */
         gap: 20px;
         align-items: start;
         max-width: 1600px;
         margin: auto;
     }
+
+    /* The left pane, which contains the large image preview */
     .preview-pane {
         border: 1px solid #ccc;
         padding: 15px;
         background-color: white;
         border-radius: 5px;
-        position: sticky;
-        top: 20px; /* Makes the preview pane stick to the top on scroll */
+        position: sticky; /* The preview will "stick" to the top of the screen on scroll */
+        top: 20px;
     }
     .preview-wrapper {
         width: 100%;
-        height: 80vh;
+        height: 80vh; /* Takes up most of the viewport height */
         border: 1px solid #ddd;
         background-color: #f0f0f0;
         display: flex;
@@ -33,8 +42,10 @@
     .preview-wrapper img {
         max-width: 100%;
         max-height: 100%;
-        object-fit: contain;
+        object-fit: contain; /* Ensures the whole image is visible without distortion */
     }
+
+    /* The right pane, which contains the sortable page thumbnails */
     .order-pane {
         background-color: white;
         padding: 20px;
@@ -43,7 +54,7 @@
     }
     #sortable-pages {
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: wrap; /* Allows items to wrap to the next line */
         gap: 15px;
         list-style-type: none;
         padding: 10px;
@@ -58,16 +69,16 @@
         border-radius: 5px;
         background-color: #fff;
         text-align: center;
-        cursor: grab;
+        cursor: grab; /* Indicates the item is draggable */
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        transition: box-shadow 0.2s, transform 0.2s, border-color 0.2s;
+        transition: all 0.2s;
     }
     .page-item.selected {
-        border-color: #007BFF;
+        border-color: #007BFF; /* Highlight the selected item */
         box-shadow: 0 4px 8px rgba(0, 123, 255, 0.4);
     }
     .page-item:active {
-        cursor: grabbing;
+        cursor: grabbing; /* Change cursor while dragging */
         box-shadow: 0 5px 15px rgba(0,0,0,0.2);
         transform: scale(1.05);
     }
@@ -77,17 +88,10 @@
         border-bottom: 1px solid #eee;
         margin-bottom: 8px;
     }
-    .page-info {
-        font-size: 0.8em;
-        color: #555;
-        word-wrap: break-word;
-    }
-    .actions-container {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-top: 20px;
-    }
+    .page-info { font-size: 0.8em; color: #555; word-wrap: break-word; }
+    
+    /* Container for the action buttons at the bottom */
+    .actions-container { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; }
     .status-message { font-style: italic; color: #555; }
     .btn { display: inline-block; padding: 10px 20px; text-decoration: none; color: white; border-radius: 5px; border: none; font-size: 1em; cursor: pointer; margin-left: 10px; }
     .btn-save { background-color: #28a745; }
@@ -96,6 +100,7 @@
 </style>
 
 <div class="main-container">
+    <!-- Left Pane: Image Preview -->
     <div class="preview-pane">
         <h3>Page Preview</h3>
         <div class="preview-wrapper">
@@ -104,13 +109,17 @@
         </div>
     </div>
 
+    <!-- Right Pane: Ordering Controls -->
     <div class="order-pane">
         <h1>Reorder Pages</h1>
         <p>Click a page to preview it. Drag and drop pages to set the correct sequence.</p>
 
+        <!-- The form that will submit the final page order -->
         <form id="order-form" action="{{ url_for('order_document_page', document_id=document_id) }}" method="post">
+            <!-- This hidden input will store the comma-separated list of page IDs in the correct order -->
             <input type="hidden" id="page-order-input" name="page_order" value="">
 
+            <!-- The container for the draggable page thumbnails -->
             <ul id="sortable-pages">
                 {% for page in pages %}
                 <li class="page-item" data-id="{{ page.id }}" data-img-src="{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}">
@@ -123,6 +132,7 @@
                 {% endfor %}
             </ul>
 
+            <!-- Action buttons at the bottom of the page -->
             <div class="actions-container">
                 <p id="status-message" class="status-message"></p>
                 <div class="actions">
@@ -135,23 +145,18 @@
     </div>
 </div>
 
-
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
-
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const sortableList = document.getElementById('sortable-pages');
         const pageOrderInput = document.getElementById('page-order-input');
         const suggestBtn = document.getElementById('suggest-order-btn');
         const statusMsg = document.getElementById('status-message');
-        
-        // --- FIX: Preview Pane Logic ---
         const previewImage = document.getElementById('preview-image');
         const previewPlaceholder = document.getElementById('preview-placeholder');
         let selectedItem = null;
 
+        // Function to display a page thumbnail in the large preview pane.
         function showPreview(pageItem) {
-            // Update selected visual state
             if (selectedItem) {
                 selectedItem.classList.remove('selected');
             }
@@ -166,37 +171,43 @@
             }
         }
 
-        // Add click listeners to all page items for previewing
+        // Add click listeners to all page items to trigger the preview.
         sortableList.querySelectorAll('.page-item').forEach(item => {
             item.addEventListener('click', () => showPreview(item));
         });
 
-        // Show the first page by default
+        // Show the first page in the preview by default when the page loads.
         const firstPage = sortableList.querySelector('.page-item');
         if (firstPage) {
             showPreview(firstPage);
         }
 
+        // Function to update the hidden input with the current order of page IDs.
         function updatePageOrder() {
             const pageItems = sortableList.querySelectorAll('.page-item');
             const pageIds = Array.from(pageItems).map(item => item.dataset.id);
             pageOrderInput.value = pageIds.join(',');
         }
 
+        // Initialize the SortableJS library on the list of pages.
         const sortable = new Sortable(sortableList, {
-            animation: 150,
+            animation: 150, // Animation speed in ms
             onEnd: function (evt) {
+                // When the user finishes dragging, update the hidden input.
                 updatePageOrder();
             }
         });
 
+        // Set the initial order in the hidden input when the page loads.
         updatePageOrder();
 
+        // Event listener for the "Suggest Order" button.
         suggestBtn.addEventListener('click', async function() {
             statusMsg.textContent = '🤖 Getting AI suggestion...';
             suggestBtn.disabled = true;
 
             try {
+                // Make an API call to the backend to get the AI's suggestion.
                 const response = await fetch(`/api/suggest_order/{{ document_id }}`, {
                     method: 'POST'
                 });
@@ -204,10 +215,12 @@
                 if (data.success) {
                     const suggestedOrder = data.page_order;
                     const pageElements = new Map();
+                    // Create a map of page ID to its HTML element for easy lookup.
                     sortableList.querySelectorAll('.page-item').forEach(el => {
                         pageElements.set(el.dataset.id, el);
                     });
 
+                    // Re-append the elements to the list in the new suggested order.
                     suggestedOrder.forEach(pageId => {
                         const pageElement = pageElements.get(String(pageId));
                         if (pageElement) {
@@ -215,7 +228,7 @@
                         }
                     });
 
-                    updatePageOrder();
+                    updatePageOrder(); // Update the hidden input with the new order.
                     statusMsg.textContent = '✅ Suggestion applied! Review and save.';
                 } else {
                     statusMsg.textContent = `❌ Error: ${data.error}`;

@@ -1,10 +1,32 @@
+# --- Core Web Framework ---
+# Flask is a lightweight web framework for Python used to build the web application interface.
 Flask
+
+# --- Configuration ---
+# python-dotenv is used to load environment variables from a .env file for configuration.
 python-dotenv
+
+# --- OCR (Optical Character Recognition) ---
+# easyocr is the primary, user-friendly OCR library for text extraction.
 easyocr
+# pytesseract is used as a secondary OCR tool, specifically for its Orientation and Script Detection (OSD) capabilities.
 pytesseract==0.3.10
+# Pillow is a powerful image processing library, required by both Pytesseract and EasyOCR.
 Pillow==9.5.0
+# opencv-python-headless is a dependency for EasyOCR, providing computer vision algorithms without GUI components.
 opencv-python-headless==4.8.0.76
-requests
+
+# --- PDF and Image Handling ---
+# pdf2image is a wrapper for pdftoppm to convert PDF files into a sequence of PIL Image objects.
 pdf2image
+# numpy is a fundamental package for scientific computing, often used for handling image data as arrays.
 numpy==1.26.4
+
+# --- Database ---
+# SQLAlchemy is a SQL toolkit and Object-Relational Mapper (ORM) that gives application developers the full power and flexibility of SQL.
+# In this project, it's used for defining the database schema.
 SQLAlchemy
+
+# --- API Communication ---
+# requests is a simple, yet elegant, HTTP library for making requests to APIs, used here to communicate with the Ollama LLM.
+requests

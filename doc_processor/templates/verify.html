@@ -1,9 +1,12 @@
 {% extends 'base.html' %}
+
 {% block title %}Verify Batch {{ batch_id }}{% endblock %}
+
 {% block content %}
 <style>
+    /* Styles are consistent with other pages like revisit.html and review.html */
     .container { display: flex; gap: 20px; align-items: flex-start; }
-    .image-pane { flex: 1; text-align: center; }
+    .image-pane { flex: 1; text-align: center; position: sticky; top: 20px; }
     .image-wrapper {
         width: 100%;
         height: 80vh;
@@ -18,11 +21,10 @@
     .image-wrapper img {
         max-width: 100%;
         max-height: 100%;
-        object-fit: contain; /* This is the key fix */
+        object-fit: contain;
         transition: transform 0.2s;
     }
     .info-pane { flex: 1; }
-    /* ... (rest of the styles are the same) ... */
     .pagination { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     .pagination a, .pagination span { padding: 10px 20px; text-decoration: none; border: 1px solid #ddd; background-color: #007BFF; color: white; border-radius: 5px; }
     .pagination span { background-color: #6c757d; }
@@ -39,12 +41,27 @@
 </style>
 
 <h1>Verifying Batch #{{ batch_id }}</h1>
+<p>This is the first step of the workflow. Review each page, check the AI's suggested category, and make corrections as needed.</p>
+
+<!-- Pagination controls to move between pages in the batch -->
 <div class="pagination">
-    {% if current_page_num > 1 %}<a href="{{ url_for('verify_batch_page', batch_id=batch_id, page=current_page_num - 1) }}">&laquo; Previous Page</a>{% else %}<span>&laquo; Previous Page</span>{% endif %}
+    {% if current_page_num > 1 %}
+        <a href="{{ url_for('verify_batch_page', batch_id=batch_id, page=current_page_num - 1) }}">&laquo; Previous Page</a>
+    {% else %}
+        <!-- Disable the "Previous" button on the first page -->
+        <span>&laquo; Previous Page</span>
+    {% endif %}
     <strong>Page {{ current_page_num }} of {{ total_pages }}</strong>
-    {% if current_page_num < total_pages %}<a href="{{ url_for('verify_batch_page', batch_id=batch_id, page=current_page_num + 1) }}">Next Page &raquo;</a>{% else %}<span>Next Page &raquo;</span>{% endif %}
+    {% if current_page_num < total_pages %}
+        <a href="{{ url_for('verify_batch_page', batch_id=batch_id, page=current_page_num + 1) }}">Next Page &raquo;</a>
+    {% else %}
+        <!-- On the last page, the "Next" button is disabled, as submitting any action will move to the next step. -->
+        <span>Next Page &raquo;</span>
+    {% endif %}
 </div>
+
 <div class="container">
+    <!-- Left Pane: Image and Rotation -->
     <div class="image-pane">
         <div class="image-wrapper">
             <img id="pageImage" src="{{ url_for('serve_processed_file', filepath=current_page.relative_image_path) }}" alt="Scanned page">
@@ -54,34 +71,60 @@
             <button onclick="rotateImage(90)">Rotate Right ↻</button>
         </div>
     </div>
+
+    <!-- Right Pane: Information and Actions -->
     <div class="info-pane">
         <form id="correction-form" action="{{ url_for('update_page') }}" method="post">
-            <input type="hidden" name="page_id" value="{{ current_page.id }}"><input type="hidden" name="batch_id" value="{{ batch_id }}"><input type="hidden" name="current_page_num" value="{{ current_page_num }}"><input type="hidden" name="total_pages" value="{{ total_pages }}"><input type="hidden" id="rotation-input" name="rotation" value="{{ current_page.rotation_angle or 0 }}"><input type="hidden" name="ai_suggestion" value="{{ current_page.ai_suggested_category }}">
+            <!-- Hidden fields to pass all necessary context to the server -->
+            <input type="hidden" name="page_id" value="{{ current_page.id }}">
+            <input type="hidden" name="batch_id" value="{{ batch_id }}">
+            <input type="hidden" name="current_page_num" value="{{ current_page_num }}">
+            <input type="hidden" name="total_pages" value="{{ total_pages }}">
+            <input type="hidden" id="rotation-input" name="rotation" value="{{ current_page.rotation_angle or 0 }}">
+            <input type="hidden" name="ai_suggestion" value="{{ current_page.ai_suggested_category }}">
+            
             <div class="info-box">
                 <div class="form-group">
                     <label for="category-select">Category</label>
                     <select id="category-select" name="category_dropdown">
+                        <!-- The default option shows the AI's suggestion -->
                         <option value="" disabled selected>-- AI Suggestion: {{ current_page.ai_suggested_category }} --</option>
-                        {% for cat in categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
+                        <!-- Populate the dropdown with all known categories -->
+                        {% for cat in categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                        {% endfor %}
+                        <!-- Option to create a new category -->
                         <option value="other_new">Other (Create New)...</option>
                     </select>
                 </div>
-                <div class="form-group" id="other-category-group" style="display:none;"><label for="other-category-input">New Category Name</label><input type="text" id="other-category-input" name="other_category"></div>
-                <div class="actions"><button type="submit" name="action" value="approve" class="btn-approve">Approve & Next</button><button type="submit" name="action" value="correct" class="btn-correct">Correct & Next</button><button type="submit" name="action" value="flag" class="btn-flag">Flag for Review</button></div>
+                <!-- This input is hidden by default and appears if the user selects "Other" -->
+                <div class="form-group" id="other-category-group" style="display:none;">
+                    <label for="other-category-input">New Category Name</label>
+                    <input type="text" id="other-category-input" name="other_category">
+                </div>
+                <!-- Action buttons that submit the form with different 'action' values -->
+                <div class="actions">
+                    <button type="submit" name="action" value="approve" class="btn-approve">Approve & Next</button>
+                    <button type="submit" name="action" value="correct" class="btn-correct">Correct & Next</button>
+                    <button type="submit" name="action" value="flag" class="btn-flag">Flag for Review</button>
+                </div>
             </div>
         </form>
+        
+        <!-- Box to display the extracted OCR text -->
         <div class="info-box" style="margin-top: 20px;">
             <h3>Extracted OCR Text</h3>
             <div class="ocr-text"><pre>{{ current_page.ocr_text }}</pre></div>
         </div>
     </div>
 </div>
+
 <script>
-    // SIMPLIFIED SCRIPT
     let currentRotation = 0;
     const rotationInput = document.getElementById('rotation-input');
     const pageImage = document.getElementById('pageImage');
     
+    // Function to handle client-side image rotation.
     function rotateImage(degrees) {
         currentRotation = (currentRotation + 360 + degrees) % 360;
         if (rotationInput) rotationInput.value = currentRotation;
@@ -89,13 +132,19 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        // Set the initial rotation of the image when the page loads.
         if (rotationInput) { currentRotation = parseInt(rotationInput.value) || 0; }
         if (pageImage) { pageImage.style.transform = `rotate(${currentRotation}deg)`; }
         
+        // Show/hide the "New Category" input field based on dropdown selection.
         const categorySelect = document.getElementById('category-select');
         const otherCategoryGroup = document.getElementById('other-category-group');
         if (categorySelect) {
-            categorySelect.addEventListener('change', function() { if (otherCategoryGroup) { otherCategoryGroup.style.display = (this.value === 'other_new') ? 'block' : 'none'; } });
+            categorySelect.addEventListener('change', function() { 
+                if (otherCategoryGroup) { 
+                    otherCategoryGroup.style.display = (this.value === 'other_new') ? 'block' : 'none'; 
+                }
+            });
         }
     });
 </script>

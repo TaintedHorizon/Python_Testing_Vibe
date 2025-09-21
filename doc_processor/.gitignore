@@ -1,13 +1,23 @@
-# Python virtual environment
+# --- Python Virtual Environment ---
+# Exclude the virtual environment directory to avoid committing project-specific dependencies.
 venv/
 
-# Environment variables
+# --- Environment Variables ---
+# Exclude the .env file, which contains sensitive information like API keys and local configuration.
+# A .env.sample file should be committed instead to provide a template for users.
 .env
 
-# Python cache
+# --- Python Cache and Compiled Files ---
+# Exclude Python's bytecode cache directory and compiled files.
 __pycache__/
 *.pyc
 
-# Database file
+# --- Database Files ---
+# Exclude the SQLite database file itself. The schema is managed by database_setup.py,
+# but the data is specific to a user's local instance.
 documents.db
 *.db
+
+# --- IDE and Editor Directories ---
+.vscode/
+.idea/
