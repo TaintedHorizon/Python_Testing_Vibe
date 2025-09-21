@@ -9,6 +9,7 @@
     .btn-verify { background-color: #007BFF; }
     .btn-review { background-color: #ffc107; color: black; }
     .btn-group { background-color: #28a745; }
+    .btn-order { background-color: #6f42c1; }
     .btn-revisit { background-color: #6c757d; }
     .new-batch-form { padding: 20px; background-color: white; border: 1px solid #ccc; border-radius: 5px; margin-bottom: 30px; }
     .new-batch-form button { font-size: 1.2em; padding: 10px 20px; cursor: pointer; width: 100%; }
@@ -40,15 +41,16 @@
             <td>
                 {% if batch.status == 'pending_verification' %}
                     <a href="{{ url_for('verify_batch_page', batch_id=batch.id) }}" class="action-btn btn-verify">Verify</a>
-                {% elif batch.status == 'verification_complete' and batch.flagged_count > 0 %}
-                    <a href="{{ url_for('review_batch_page', batch_id=batch.id) }}" class="action-btn btn-review">Review ({{ batch.flagged_count }} flagged)</a>
-                    <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Pages</a>
-                {% elif batch.status == 'verification_complete' and batch.flagged_count == 0 %}
-                    <a href="{{ url_for('group_batch_page', batch_id=batch.id) }}" class="action-btn btn-group">Group</a>
-                    <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Pages</a>
+                {% elif batch.status == 'verification_complete' %}
+                     <a href="{{ url_for('group_batch_page', batch_id=batch.id) }}" class="action-btn btn-group">Group ({{ batch.ungrouped_count }} ungrouped)</a>
+                     {% if batch.flagged_count > 0 %}<a href="{{ url_for('review_batch_page', batch_id=batch.id) }}" class="action-btn btn-review">Review ({{ batch.flagged_count }} flagged)</a>{% endif %}
+                     <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Pages</a>
                 {% elif batch.status == 'grouping_complete' %}
+                    <a href="{{ url_for('order_batch_page', batch_id=batch.id) }}" class="action-btn btn-order">Order Pages</a>
                     <a href="{{ url_for('group_batch_page', batch_id=batch.id) }}" class="action-btn btn-group">Revisit Grouping</a>
                     <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Pages</a>
+                {% elif batch.status == 'ordering_complete' %}
+                    <span style="color:green; font-weight: bold;">✓ Complete</span>
                 {% else %}
                      <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Batch</a>
                 {% endif %}

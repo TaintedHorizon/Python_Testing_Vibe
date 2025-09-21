@@ -5,13 +5,14 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+
 def create_database():
     """
     Connects to the SQLite database specified in the .env file,
     creates the necessary tables if they don't already exist,
     and then closes the connection.
     """
-    db_path = os.getenv('DATABASE_PATH', 'documents.db')
+    db_path = os.getenv("DATABASE_PATH", "documents.db")
     db_dir = os.path.dirname(db_path)
 
     # Create the directory for the database if it doesn't exist
@@ -26,19 +27,20 @@ def create_database():
         print(f"Successfully connected to database at '{db_path}'")
 
         # --- Create 'batches' table ---
-        # Stores a record for each processing run.
-        cursor.execute('''
+        cursor.execute(
+            """
         CREATE TABLE IF NOT EXISTS batches (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             status TEXT NOT NULL DEFAULT 'processing'
         );
-        ''')
+        """
+        )
         print("Table 'batches' created or already exists.")
 
         # --- Create 'pages' table ---
-        # Stores data for every single page extracted from all documents.
-        cursor.execute('''
+        cursor.execute(
+            """
         CREATE TABLE IF NOT EXISTS pages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             batch_id INTEGER,
@@ -48,12 +50,43 @@ def create_database():
             ocr_text TEXT,
             ai_suggested_category TEXT,
             human_verified_category TEXT,
+            status TEXT,
+            rotation_angle INTEGER DEFAULT 0,
             FOREIGN KEY (batch_id) REFERENCES batches (id)
         );
-        ''')
+        """
+        )
         print("Table 'pages' created or already exists.")
-        
-        # --- We will add 'documents' and 'document_pages' tables later ---
+
+        # --- Create 'documents' table (Corrected Version) ---
+        cursor.execute(
+            """
+        CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id INTEGER,
+            document_name TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending_order',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (batch_id) REFERENCES batches (id)
+        );
+        """
+        )
+        print("Table 'documents' created or already exists.")
+
+        # --- Create 'document_pages' table ---
+        cursor.execute(
+            """
+        CREATE TABLE IF NOT EXISTS document_pages (
+            document_id INTEGER,
+            page_id INTEGER,
+            sequence INTEGER,
+            PRIMARY KEY (document_id, page_id),
+            FOREIGN KEY (document_id) REFERENCES documents (id),
+            FOREIGN KEY (page_id) REFERENCES pages (id)
+        );
+        """
+        )
+        print("Table 'document_pages' created or already exists.")
 
         conn.commit()
         print("Database schema is up to date.")
@@ -65,7 +98,8 @@ def create_database():
             conn.close()
             print("Database connection closed.")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     print("Initializing database setup...")
     create_database()
     print("Database setup complete.")

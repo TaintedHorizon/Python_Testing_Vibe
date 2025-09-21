@@ -1,11 +1,11 @@
 {% extends 'base.html' %}
-{% block title %}Revisiting Batch {{ batch_id }}{% endblock %}
+{% block title %}Review Batch {{ batch_id }}{% endblock %}
 {% block content %}
 <style>
     .container { display: flex; gap: 20px; align-items: flex-start; }
     .image-pane { flex: 1; text-align: center; }
     .image-wrapper { width: 100%; height: 80vh; border: 1px solid #ccc; background-color: #f0f0f0; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    .image-wrapper img { transition: transform 0.2s; }
+    .image-wrapper img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform 0.2s; }
     .info-pane { flex: 1; }
     .pagination { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     .pagination a, .pagination span { padding: 10px 20px; text-decoration: none; border: 1px solid #ddd; background-color: #007BFF; color: white; border-radius: 5px; }
@@ -15,91 +15,146 @@
     .ocr-text pre { white-space: pre-wrap; word-wrap: break-word; }
     .form-group { margin-bottom: 15px; }
     .actions { display: flex; gap: 10px; margin-top: 20px; }
-    .actions button { flex: 1; padding: 10px; border: none; border-radius: 5px; color: white; cursor: pointer; font-size: 1em; }
+    .actions button, .actions .btn-delete { flex: 1; padding: 10px; border: none; border-radius: 5px; color: white; cursor: pointer; font-size: 1em; text-align: center; }
     .btn-correct { background-color: #007BFF; }
-    .btn-flag { background-color: #dc3545; }
+    .btn-delete { background-color: #dc3545; display: inline-block; text-decoration: none; }
+    .page-separator { margin-top: 30px; margin-bottom: 30px; border-top: 2px solid #eee; }
+    /* --- FIX 1: New styles for the OCR button --- */
+    .ocr-actions { text-align: center; margin-top: 15px; }
+    .btn-ocr {
+        background-color: #ffc107;
+        color: black;
+        font-weight: bold;
+        padding: 12px 25px;
+        font-size: 1.1em;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    .btn-ocr:disabled {
+        background-color: #6c757d;
+        color: white;
+        cursor: not-allowed;
+    }
 </style>
 
-<h1>Revisiting Batch #{{ batch_id }} <span style="font-size: 0.6em; color: #666;">(Status: {{ batch.status }})</span></h1>
+<h1>Reviewing Flagged Pages for Batch #{{ batch_id }} <span style="font-size: 0.6em; color: #666;">(Status: {{ batch.status }})</span></h1>
+<hr>
 
-<div class="pagination">
-    {% if current_page_num > 1 %}
-        <a href="{{ url_for('revisit_batch_page', batch_id=batch_id, page=current_page_num - 1) }}">&laquo; Previous Page</a>
-    {% else %}
-        <span>&laquo; Previous Page</span>
-    {% endif %}
-    <strong>Page {{ current_page_num }} of {{ total_pages }}</strong>
-    {% if current_page_num < total_pages %}
-        <a href="{{ url_for('revisit_batch_page', batch_id=batch_id, page=current_page_num + 1) }}">Next Page &raquo;</a>
-    {% else %}
-        <a href="{{ url_for('mission_control_page') }}" style="background-color: #17a2b8;">Finish Revisiting</a>
-    {% endif %}
-</div>
-
+{% for page in flagged_pages %}
 <div class="container">
     <div class="image-pane">
+        <h4>Source: {{ page.source_filename }}, Page {{ page.page_number }} (DB ID: {{ page.id }})</h4>
         <div class="image-wrapper">
-            <img id="pageImage" src="{{ url_for('serve_processed_file', filepath=current_page.relative_image_path) }}" alt="Scanned page">
+            <img id="pageImage_{{ page.id }}" src="{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}" alt="Scanned page">
         </div>
         <div class="rotate-buttons">
-            <button onclick="rotateImage(-90)">Rotate Left ↺</button>
-            <button onclick="rotateImage(90)">Rotate Right ↻</button>
+            <button onclick="rotateImage({{ page.id }}, -90)">Rotate Left ↺</button>
+            <button onclick="rotateImage({{ page.id }}, 90)">Rotate Right ↻</button>
         </div>
     </div>
     <div class="info-pane">
-        <form id="correction-form" action="{{ url_for('update_page') }}" method="post">
-            <input type="hidden" name="page_id" value="{{ current_page.id }}"><input type="hidden" name="batch_id" value="{{ batch_id }}"><input type="hidden" name="current_page_num" value="{{ current_page_num }}"><input type="hidden" name="total_pages" value="{{ total_pages }}"><input type="hidden" id="rotation-input" name="rotation" value="{{ current_page.rotation_angle or 0 }}"><input type="hidden" name="ai_suggestion" value="{{ current_page.ai_suggested_category }}">
-            <div class="info-box">
-                <p><strong>Current Verified Category:</strong><br>{{ current_page.human_verified_category or 'N/A' }}</p><hr>
+        <div class="info-box">
+            <form action="{{ url_for('update_page') }}" method="post">
+                <p><strong>Reason for Flag:</strong> AI Suggestion was '{{ page.ai_suggested_category }}', but page was manually flagged.</p>
+                <hr>
+                <input type="hidden" name="page_id" value="{{ page.id }}">
+                <input type="hidden" name="batch_id" value="{{ batch_id }}">
+                <input type="hidden" id="rotation-input_{{ page.id }}" name="rotation" value="{{ page.rotation_angle or 0 }}">
                 <div class="form-group">
-                    <label for="category-select">Make a Correction:</label>
-                    <select id="category-select" name="category_dropdown">
+                    <label for="category-select_{{ page.id }}">Correct Category:</label>
+                    <select id="category-select_{{ page.id }}" name="category_dropdown">
                         <option value="" disabled selected>-- Choose a new category --</option>
-                        {% for cat in categories %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
+                        {% for cat in categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                        {% endfor %}
                         <option value="other_new">Other (Create New)...</option>
                     </select>
                 </div>
-                <div class="form-group" id="other-category-group" style="display:none;"><label for="other-category-input">New Category Name</label><input type="text" id="other-category-input" name="other_category"></div>
-                <div class="actions">
-                    <button type="submit" name="action" value="correct" class="btn-correct">Save Change</button>
-                    <button type="submit" name="action" value="flag" class="btn-flag">Flag for Review</button>
+                <div class="form-group" id="other-category-group_{{ page.id }}" style="display:none;">
+                    <label for="other-category-input_{{ page.id }}">New Category Name</label>
+                    <input type="text" id="other-category-input_{{ page.id }}" name="other_category">
                 </div>
-            </div>
-        </form>
+                <div class="actions">
+                    <button type="submit" name="action" value="correct" class="btn-correct">Approve Correction</button>
+                </div>
+            </form>
+        </div>
+
         <div class="info-box" style="margin-top: 20px;">
             <h3>Extracted OCR Text</h3>
-            <div class="ocr-text"><pre>{{ current_page.ocr_text }}</pre></div>
+            <div class="ocr-text"><pre>{{ page.ocr_text }}</pre></div>
+            
+            <div class="ocr-actions">
+                <form id="ocr-form-{{ page.id }}" action="{{ url_for('rerun_ocr_action') }}" method="post" onsubmit="handleOcrSubmit(this)">
+                    <input type="hidden" name="page_id" value="{{ page.id }}">
+                    <input type="hidden" name="batch_id" value="{{ batch_id }}">
+                    <input type="hidden" id="rotation-rerun_{{ page.id }}" name="rotation" value="{{ page.rotation_angle or 0 }}">
+                    <button type="submit" class="btn-ocr">Re-Run OCR with Rotation</button>
+                </form>
+            </div>
+            
+            <hr>
+            <form action="{{ url_for('delete_page_action', page_id=page.id) }}" method="post" onsubmit="return confirm('Are you sure you want to permanently delete this page? This cannot be undone.');">
+                 <input type="hidden" name="batch_id" value="{{ batch_id }}">
+                <button type="submit" class="actions btn-delete" style="width:100%;">Delete Page</button>
+            </form>
         </div>
     </div>
 </div>
+{% if not loop.last %}
+    <div class="page-separator"></div>
+{% endif %}
+{% endfor %}
+<hr>
+<div style="text-align: center; margin-top: 20px;">
+    <a href="{{ url_for('mission_control_page') }}" class="pagination a" style="background-color: #28a745;">Finish Review</a>
+</div>
+
 <script>
-    let currentRotation = 0;
-    const rotationInput = document.getElementById('rotation-input');
-    const pageImage = document.getElementById('pageImage');
-    function applyRotation() {
-        if (!pageImage) return;
-        pageImage.style.transform = `rotate(${currentRotation}deg)`;
-        const isLandscape = currentRotation === 90 || currentRotation === 270;
-        const imgRatio = pageImage.naturalWidth / pageImage.naturalHeight;
-        const wrapper = pageImage.parentElement;
-        const wrapperRatio = wrapper.clientWidth / wrapper.clientHeight;
-        if ((!isLandscape && imgRatio > wrapperRatio) || (isLandscape && (1/imgRatio) > wrapperRatio)) {
-            pageImage.style.width = 'auto'; pageImage.style.height = '100%';
-        } else {
-            pageImage.style.width = '100%'; pageImage.style.height = 'auto';
+    let rotations = {};
+    {% for page in flagged_pages %}
+        rotations[{{ page.id }}] = {{ page.rotation_angle or 0 }};
+    {% endfor %}
+
+    function rotateImage(pageId, degrees) {
+        rotations[pageId] = (rotations[pageId] + 360 + degrees) % 360;
+        document.getElementById('pageImage_' + pageId).style.transform = `rotate(${rotations[pageId]}deg)`;
+        document.getElementById('rotation-input_' + pageId).value = rotations[pageId];
+        document.getElementById('rotation-rerun_' + pageId).value = rotations[pageId];
+    }
+    
+    // --- FIX 3: JavaScript function for OCR button feedback ---
+    function handleOcrSubmit(form) {
+        if (confirm('Re-running OCR can be slow. Are you sure?')) {
+            const button = form.querySelector('button[type="submit"]');
+            button.disabled = true;
+            button.textContent = 'Processing...';
+            return true; // Proceed with form submission
         }
+        return false; // Cancel submission
     }
-    function rotateImage(degrees) {
-        currentRotation = (currentRotation + 360 + degrees) % 360;
-        if(rotationInput) rotationInput.value = currentRotation;
-        applyRotation();
-    }
+
     document.addEventListener('DOMContentLoaded', () => {
-        if (rotationInput) { currentRotation = parseInt(rotationInput.value) || 0; }
-        if (pageImage.complete) { applyRotation(); } else { pageImage.onload = applyRotation; }
-        const categorySelect = document.getElementById('category-select');
-        const otherCategoryGroup = document.getElementById('other-category-group');
-        categorySelect.addEventListener('change', function() { otherCategoryGroup.style.display = (this.value === 'other_new') ? 'block' : 'none'; });
+        // --- FIX 2: Apply initial rotation on page load ---
+        for (const pageId in rotations) {
+            const angle = rotations[pageId];
+            const imageElement = document.getElementById('pageImage_' + pageId);
+            if (imageElement) {
+                imageElement.style.transform = `rotate(${angle}deg)`;
+            }
+        }
+
+        const selects = document.querySelectorAll('select[name="category_dropdown"]');
+        selects.forEach(select => {
+            select.addEventListener('change', function() {
+                const pageId = this.id.split('_')[1];
+                const otherGroup = document.getElementById('other-category-group_' + pageId);
+                if (otherGroup) {
+                    otherGroup.style.display = (this.value === 'other_new') ? 'block' : 'none';
+                }
+            });
+        });
     });
 </script>
 {% endblock %}
