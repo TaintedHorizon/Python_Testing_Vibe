@@ -6,6 +6,8 @@ This project is a web-based, human-in-the-loop document processing pipeline desi
 
 The core philosophy is to use automation for the heavy lifting (like text extraction and initial categorization) and empower a human user to quickly and efficiently verify, correct, and organize the results.
 
+This project has recently completed Module 5, which finalizes the document processing workflow with robust export and finalization features.
+
 ## Features
 
 *   **Automated Ingestion**: Automatically processes all PDFs from a designated intake folder.
@@ -17,6 +19,7 @@ The core philosophy is to use automation for the heavy lifting (like text extrac
 *   **Interactive Document Grouping**: A user-friendly interface to assemble individual verified pages into logical, multi-page documents.
 *   **Drag-and-Drop Page Ordering**: An intuitive, two-column UI with a large preview pane and a drag-and-drop list for reordering pages within a document.
 *   **Robust AI-Assisted Ordering**: A hybrid AI feature that reliably suggests page order by extracting printed page numbers, which are then used for a code-based sort.
+*   **Finalization and Export**: A final review stage to edit AI-suggested filenames and export documents into a clean, categorized folder structure as standard PDFs, searchable PDFs, and detailed Markdown log files.
 
 ## Technology Stack
 
@@ -49,6 +52,28 @@ doc_processor/
     ├── revisit.html        # A read-only view to look at pages of an already-processed batch.
     └── verify.html         # The first step in the workflow: page-by-page verification.
 ```
+
+## File-by-File Analysis
+
+### `app.py`
+
+This is the heart of the web application. It uses the Flask framework to define all the URL routes and handle the logic for the user interface. It orchestrates the entire user workflow, from initiating a new batch to verifying pages, grouping them into documents, ordering them, and finally exporting them. It doesn't perform the heavy lifting itself but instead calls functions from `processing.py` for tasks like OCR and `database.py` to read or write data. It is responsible for rendering the HTML templates and passing the necessary data to them.
+
+### `database.py`
+
+This module is the Data Access Layer (DAL). It contains all the functions that interact directly with the SQLite database. By centralizing all SQL queries here, the rest of the application can be database-agnostic, and the code is much cleaner and easier to maintain. The functions are divided into "queries" (reading data with `SELECT`) and "commands" (modifying data with `INSERT`, `UPDATE`, `DELETE`). It also includes a connection utility that configures connections to return dictionary-like rows for more readable code.
+
+### `database_setup.py`
+
+This is a one-time setup script used to initialize a new, empty database with the correct schema. It creates all the necessary tables (`batches`, `pages`, `documents`, `document_pages`) and defines their columns, primary keys, and foreign key relationships. It is idempotent, meaning it can be run multiple times without causing errors.
+
+### `database_upgrade.py`
+
+This script is for managing database schema changes over time. As new features are added, you might need to add a new column to a table. This script provides a safe, non-destructive way to do that. It checks if a column already exists before adding it, ensuring that it can be run multiple times without causing issues and without destroying existing data. This is a crucial script for maintaining a production application.
+
+### `processing.py`
+
+This is the "engine" of the application. It contains all the core data processing logic. This includes converting PDFs to images, running OCR to extract text, communicating with the Ollama AI to get suggestions for categories and filenames, generating the final PDF and Markdown files, and managing the file system (creating directories, moving files, and cleaning up). This module is called by `app.py` to perform these intensive tasks in the background.
 
 ## Setup and Installation (Ubuntu)
 
@@ -86,6 +111,7 @@ INTAKE_DIR=/path/to/your/intake_folder
 PROCESSED_DIR=/path/to/your/processed_folder
 ARCHIVE_DIR=/path/to/your/archive_folder
 DATABASE_PATH=/path/to/your/database/documents.db
+FILING_CABINET_DIR=/path/to/your/filing_cabinet
 
 # --- Ollama AI Configuration ---
 OLLAMA_HOST=http://localhost:11434
@@ -132,4 +158,4 @@ Open your web browser and go to `http://<your_vm_ip>:5000`. This will take you t
 4.  **Review (If Needed)**: If you flagged any pages, a "Review" button will appear. Use this page to fix rotations, re-run OCR, or delete bad pages.
 5.  **Group**: Once verification is complete, click the "Group" button. On this screen, select pages from the same category and give them a document name (e.g., "January 2024 Bank Statement").
 6.  **Order**: After grouping, click the "Order Pages" button. This will show you all documents with more than one page. Click "Order Pages" on a document to go to the drag-and-drop interface to set the correct page sequence.
-7.  **Finalize**: Once all documents are ordered, you can click the "Finalize Batch" button. The batch is now considered complete.
+7.  **Finalize & Export**: Once all documents are ordered, click the "Finalize & Export" button. On this screen, you can review and edit the AI-suggested filenames before clicking "Export All Documents". The final files will be saved to your `FILING_CABINET_DIR`.

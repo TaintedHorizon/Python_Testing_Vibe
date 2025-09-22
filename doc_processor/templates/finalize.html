@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+
+{% block title %}Finalize & Export Batch {{ batch_id }}{% endblock %}
+
+{% block content %}
+<style>
+    .finalize-container { max-width: 900px; margin: auto; background-color: white; padding: 20px; border: 1px solid #ccc; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    .doc-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    .doc-table th, .doc-table td { border: 1px solid #ddd; padding: 12px; text-align: left; vertical-align: middle; }
+    .doc-table th { background-color: #f2f2f2; }
+    .filename-input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+    .export-form { margin-top: 20px; text-align: center; }
+    .export-btn {
+        padding: 12px 30px;
+        background-color: #28a745;
+        color: white;
+        border-radius: 5px;
+        font-size: 1.2em;
+        border: none;
+        cursor: pointer;
+    }
+    .export-btn:disabled {
+        background-color: #6c757d;
+        cursor: not-allowed;
+    }
+</style>
+
+<div class="finalize-container">
+    <h1>Finalize & Export Batch #{{ batch_id }}</h1>
+    <p>Review the AI-suggested filenames below. You can edit them as needed. When you are ready, click the button at the bottom to export all documents and complete the batch.</p>
+
+    <form id="export-form" class="export-form" action="{{ url_for('export_batch_action', batch_id=batch_id) }}" method="post" onsubmit="return handleExportSubmit(this);">
+        <table class="doc-table">
+            <thead>
+                <tr>
+                    <th>Original Name (from Grouping)</th>
+                    <th>Final Filename (Editable)</th>
+                    <th>Pages</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for doc in documents %}
+                <tr>
+                    <td>{{ doc.document_name }}</td>
+                    <td>
+                        <input type="hidden" name="document_ids" value="{{ doc.id }}">
+                        <input type="text" name="final_filenames" class="filename-input" value="{{ doc.suggested_filename }}">
+                    </td>
+                    <td>{{ doc.page_count }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3" style="text-align: center;">No documents found in this batch.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if documents %}
+            <button id="export-button" type="submit" class="export-btn">Export All Documents</button>
+        {% endif %}
+    </form>
+</div>
+
+<script>
+    function handleExportSubmit(form) {
+        // First, show a confirmation dialog to the user
+        if (confirm('Are you sure you want to export all documents for this batch? This action is final.')) {
+            const button = form.querySelector('#export-button');
+            // Disable the button to prevent multiple submissions
+            button.disabled = true;
+            // Change the button text to provide feedback
+            button.textContent = 'Exporting... Please Wait...';
+            return true; // Proceed with form submission
+        }
+        return false; // Cancel form submission if user clicks "Cancel"
+    }
+</script>
+{% endblock %}

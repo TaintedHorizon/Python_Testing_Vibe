@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+
+{% block title %}View Exported Documents for Batch {{ batch_id }}{% endblock %}
+
+{% block content %}
+<style>
+    .doc-list-container { max-width: 900px; margin: auto; background-color: white; padding: 20px; border: 1px solid #ccc; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    .doc-list-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    .doc-list-table th, .doc-list-table td { border: 1px solid #ddd; padding: 12px; text-align: left; vertical-align: middle; }
+    .doc-list-table th { background-color: #f2f2f2; }
+    .download-links a { display: inline-block; margin-right: 10px; text-decoration: none; color: #007BFF; }
+    .download-links a:hover { text-decoration: underline; }
+    .back-link { display: inline-block; margin-top: 20px; padding: 10px 20px; background-color: #6c757d; color: white; text-decoration: none; border-radius: 5px; }
+</style>
+
+<div class="doc-list-container">
+    <h1>Exported Documents for Batch #{{ batch_id }}</h1>
+    <p>This batch has been successfully exported. You can download the final files for each document below.</p>
+
+    <table class="doc-list-table">
+        <thead>
+            <tr>
+                <th>Final Document Name</th>
+                <th>Downloads</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for doc in documents %}
+                {% if doc.final_filename_base %}
+                <tr>
+                    <td>{{ doc.final_filename_base }}</td>
+                    <td class="download-links">
+                        <a href="{{ url_for('download_export_file', filepath=doc.pdf_path) }}" title="Download Standard PDF">PDF</a> |
+                        <a href="{{ url_for('download_export_file', filepath=doc.ocr_pdf_path) }}" title="Download Searchable PDF">OCR PDF</a> |
+                        <a href="{{ url_for('download_export_file', filepath=doc.log_path) }}" title="Download Markdown Log">Log</a>
+                    </td>
+                </tr>
+                {% endif %}
+            {% else %}
+            <tr>
+                <td colspan="2" style="text-align: center;">No exported documents with saved filenames were found for this batch.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <a href="{{ url_for('mission_control_page') }}" class="back-link">Back to Mission Control</a>
+</div>
+{% endblock %}

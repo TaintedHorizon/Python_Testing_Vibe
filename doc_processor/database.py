@@ -1,3 +1,22 @@
+"""
+This module serves as the Data Access Layer (DAL) for the application.
+It encapsulates all the SQL queries and database interactions, providing a clean,
+function-based API for the rest of the application (primarily `app.py`) to use.
+This separation of concerns is crucial for maintainability, as it keeps raw SQL
+out of the application logic and centralizes all database code in one place.
+
+The functions are divided into two main categories:
+1.  **Data Retrieval Functions (Queries)**: These functions read data from the
+    database (using `SELECT` statements) and return it to the caller. They do
+    not modify the state of the database.
+2.  **Data Modification Functions (Commands)**: These functions change the data
+    in the database (using `INSERT`, `UPDATE`, `DELETE` statements). They are
+    wrapped in transactions to ensure atomicity.
+
+Using a dedicated module like this makes the code easier to test, debug, and
+refactor. For example, if the database schema changes, only the functions in
+this file need to be updated.
+"""
 # Standard library imports
 import sqlite3
 import os
@@ -14,33 +33,40 @@ load_dotenv()
 
 def get_db_connection():
     """
-    Establishes a connection to the SQLite database.
+    Establishes and configures a connection to the SQLite database.
 
-    This function retrieves the database path from the environment variables.
-    It configures the connection to return rows that behave like dictionaries
-    (via sqlite3.Row), which allows accessing columns by name.
+    This is a factory function that creates a new database connection each time
+    it's called. It retrieves the database file path from the environment
+    variables. Crucially, it sets the `row_factory` to `sqlite3.Row`, which
+    allows accessing query results like dictionaries (e.g., `row['column_name']`)
+    instead of just by index. This makes the code much more readable and less
+    prone to errors.
 
     Returns:
-        sqlite3.Connection: A connection object to the database.
+        sqlite3.Connection: A configured connection object to the database.
     """
     db_path = os.getenv("DATABASE_PATH")
     conn = sqlite3.connect(db_path)
-    # This factory allows accessing query results by column name, like a dictionary.
+    # This factory is a game-changer for readability. Instead of row[0], row[1],
+    # we can use row['id'], row['status'], etc.
     conn.row_factory = sqlite3.Row
     return conn
 
 
 # --- DATA RETRIEVAL FUNCTIONS (QUERIES) ---
+# These functions are responsible for reading information from the database.
 
 def get_pages_for_batch(batch_id):
     """
-    Retrieves all pages associated with a specific batch ID.
+    Retrieves all pages associated with a specific batch ID, sorted for
+    consistent display.
 
     Args:
         batch_id (int): The unique identifier for the batch.
 
     Returns:
-        list: A list of sqlite3.Row objects, where each row is a page.
+        list: A list of sqlite3.Row objects, where each object represents a page.
+              Returns an empty list if no pages are found.
     """
     conn = get_db_connection()
     pages = conn.execute(
@@ -53,7 +79,8 @@ def get_pages_for_batch(batch_id):
 
 def get_flagged_pages_for_batch(batch_id):
     """
-    Retrieves all pages that have been marked with a 'flagged' status for a given batch.
+    Retrieves all pages that have been marked with a 'flagged' status for a
+    given batch. This is used by the 'Review' screen.
 
     Args:
         batch_id (int): The unique identifier for the batch.
@@ -73,23 +100,25 @@ def get_flagged_pages_for_batch(batch_id):
 def get_all_unique_categories():
     """
     Fetches a sorted list of all unique, non-empty categories that have been
-    verified by a human user.
+    previously verified by a human user. This is used to populate the category
+    dropdowns in the UI, ensuring consistency.
 
     Returns:
-        list: A list of strings, where each string is a unique category name.
+        list: A sorted list of strings, where each string is a unique category name.
     """
     conn = get_db_connection()
     results = conn.execute(
         "SELECT DISTINCT human_verified_category FROM pages WHERE human_verified_category IS NOT NULL AND human_verified_category != '' ORDER BY human_verified_category"
     ).fetchall()
     conn.close()
-    # Extract the category name from each row object.
+    # The query returns a list of Row objects; this list comprehension extracts
+    # just the category name string from each row.
     return [row["human_verified_category"] for row in results]
 
 
 def get_batch_by_id(batch_id):
     """
-    Retrieves a single batch record by its ID.
+    Retrieves a single batch record by its primary key.
 
     Args:
         batch_id (int): The unique identifier for the batch.
@@ -105,7 +134,8 @@ def get_batch_by_id(batch_id):
 
 def count_flagged_pages_for_batch(batch_id):
     """
-    Counts the number of pages marked as 'flagged' within a specific batch.
+    Efficiently counts the number of pages marked as 'flagged' within a batch.
+    Used for display on the Mission Control dashboard.
 
     Args:
         batch_id (int): The unique identifier for the batch.
@@ -114,6 +144,7 @@ def count_flagged_pages_for_batch(batch_id):
         int: The total count of flagged pages.
     """
     conn = get_db_connection()
+    # Using COUNT(*) is much more efficient than fetching all rows and using len().
     count = conn.execute(
         "SELECT COUNT(*) FROM pages WHERE batch_id = ? AND status = 'flagged'",
         (batch_id,),
@@ -124,8 +155,8 @@ def count_flagged_pages_for_batch(batch_id):
 
 def count_ungrouped_verified_pages(batch_id):
     """
-    Counts the number of 'verified' pages in a batch that have not yet been
-    assigned to a document.
+    Counts 'verified' pages in a batch that have not yet been assigned to a document.
+    This is key for determining if the 'grouping' step is complete.
 
     Args:
         batch_id (int): The unique identifier for the batch.
@@ -134,8 +165,9 @@ def count_ungrouped_verified_pages(batch_id):
         int: The total count of ungrouped, verified pages.
     """
     conn = get_db_connection()
-    # This query uses a LEFT JOIN to find pages that do not have a corresponding
-    # entry in the document_pages junction table.
+    # This query is a bit more complex. It uses a LEFT JOIN to link `pages`
+    # with `document_pages`. If a page has no match in `document_pages`
+    # (i.e., `dp.page_id IS NULL`), it means it hasn't been assigned to a document.
     count = conn.execute(
         "SELECT COUNT(*) FROM pages p LEFT JOIN document_pages dp ON p.id = dp.page_id WHERE p.batch_id = ? AND p.status = 'verified' AND dp.page_id IS NULL",
         (batch_id,),
@@ -147,7 +179,8 @@ def count_ungrouped_verified_pages(batch_id):
 def get_verified_pages_for_grouping(batch_id):
     """
     Retrieves all verified pages for a batch that are not yet part of a document,
-    and groups them by their human-verified category.
+    and groups them by their human-verified category. This is the primary data
+    source for the 'Grouping' page.
 
     Args:
         batch_id (int): The unique identifier for the batch.
@@ -157,13 +190,17 @@ def get_verified_pages_for_grouping(batch_id):
                      of page row objects belonging to that category.
     """
     conn = get_db_connection()
-    # Similar to the count function, this uses a LEFT JOIN to find ungrouped pages.
+    # This query selects all columns from the pages table (`p.*`) for pages that
+    # meet the criteria of being 'verified' and not yet grouped.
     pages = conn.execute(
         "SELECT p.* FROM pages p LEFT JOIN document_pages dp ON p.id = dp.page_id WHERE p.batch_id = ? AND p.status = 'verified' AND dp.page_id IS NULL ORDER BY p.human_verified_category, p.source_filename, p.page_number",
         (batch_id,),
     ).fetchall()
     conn.close()
-    # Use defaultdict to easily group pages by category.
+
+    # `defaultdict(list)` is a convenient way to group items. When we access a
+    # key for the first time, it automatically creates an empty list for that key,
+    # avoiding the need for `if key not in dict:` checks.
     grouped_pages = defaultdict(list)
     for page in pages:
         grouped_pages[page["human_verified_category"]].append(page)
@@ -172,7 +209,9 @@ def get_verified_pages_for_grouping(batch_id):
 
 def get_created_documents_for_batch(batch_id):
     """
-    Retrieves all documents that have been created for a specific batch.
+    Retrieves all documents that have already been created for a specific batch,
+    ordered by creation time. Used to display the list of existing documents on
+    the 'Grouping' page.
 
     Args:
         batch_id (int): The unique identifier for the batch.
@@ -191,25 +230,28 @@ def get_created_documents_for_batch(batch_id):
 
 def get_documents_for_batch(batch_id):
     """
-    Retrieves all documents for a batch, including a count of pages in each.
+    Retrieves all documents for a batch and includes a count of pages in each one.
+    This is used for the 'Ordering' and 'Finalize' pages.
 
     Args:
         batch_id (int): The unique identifier for the batch.
 
     Returns:
-        list: A list of sqlite3.Row objects, each representing a document
-              and including a 'page_count' field.
+        list: A list of sqlite3.Row objects, where each object represents a
+              document and includes a 'page_count' field.
     """
     conn = get_db_connection()
-    # This query joins documents with the document_pages table and groups by document
-    # to get a count of pages for each document.
+    # This query joins `documents` with `document_pages` and uses `GROUP BY`
+    # and `COUNT` to calculate how many pages are linked to each document.
+    # A LEFT JOIN is used to ensure that documents with zero pages (an edge case)
+    # would still be included in the results.
     documents = conn.execute(
         """
         SELECT
-            d.id, d.batch_id, d.document_name, d.status, d.created_at,
+            d.id, d.batch_id, d.document_name, d.status, d.created_at, d.final_filename_base,
             COUNT(dp.page_id) as page_count
         FROM documents d
-        JOIN document_pages dp ON d.id = dp.document_id
+        LEFT JOIN document_pages dp ON d.id = dp.document_id
         WHERE d.batch_id = ?
         GROUP BY d.id
         ORDER BY d.document_name
@@ -222,15 +264,19 @@ def get_documents_for_batch(batch_id):
 
 def get_pages_for_document(document_id):
     """
-    Retrieves all pages linked to a specific document, ordered by their sequence.
+    Retrieves all pages linked to a specific document, correctly ordered by their
+    sequence number. This is essential for the 'Ordering' and 'Export' features.
 
     Args:
         document_id (int): The unique identifier for the document.
 
     Returns:
-        list: A list of sqlite3.Row objects, each representing a page in the document.
+        list: An ordered list of sqlite3.Row objects, each representing a page.
     """
     conn = get_db_connection()
+    # This query joins `pages` and `document_pages` to fetch the full details
+    # of each page belonging to the specified document, sorted by the `sequence`
+    # number stored in the junction table.
     pages = conn.execute(
         """
         SELECT p.*, dp.sequence
@@ -246,20 +292,25 @@ def get_pages_for_document(document_id):
 
 
 # --- DATA MODIFICATION FUNCTIONS (COMMANDS) ---
+# These functions change the state of the database.
 
 def update_page_data(page_id, category, status, rotation):
     """
-    Updates the data for a single page after user verification.
+    Updates the data for a single page, typically after a user action on the
+    'Verify' or 'Review' screen.
 
     Args:
         page_id (int): The ID of the page to update.
         category (str): The new human-verified category.
         status (str): The new status (e.g., 'verified', 'flagged').
-        rotation (int): The rotation angle to save.
+        rotation (int): The rotation angle to save (0, 90, 180, 270).
     """
     conn = get_db_connection()
     try:
-        # Use a 'with' statement for transaction management (commit/rollback).
+        # Using the connection as a context manager (`with conn:`) automatically
+        # handles transactions. The changes are only committed if the block
+        # executes successfully. If an error occurs, the transaction is
+        # automatically rolled back.
         with conn:
             conn.execute(
                 "UPDATE pages SET human_verified_category = ?, status = ?, rotation_angle = ? WHERE id = ?",
@@ -274,7 +325,8 @@ def update_page_data(page_id, category, status, rotation):
 
 def delete_page_by_id(page_id):
     """
-    Deletes a page from the database and its corresponding image file from disk.
+    Deletes a page from the database and also removes its corresponding
+    image file from the filesystem to prevent orphaned files.
 
     Args:
         page_id (int): The ID of the page to delete.
@@ -282,16 +334,19 @@ def delete_page_by_id(page_id):
     conn = get_db_connection()
     try:
         with conn:
-            # First, retrieve the path of the image file to be deleted.
+            # First, we need to find the path to the image file before we delete
+            # the database record.
             image_path_row = conn.execute(
                 "SELECT processed_image_path FROM pages WHERE id = ?", (page_id,)
             ).fetchone()
 
             if image_path_row:
                 image_path = image_path_row["processed_image_path"]
-                # Delete the database record.
+                # Delete the database record. Because of `ON DELETE CASCADE` in the
+                # `document_pages` table, any links to this page will be auto-removed.
                 conn.execute("DELETE FROM pages WHERE id = ?", (page_id,))
-                # If the image file exists, delete it from the filesystem.
+
+                # After successfully deleting the DB record, delete the file.
                 if os.path.exists(image_path):
                     os.remove(image_path)
                     print(f"Deleted image file: {image_path}")
@@ -304,35 +359,39 @@ def delete_page_by_id(page_id):
 
 def create_document_and_link_pages(batch_id, document_name, page_ids):
     """
-    Creates a new document record and links a list of page IDs to it.
+    Creates a new document record and links a list of page IDs to it. This
+    is the core action of the 'Grouping' step.
 
     Args:
         batch_id (int): The ID of the batch this document belongs to.
         document_name (str): The name for the new document.
-        page_ids (list): A list of page IDs to include in the document.
+        page_ids (list): A list of integer page IDs to include in the document.
     """
     conn = get_db_connection()
     try:
         with conn:
-            # Create the new document record and get its ID.
-            doc_id = conn.execute(
+            # First, create the new document record and get its newly generated ID.
+            cursor = conn.execute(
                 "INSERT INTO documents (batch_id, document_name) VALUES (?, ?)",
                 (batch_id, document_name),
-            ).lastrowid
+            )
+            doc_id = cursor.lastrowid
 
-            # Create the links in the junction table.
+            # Prepare data for the junction table. We assign a sequence number
+            # based on the order of IDs in the input list.
             page_data = [(doc_id, pid, i + 1) for i, pid in enumerate(page_ids)]
+            # `executemany` is an efficient way to insert multiple rows at once.
             conn.executemany(
                 "INSERT INTO document_pages (document_id, page_id, sequence) VALUES (?, ?, ?)",
                 page_data,
             )
 
-            # If the created document has only one page, its order is implicitly set.
+            # A quality-of-life update: if the document has only one page, its
+            # order is already final, so we can mark it as 'order_set'.
             if len(page_ids) == 1:
                 conn.execute(
                     "UPDATE documents SET status = 'order_set' WHERE id = ?", (doc_id,)
                 )
-
     except sqlite3.Error as e:
         print(f"Database error during document creation: {e}")
     finally:
@@ -342,8 +401,9 @@ def create_document_and_link_pages(batch_id, document_name, page_ids):
 
 def reset_batch_grouping(batch_id):
     """
-    Deletes all documents associated with a batch, effectively undoing the grouping step.
-    The pages themselves are not deleted.
+    Deletes all documents associated with a batch, effectively undoing the
+    entire grouping step for that batch. The pages themselves are not deleted,
+    but are returned to an 'ungrouped' state.
 
     Args:
         batch_id (int): The ID of the batch to reset.
@@ -351,24 +411,13 @@ def reset_batch_grouping(batch_id):
     conn = get_db_connection()
     try:
         with conn:
-            # Find all documents in the batch.
-            docs_to_delete = conn.execute(
-                "SELECT id FROM documents WHERE batch_id = ?", (batch_id,)
-            ).fetchall()
+            # We don't need to manually delete from `document_pages` because the
+            # `ON DELETE CASCADE` constraint on the `documents` foreign key
+            # handles it automatically. Deleting a document will cascade to
+            # delete its entries in `document_pages`.
+            conn.execute("DELETE FROM documents WHERE batch_id = ?", (batch_id,))
 
-            if docs_to_delete:
-                doc_ids = [doc["id"] for doc in docs_to_delete]
-                # Delete all links from pages to these documents.
-                # Note: Using f-string for IN clause is safe here because doc_ids are integers from the DB.
-                placeholders = ",".join(["?"] * len(doc_ids))
-                conn.execute(
-                    f"DELETE FROM document_pages WHERE document_id IN ({placeholders})",
-                    doc_ids,
-                )
-                # Delete the documents themselves.
-                conn.execute("DELETE FROM documents WHERE batch_id = ?", (batch_id,))
-
-            # Reset the batch status to allow re-grouping.
+            # Reset the batch status so the user can re-enter the grouping step.
             conn.execute(
                 "UPDATE batches SET status = 'verification_complete' WHERE id = ?",
                 (batch_id,),
@@ -382,7 +431,7 @@ def reset_batch_grouping(batch_id):
 
 def update_page_sequence(document_id, page_ids_in_order):
     """
-    Updates the sequence (order) of pages within a document.
+    Updates the sequence (order) of pages within a single document.
 
     Args:
         document_id (int): The ID of the document to update.
@@ -391,7 +440,8 @@ def update_page_sequence(document_id, page_ids_in_order):
     conn = get_db_connection()
     try:
         with conn:
-            # Iterate through the list and update the sequence number for each page.
+            # Iterate through the provided list of page IDs. The index of each
+            # ID in the list determines its new sequence number.
             for index, page_id in enumerate(page_ids_in_order):
                 new_sequence_number = index + 1
                 conn.execute(
@@ -428,68 +478,27 @@ def update_document_status(document_id, new_status):
         if conn:
             conn.close()
 
-# --- NEW FUNCTION FOR RESET BATCH FEATURE ---
 
 def reset_batch_to_start(batch_id):
     """
     Completely resets a batch to its initial 'pending_verification' state.
-
-    This is a destructive operation for any manual work (verification, grouping,
-    ordering) done on the batch. It will:
-    1. Delete all document groups created for the batch.
-    2. Reset the status of all pages in the batch to 'pending_verification'.
-    3. Reset the overall batch status to 'pending_verification'.
+    This is a destructive operation that undoes all grouping and verification work.
 
     Args:
-        batch_id (int): The ID of the batch to be fully reset.
+        batch_id (int): The ID of the batch to reset.
     """
-    # Establish a connection to the database.
     conn = get_db_connection()
     try:
-        # Use 'with conn:' to create a transaction. This ensures that all the
-        # following operations succeed or fail together. If any single operation
-        # raises an error, all previous changes in this block are automatically
-        # rolled back, preventing a partially-reset batch.
         with conn:
-            # --- Step 1: Delete Document Structures ---
-            
-            # First, find all documents that belong to the target batch.
-            # We need their IDs to delete the links in the 'document_pages' junction table.
-            docs_to_delete = conn.execute(
-                "SELECT id FROM documents WHERE batch_id = ?", (batch_id,)
-            ).fetchall()
+            # Delete all documents associated with the batch. The `ON DELETE CASCADE`
+            # will handle cleaning up the `document_pages` entries.
+            conn.execute("DELETE FROM documents WHERE batch_id = ?", (batch_id,))
+            print(f"Deleted document groups for batch {batch_id}.")
 
-            # Check if there are any documents to delete to avoid unnecessary operations.
-            if docs_to_delete:
-                # Extract just the integer IDs from the list of row objects.
-                doc_ids = [doc["id"] for doc in docs_to_delete]
-
-                # Create the correct number of '?' placeholders for the SQL IN clause.
-                # This is the safe, parameterized way to handle a variable number of items.
-                placeholders = ",".join(["?"] * len(doc_ids))
-                
-                # Delete all links in the junction table associated with these documents.
-                # This must be done before deleting the documents themselves to satisfy
-                # the foreign key constraint (a link can't exist to a non-existent document).
-                conn.execute(
-                    f"DELETE FROM document_pages WHERE document_id IN ({placeholders})",
-                    doc_ids,
-                )
-                
-                # Now that the links are gone, safely delete the document parent records.
-                conn.execute("DELETE FROM documents WHERE batch_id = ?", (batch_id,))
-                print(f"Deleted {len(doc_ids)} document groups for batch {batch_id}.")
-
-            # --- Step 2: Reset All Pages in the Batch ---
-            
-            # Update all pages associated with this batch ID.
-            # - Set their status back to 'pending_verification'.
-            # - Clear any `human_verified_category` to NULL.
-            # - Reset the `rotation_angle` to its default of 0.
-            # This effectively reverts every page to its original, post-OCR state.
+            # Reset the status, category, and rotation for all pages in the batch.
             conn.execute(
                 """
-                UPDATE pages 
+                UPDATE pages
                 SET status = 'pending_verification', human_verified_category = NULL, rotation_angle = 0
                 WHERE batch_id = ?
             """,
@@ -497,21 +506,39 @@ def reset_batch_to_start(batch_id):
             )
             print(f"Reset page statuses and categories for batch {batch_id}.")
 
-            # --- Step 3: Reset the Batch Itself ---
-
-            # Finally, update the main batch record to reset its status. This ensures
-            # that it will appear in the "Verify" stage on the Mission Control page.
+            # Finally, reset the status of the batch itself.
             conn.execute(
                 "UPDATE batches SET status = 'pending_verification' WHERE id = ?", (batch_id,)
             )
             print(f"Reset status for batch {batch_id}.")
 
     except sqlite3.Error as e:
-        # If any part of the transaction fails, the 'with' block will trigger
-        # a rollback, and we print an error message for debugging.
+        # The `with conn:` block ensures that if any of these steps fail,
+        # all previous steps in this function are rolled back.
         print(f"Database error while resetting batch {batch_id}. All changes rolled back. Error: {e}")
     finally:
-        # Ensure the database connection is always closed, whether the
-        # operation succeeded or failed.
+        if conn:
+            conn.close()
+
+
+def update_document_final_filename(document_id, filename_base):
+    """
+    Saves the final, user-approved filename base for a document right before export.
+    This is used to reconstruct download links in the 'View Exports' feature.
+
+    Args:
+        document_id (int): The ID of the document to update.
+        filename_base (str): The final filename, without its extension.
+    """
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE documents SET final_filename_base = ? WHERE id = ?",
+                (filename_base, document_id),
+            )
+    except sqlite3.Error as e:
+        print(f"Database error while updating final filename for document {document_id}: {e}")
+    finally:
         if conn:
             conn.close()

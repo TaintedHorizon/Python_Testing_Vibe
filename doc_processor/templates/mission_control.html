@@ -15,8 +15,17 @@
     .btn-review { background-color: #ffc107; color: black; } /* Yellow */
     .btn-group { background-color: #28a745; } /* Green */
     .btn-order { background-color: #6f42c1; } /* Purple */
+    .btn-finalize { background-color: #17a2b8; } /* Teal */
+    .btn-view-docs { background-color: #20c997; } /* Brighter Teal for View Docs */
     .btn-revisit { background-color: #6c757d; } /* Gray */
     .btn-reset { background-color: #dc3545; } /* Red */
+
+    /* Style for a disabled-looking link/button */
+    .action-btn.disabled {
+        background-color: #6c757d;
+        pointer-events: none;
+        cursor: not-allowed;
+    }
     
     /* Styling for the new batch form section */
     .new-batch-form { padding: 20px; background-color: white; border: 1px solid #ccc; border-radius: 5px; margin-bottom: 30px; text-align: center; }
@@ -27,14 +36,12 @@
 <h1>Mission Control</h1>
 <p>This is the central hub for managing all batches. Start a new batch or continue with an existing one below.</p>
 
-<!-- Form to initiate a new batch processing job -->
 <div class="new-batch-form">
     <form id="batch-form" action="{{ url_for('handle_batch_processing') }}" method="post">
         <button id="start-button" type="submit">Start New Batch</button>
     </form>
 </div>
 
-<!-- Table displaying the history of all processed batches -->
 <table class="history-table">
     <thead>
         <tr>
@@ -45,7 +52,6 @@
         </tr>
     </thead>
     <tbody>
-        <!-- Loop through each batch passed from the Flask backend -->
         {% for batch in batches %}
         <tr>
             <td>#{{ batch.id }}</td>
@@ -68,8 +74,11 @@
                     <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Pages</a>
                 
                 {% elif batch.status == 'ordering_complete' %}
-                    <span style="color:green; font-weight: bold;">✓ Complete</span>
+                    <a href="{{ url_for('finalize_batch_page', batch_id=batch.id) }}" class="action-btn btn-finalize">Finalize & Export</a>
                     <a href="{{ url_for('view_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">View Pages</a>
+
+                {% elif batch.status == 'Exported' %}
+                    <a href="{{ url_for('view_documents_page', batch_id=batch.id) }}" class="action-btn btn-view-docs">View Documents</a>
 
                 {% else %}
                     <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Batch</a>
@@ -80,11 +89,9 @@
                         <button type="submit" class="action-btn btn-reset">Reset Batch</button>
                     </form>
                 {% endif %}
-
             </td>
         </tr>
         {% else %}
-        <!-- This row is shown if there are no batches in the database yet. -->
         <tr>
             <td colspan="4" style="text-align: center;">No batches have been processed yet. Click "Start New Batch" to begin.</td>
         </tr>
@@ -93,16 +100,25 @@
 </table>
 
 <script>
-    // This script provides simple feedback to the user after they click the "Start New Batch" button.
-    const batchForm = document.getElementById('batch-form');
-    if (batchForm) {
-        batchForm.addEventListener('submit', function() {
-            const button = document.getElementById('start-button');
-            // Disable the button to prevent multiple clicks while the backend is working.
-            button.disabled = true;
-            // Update the button text to show that something is happening.
-            button.innerText = 'Processing... Please Wait...';
+    document.addEventListener('DOMContentLoaded', function() {
+        // Script for the "Start New Batch" button
+        const batchForm = document.getElementById('batch-form');
+        if (batchForm) {
+            batchForm.addEventListener('submit', function() {
+                const button = document.getElementById('start-button');
+                button.disabled = true;
+                button.innerText = 'Processing... Please Wait...';
+            });
+        }
+
+        // Script for the "Finalize & Export" button
+        const finalizeLinks = document.querySelectorAll('.btn-finalize');
+        finalizeLinks.forEach(link => {
+            link.addEventListener('click', function(event) {
+                link.classList.add('disabled');
+                link.textContent = 'Loading...';
+            });
         });
-    }
+    });
 </script>
 {% endblock %}

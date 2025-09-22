@@ -30,3 +30,5 @@ SQLAlchemy
 # --- API Communication ---
 # requests is a simple, yet elegant, HTTP library for making requests to APIs, used here to communicate with the Ollama LLM.
 requests
+
+PyMuPDF
