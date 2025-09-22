@@ -1,122 +1,63 @@
 {% extends 'base.html' %}
 
-<!-- Sets the browser tab title for the review page, including the batch ID. -->
 {% block title %}Review Batch {{ batch_id }}{% endblock %}
 
-<!-- Main content block for the review interface. -->
 {% block content %}
 <style>
-    /* Main layout for the review page: a two-column flexbox container. */
-    .container { display: flex; gap: 20px; align-items: flex-start; } /* `align-items: flex-start` aligns items to the top. */
-    .image-pane { flex: 1; text-align: center; position: sticky; top: 20px; /* Makes the image pane stick to the top of the viewport while scrolling. */ }
-    .image-wrapper { 
-        width: 100%; 
-        height: 80vh; /* Occupies 80% of the viewport height for a large image preview. */
-        border: 1px solid #ccc; 
-        background-color: #f0f0f0; 
-        margin-bottom: 10px; 
-        display: flex; 
-        align-items: center; 
-        justify-content: center; 
-        overflow: hidden; 
-    }
-    .image-wrapper img { 
-        max-width: 100%; 
-        max-height: 100%; 
-        object-fit: contain; /* Ensures the entire image is visible without distortion. */
-        transition: transform 0.2s; /* Smooth transition for rotation effect. */
-    }
-    .info-pane { flex: 1; } /* The info pane takes up the other half of the width. */
+    /* Main layout for the review page */
+    .container { display: flex; gap: 20px; align-items: flex-start; }
+    .image-pane { flex: 1; text-align: center; position: sticky; top: 20px; /* Makes the image pane stick while scrolling */ }
+    .image-wrapper { width: 100%; height: 80vh; border: 1px solid #ccc; background-color: #f0f0f0; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .image-wrapper img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform 0.2s; }
+    .info-pane { flex: 1; }
     
-    /* General styling for UI elements within the info pane. */
+    /* General styling for UI elements */
     .info-box { background-color: white; border: 1px solid #ccc; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
     .ocr-text { max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 10px; margin-top: 10px; background-color: #f9f9f9; }
-    .ocr-text pre { white-space: pre-wrap; word-wrap: break-word; } /* Ensures long text wraps within the box. */
+    .ocr-text pre { white-space: pre-wrap; word-wrap: break-word; }
     .form-group { margin-bottom: 15px; }
     .actions { display: flex; gap: 10px; margin-top: 20px; }
-    .actions button, .actions .btn-delete { 
-        flex: 1; 
-        padding: 10px; 
-        border: none; 
-        border-radius: 5px; 
-        color: white; 
-        cursor: pointer; 
-        font-size: 1em; 
-        text-align: center; 
-        transition: background-color 0.2s; 
-    }
-    /* Specific color for the "Approve Correction" button. */
+    .actions button, .actions .btn-delete { flex: 1; padding: 10px; border: none; border-radius: 5px; color: white; cursor: pointer; font-size: 1em; text-align: center; }
     .btn-correct { background-color: #007BFF; }
-    /* Specific color for the "Delete Page" button. */
     .btn-delete { background-color: #dc3545; display: inline-block; text-decoration: none; }
-    /* Separator between each flagged page entry. */
     .page-separator { margin-top: 30px; margin-bottom: 30px; border-top: 2px solid #eee; }
     .ocr-actions { text-align: center; margin-top: 15px; }
-    /* Styling for the "Re-Run OCR" button. */
-    .btn-ocr { 
-        background-color: #ffc107; 
-        color: black; 
-        font-weight: bold; 
-        padding: 12px 25px; 
-        font-size: 1.1em; 
-        border: none; 
-        border-radius: 5px; 
-        cursor: pointer; 
-        transition: background-color 0.2s; 
-    }
-    .btn-ocr:disabled { 
-        background-color: #6c757d; 
-        color: white; 
-        cursor: not-allowed; 
-    }
-    /* Styling for rotation buttons. */
-    .rotate-buttons button { 
-        padding: 8px 15px; 
-        margin: 0 5px; 
-        background-color: #6c757d; 
-        color: white; 
-        border: none; 
-        border-radius: 5px; 
-        cursor: pointer; 
-        transition: background-color 0.2s; 
-    }
-    .rotate-buttons button:hover { background-color: #5a6268; }
+    .btn-ocr { background-color: #ffc107; color: black; font-weight: bold; padding: 12px 25px; font-size: 1.1em; border: none; border-radius: 5px; cursor: pointer; }
+    .btn-ocr:disabled { background-color: #6c757d; color: white; cursor: not-allowed; }
 </style>
 
 <h1>Reviewing Flagged Pages for Batch #{{ batch_id }} <span style="font-size: 0.6em; color: #666;">(Status: {{ batch.status }})</span></h1>
 <p>This page lists all pages that were flagged for manual review. You can correct their category, re-run OCR with rotation, or delete them.</p>
 <hr>
 
-<!-- Jinja2 loop to iterate through each page that was flagged in this batch. -->
+<!-- Loop through each page that was flagged in this batch -->
 {% for page in flagged_pages %}
 <div class="container">
-    <!-- Left Pane: Displays the page image and rotation controls. -->
+    <!-- Left Pane: Image and Rotation Controls -->
     <div class="image-pane">
         <h4>Source: {{ page.source_filename }}, Page {{ page.page_number }} (DB ID: {{ page.id }})</h4>
         <div class="image-wrapper">
-            <!-- The image element for the current page. Its ID is dynamic to allow multiple images on the page. -->
             <img id="pageImage_{{ page.id }}" src="{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}" alt="Scanned page">
         </div>
-        <!-- Buttons to rotate the image client-side for better viewing. -->
         <div class="rotate-buttons">
             <button onclick="rotateImage({{ page.id }}, -90)">Rotate Left ↺</button>
             <button onclick="rotateImage({{ page.id }}, 90)">Rotate Right ↻</button>
         </div>
     </div>
 
-    <!-- Right Pane: Contains information, correction forms, and actions for the page. -->
+    <!-- Right Pane: Information and Actions -->
     <div class="info-pane">
-        <!-- Box for correcting the category of the flagged page. -->
+        <!-- Box for correcting the category -->
         <div class="info-box">
             <form action="{{ url_for('update_page') }}" method="post">
                 <p><strong>Reason for Flag:</strong> AI Suggestion was '{{ page.ai_suggested_category }}', but page was manually flagged.</p>
                 <hr>
-                <!-- Hidden inputs to send page context back to the server on form submission. -->
+                <!-- Hidden inputs to send page context back to the server -->
                 <input type="hidden" name="page_id" value="{{ page.id }}">
                 <input type="hidden" name="batch_id" value="{{ batch_id }}">
                 <input type="hidden" id="rotation-input_{{ page.id }}" name="rotation" value="{{ page.rotation_angle or 0 }}">
                 
-                <!-- Category selection dropdown for correcting the category. -->
+                <!-- Category selection dropdown -->
                 <div class="form-group">
                     <label for="category-select_{{ page.id }}">Correct Category:</label>
                     <select id="category-select_{{ page.id }}" name="category_dropdown">
@@ -127,24 +68,23 @@
                         <option value="other_new">Other (Create New)...</option>
                     </select>
                 </div>
-                <!-- Input field for creating a new category, hidden by default, appears when "Other" is selected. -->
+                <!-- Input field for creating a new category, hidden by default -->
                 <div class="form-group" id="other-category-group_{{ page.id }}" style="display:none;">
                     <label for="other-category-input_{{ page.id }}">New Category Name</label>
                     <input type="text" id="other-category-input_{{ page.id }}" name="other_category">
                 </div>
                 <div class="actions">
-                    <!-- Button to approve the correction and update the page status. -->
                     <button type="submit" name="action" value="correct" class="btn-correct">Approve Correction</button>
                 </div>
             </form>
         </div>
 
-        <!-- Box for displaying extracted OCR text and actions related to OCR. -->
+        <!-- Box for OCR text and actions -->
         <div class="info-box">
             <h3>Extracted OCR Text</h3>
             <div class="ocr-text"><pre>{{ page.ocr_text }}</pre></div>
             
-            <!-- Form to re-run OCR on this page, useful if the initial OCR was poor. -->
+            <!-- Form to re-run OCR on this page -->
             <div class="ocr-actions">
                 <form id="ocr-form-{{ page.id }}" action="{{ url_for('rerun_ocr_action') }}" method="post" onsubmit="return handleOcrSubmit(this)">
                     <input type="hidden" name="page_id" value="{{ page.id }}">
@@ -155,7 +95,7 @@
             </div>
             
             <hr>
-            <!-- Form to permanently delete the page. This is a destructive action. -->
+            <!-- Form to permanently delete the page -->
             <form action="{{ url_for('delete_page_action', page_id=page.id) }}" method="post" onsubmit="return confirm('Are you sure you want to permanently delete this page? This cannot be undone.');">
                  <input type="hidden" name="batch_id" value="{{ batch_id }}">
                 <button type="submit" class="actions btn-delete" style="width:100%;">Delete Page</button>
@@ -163,46 +103,45 @@
         </div>
     </div>
 </div>
-<!-- Add a separator between each page entry, but not after the last one, for visual clarity. -->
+<!-- Add a separator between each page entry, but not after the last one -->
 {% if not loop.last %}
     <div class="page-separator"></div>
 {% endif %}
 {% endfor %}
 <hr>
 <div style="text-align: center; margin-top: 20px;">
-    <!-- Button to return to Mission Control after reviewing all flagged pages. -->
     <a href="{{ url_for('mission_control_page') }}" class="action-btn" style="background-color: #28a745; padding: 15px 30px; font-size: 1.2em;">Finish Review</a>
 </div>
 
 <script>
-    // Store the initial rotation for each page in a JavaScript object for easy access and manipulation.
+    // Store the initial rotation for each page in a JavaScript object for easy access.
     let rotations = {};
     {% for page in flagged_pages %}
         rotations[{{ page.id }}] = {{ page.rotation_angle or 0 }};
     {% endfor %}
 
-    // Function to handle client-side image rotation for display and to update hidden input fields.
+    // Function to handle client-side image rotation.
     function rotateImage(pageId, degrees) {
-        rotations[pageId] = (rotations[pageId] + 360 + degrees) % 360; // Ensures rotation stays within 0-359 degrees.
+        rotations[pageId] = (rotations[pageId] + 360 + degrees) % 360;
         document.getElementById('pageImage_' + pageId).style.transform = `rotate(${rotations[pageId]}deg)`;
         // Update the hidden input fields so the rotation value is sent with form submissions.
         document.getElementById('rotation-input_' + pageId).value = rotations[pageId];
         document.getElementById('rotation-rerun_' + pageId).value = rotations[pageId];
     }
     
-    // Provides user feedback and prevents double submission when re-running OCR.
+    // Provides user feedback when re-running OCR.
     function handleOcrSubmit(form) {
         if (confirm('Re-running OCR can be slow. Are you sure?')) {
             const button = form.querySelector('button[type="submit"]');
-            button.disabled = true; // Disable the button.
-            button.textContent = 'Processing...'; // Change button text.
+            button.disabled = true;
+            button.textContent = 'Processing...';
             return true; // Proceed with form submission.
         }
         return false; // Cancel submission.
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        // Apply the initial rotation to all images when the page loads, based on values from the database.
+        // Apply the initial rotation to all images when the page loads.
         for (const pageId in rotations) {
             const angle = rotations[pageId];
             const imageElement = document.getElementById('pageImage_' + pageId);
@@ -211,14 +150,13 @@
             }
         }
 
-        // Add event listeners to the category dropdowns to show/hide the "Other" text input field.
+        // Add event listeners to the category dropdowns to show/hide the "Other" text input.
         const selects = document.querySelectorAll('select[name="category_dropdown"]');
         selects.forEach(select => {
             select.addEventListener('change', function() {
-                const pageId = this.id.split('_')[1]; // Extract page ID from the dropdown's ID.
+                const pageId = this.id.split('_')[1];
                 const otherGroup = document.getElementById('other-category-group_' + pageId);
                 if (otherGroup) {
-                    // If "Other (Create New)..." is selected, display the input field; otherwise, hide it.
                     otherGroup.style.display = (this.value === 'other_new') ? 'block' : 'none';
                 }
             });

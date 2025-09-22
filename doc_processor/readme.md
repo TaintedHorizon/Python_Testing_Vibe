@@ -6,112 +6,95 @@ This project is a web-based, human-in-the-loop document processing pipeline desi
 
 The core philosophy is to use automation for the heavy lifting (like text extraction and initial categorization) and empower a human user to quickly and efficiently verify, correct, and organize the results.
 
+This project has recently completed Module 5, which finalizes the document processing workflow with robust export and finalization features.
+
+## Features
+
+*   **Automated Ingestion**: Automatically processes all PDFs from a designated intake folder.
+*   **OCR and Pre-processing**: Converts PDFs to images, detects and corrects page orientation, and extracts text using EasyOCR and Tesseract.
+*   **AI-Powered Classification**: Uses a local Large Language Model (via Ollama) to provide an initial "best guess" category for each page.
+*   **Guided Web Interface**: A step-by-step workflow presented in a central "Mission Control" dashboard that guides the user through each stage.
+*   **Verification & Correction**: A rapid, page-by-page UI to approve or correct AI-suggested categories.
+*   **Flagging & Review**: A safety net to flag problematic pages for a dedicated review process, where OCR can be re-run with manual rotation.
+*   **Interactive Document Grouping**: A user-friendly interface to assemble individual verified pages into logical, multi-page documents.
+*   **Drag-and-Drop Page Ordering**: An intuitive, two-column UI with a large preview pane and a drag-and-drop list for reordering pages within a document.
+*   **Robust AI-Assisted Ordering**: A hybrid AI feature that reliably suggests page order by extracting printed page numbers, which are then used for a code-based sort.
+*   **Finalization and Export**: A final review stage to edit AI-suggested filenames and export documents into a clean, categorized folder structure as standard PDFs, searchable PDFs, and detailed Markdown log files.
+
 ## Technology Stack
 
 *   **Backend**: Python 3, Flask
 *   **Database**: SQLite
-*   **OCR & Pre-processing**: EasyOCR, Tesseract, pdf2image, PyMuPDF
-*   **AI/LLM**: A local Ollama server (e.g., running Llama 3) communicated with via `requests`.
-*   **Frontend**: Vanilla JavaScript, HTML, CSS
-*   **Dependencies**: `requirements.txt` tracks all Python packages, including Pillow, SQLAlchemy, and python-dotenv.
+*   **OCR & Pre-processing**: EasyOCR, Tesseract, pdf2image
+*   **AI/LLM**: A local Ollama server (e.g., running Llama 3)
+*   **Frontend**: Vanilla JavaScript, HTML, CSS (with SortableJS for drag-and-drop)
 
-## Project Structure and File Analysis
-
-This project is organized into several key files and directories, each with a specific role.
+## Project Structure
 
 ```
 doc_processor/
 │
-├── .env                    # LOCAL ONLY: Stores secret keys and environment-specific paths.
-├── .gitignore              # Specifies files and directories for Git to ignore.
-├── app.py                  # Main Flask application: handles web routes and user workflow.
-├── custom_categories_backup.json # Automatically generated backup of user-added categories.
-├── database.py             # Data Access Layer: all functions that query the database.
-├── database_setup.py       # Utility script to initialize a new database from scratch.
-├── database_upgrade.py     # Utility script to safely add new columns to an existing database.
-├── documents.db            # The SQLite database file (ignored by Git).
-├── processing.py           # The application's engine: handles OCR, AI calls, and file generation.
-├── readme.md               # This documentation file.
-├── requirements.txt        # Lists all required Python packages for easy installation.
-├── reset_environment.py    # DESTRUCTIVE utility to wipe the database and processed files for a clean start.
-├── restore_categories.py   # Utility to restore custom categories into a clean database after a reset.
+├── .env                # Local configuration file (you must create this)
+├── app.py              # The main Flask application, defines all web routes and UI logic.
+├── database.py         # Contains all functions for interacting with the database (queries and commands).
+├── database_setup.py   # Script to initialize a new, empty database with the correct schema.
+├── processing.py       # Handles the core backend logic: PDF conversion, OCR, and AI communication.
+├── requirements.txt    # A list of all Python dependencies for the project.
+├── upgrade_database.py # Safely upgrades an existing database with new columns without losing data.
 │
-└── templates/              # Contains all HTML templates for the web interface.
-    ├── base.html           # The master template providing consistent layout and navigation.
-    ├── finalize.html       # Step 5: UI to edit final filenames and export the batch.
-    ├── group.html          # Step 3: UI to group verified pages into logical documents.
-    ├── index.html          # A simple, alternative starting page to kick off a batch.
-    ├── mission_control.html# The main dashboard and central hub for the user workflow.
-    ├── order_batch.html    # Step 4a: A page to select which document's pages to order.
-    ├── order_document.html # Step 4b: UI with drag-and-drop to reorder pages within a document.
-    ├── review.html         # Step 2a: UI to fix rotation and re-run OCR on flagged pages.
-    ├── revisit.html        # A read-only view to inspect pages of an already-processed batch.
-    ├── verify.html         # Step 2: The main UI for page-by-page category verification.
-    ├── view_batch.html     # A read-only view to inspect the documents in a completed batch.
-    └── view_documents.html # A read-only view to inspect the pages of a document in a completed batch.
+└── templates/          # Directory for all HTML templates.
+    ├── base.html           # The main base template that all other pages inherit from.
+    ├── group.html          # Page for grouping verified pages into documents.
+    ├── mission_control.html# The main dashboard and workflow hub.
+    ├── order_batch.html    # Page that lists documents that need page ordering.
+    ├── order_document.html # Page for re-ordering the pages within a single document.
+    ├── review.html         # Page for reviewing and correcting pages that were flagged.
+    ├── revisit.html        # A read-only view to look at pages of an already-processed batch.
+    └── verify.html         # The first step in the workflow: page-by-page verification.
 ```
 
----
+## File-by-File Analysis
 
-### Core Application Files
+### `app.py`
 
-These three files form the backbone of the application's functionality.
+This is the heart of the web application. It uses the Flask framework to define all the URL routes and handle the logic for the user interface. It orchestrates the entire user workflow, from initiating a new batch to verifying pages, grouping them into documents, ordering them, and finally exporting them. It doesn't perform the heavy lifting itself but instead calls functions from `processing.py` for tasks like OCR and `database.py` to read or write data. It is responsible for rendering the HTML templates and passing the necessary data to them.
 
-*   **`app.py` (The Conductor)**: This is the heart of the web application. It uses the Flask framework to define all the URL routes and handle the logic for the user interface. It orchestrates the entire user workflow, from initiating a new batch to verifying pages, grouping them, ordering them, and finally exporting them. It doesn't perform the heavy lifting itself but instead calls functions from `processing.py` for intensive tasks and `database.py` to read or write data.
+### `database.py`
 
-*   **`processing.py` (The Engine)**: This module contains all the core data processing logic. This includes converting PDFs to images, running OCR to extract text, communicating with the Ollama AI to get suggestions for categories and filenames, generating the final PDF and Markdown files, and managing the file system (creating directories, moving files). This module is called by `app.py` to perform these tasks.
+This module is the Data Access Layer (DAL). It contains all the functions that interact directly with the SQLite database. By centralizing all SQL queries here, the rest of the application can be database-agnostic, and the code is much cleaner and easier to maintain. The functions are divided into "queries" (reading data with `SELECT`) and "commands" (modifying data with `INSERT`, `UPDATE`, `DELETE`). It also includes a connection utility that configures connections to return dictionary-like rows for more readable code.
 
-*   **`database.py` (The Librarian)**: This module is the Data Access Layer (DAL). It centralizes all functions that interact directly with the SQLite database. By isolating all SQL queries here, the rest of the application remains clean and easier to maintain. Functions are divided into "queries" (reading data with `SELECT`) and "commands" (modifying data with `INSERT`, `UPDATE`, `DELETE`).
+### `database_setup.py`
 
----
+This is a one-time setup script used to initialize a new, empty database with the correct schema. It creates all the necessary tables (`batches`, `pages`, `documents`, `document_pages`) and defines their columns, primary keys, and foreign key relationships. It is idempotent, meaning it can be run multiple times without causing errors.
 
-### User Interface (`templates/`)
+### `database_upgrade.py`
 
-The `templates` directory contains all the HTML files that the user sees in their browser. They use the Jinja2 templating engine.
+This script is for managing database schema changes over time. As new features are added, you might need to add a new column to a table. This script provides a safe, non-destructive way to do that. It checks if a column already exists before adding it, ensuring that it can be run multiple times without causing issues and without destroying existing data. This is a crucial script for maintaining a production application.
 
-*   **`base.html`**: This is the most important template. It defines the common HTML structure, including the navigation bar and overall styling, that all other pages inherit. This ensures a consistent look and feel across the entire application.
+### `processing.py`
 
-*   **`mission_control.html`**: The main dashboard. It's the first page the user sees and serves as the central hub, displaying the status of all batches and providing the entry point for each step of the workflow (Verify, Group, Order, etc.).
-
-*   **Workflow Templates**:
-    *   `verify.html`: The first major step. Provides a rapid, page-by-page UI to approve or correct AI-suggested categories.
-    *   `review.html`: A special step for pages that were "flagged" during verification. It allows the user to fix page rotation and re-run the OCR process.
-    *   `group.html`: A two-column interface where users assemble individual verified pages into logical, multi-page documents.
-    *   `order_document.html`: An intuitive drag-and-drop interface for reordering the pages within a single document.
-    *   `finalize.html`: The final step, where the user can edit the AI-suggested filenames before clicking the export button.
-
----
-
-### Configuration & Developer Scripts
-
-These files are not part of the core runtime logic but are essential for setup, development, and maintenance.
-
-*   **`requirements.txt`**: Lists all the Python packages the project depends on. Running `pip install -r requirements.txt` is the standard way to set up the project's environment, ensuring that the correct versions of all tools are installed.
-
-*   **`.gitignore`**: A configuration file for the Git version control system. It lists files and directories that should be ignored and never committed to the repository. This includes the Python virtual environment (`venv/`), the local configuration file (`.env`), and the database itself (`documents.db`), keeping the repository clean and secure.
-
-*   **`database_setup.py`**: A one-time setup script used to initialize a new, empty database with the correct schema. It creates all the necessary tables and defines their relationships.
-
-*   **`database_upgrade.py`**: A maintenance script for managing database schema changes over time. It allows you to add new columns to existing tables without destroying the data that's already there.
-
-*   **`reset_environment.py`**: A **destructive** utility script for developers. It completely wipes the database and clears out all processed files. Before deleting the database, it automatically backs up any custom categories the user has created to `custom_categories_backup.json`. This provides a clean slate for testing. **Do not run this in a production environment.**
-
-*   **`restore_categories.py`**: The companion to the reset script. It reads the `custom_categories_backup.json` file and repopulates the clean database with the saved custom categories. This is a major convenience for developers, as it means they don't have to manually recreate their test categories after every reset.
-
----
+This is the "engine" of the application. It contains all the core data processing logic. This includes converting PDFs to images, running OCR to extract text, communicating with the Ollama AI to get suggestions for categories and filenames, generating the final PDF and Markdown files, and managing the file system (creating directories, moving files, and cleaning up). This module is called by `app.py` to perform these intensive tasks in the background.
 
 ## Setup and Installation (Ubuntu)
 
 **1. Install System Dependencies:**
+
+These libraries are required for Tesseract OCR and PDF-to-image conversion.
+
 ```bash
 sudo apt-get update
 sudo apt-get install tesseract-ocr poppler-utils sqlite3 -y
 ```
 
 **2. Set up Python Environment & Install Packages:**
+
+It is highly recommended to use a virtual environment to manage project dependencies.
+
 ```bash
-# Create and activate a virtual environment
+# Create a virtual environment
 python3 -m venv venv
+
+# Activate the virtual environment
 source venv/bin/activate
 
 # Install all required Python packages
@@ -119,7 +102,9 @@ pip install -r requirements.txt
 ```
 
 **3. Configure Environment Variables:**
-Create a file named `.env` in the `doc_processor` directory. Copy the template below and adjust the paths for your system. **Use absolute paths.**
+
+Create a file named `.env` in the `doc_processor` directory. This file stores your local configuration. Copy and paste the following, adjusting the paths to match your system.
+
 ```
 # --- Directory Paths (use absolute paths) ---
 INTAKE_DIR=/path/to/your/intake_folder
@@ -138,25 +123,39 @@ DEBUG_SKIP_OCR=false
 ```
 
 **4. Initialize the Database:**
+
+This command creates the SQLite database file and sets up all the necessary tables.
+
 ```bash
 python doc_processor/database_setup.py
+```
+
+**5. (If Upgrading) Run the Upgrade Script:**
+
+If you have an existing database and have pulled new code that changes the schema, run this script to safely add new columns without losing your data.
+
+```bash
+python doc_processor/upgrade_database.py
 ```
 
 ## How to Run & Use
 
 **1. Start the Server:**
+
 ```bash
 python doc_processor/app.py
 ```
 
 **2. Access the Application:**
+
 Open your web browser and go to `http://<your_vm_ip>:5000`. This will take you to the "Mission Control" page.
 
 **3. Workflow Guide:**
-1.  **Place Files**: Add new PDF documents into your `INTAKE_DIR`.
-2.  **Start Batch**: On Mission Control, click "Start New Batch".
-3.  **Verify**: A new batch will appear. Click "Verify" to approve or correct AI-suggested categories for each page.
-4.  **Review (If Needed)**: If you flagged pages, a "Review" button appears. Use this to fix rotations or re-run OCR.
-5.  **Group**: Once verified, click "Group" to assemble pages into named documents.
-6.  **Order**: Click "Order Pages" for any multi-page documents and use the drag-and-drop interface to set the correct sequence.
-7.  **Finalize & Export**: Click "Finalize & Export", edit the final filenames if needed, and click "Export All Documents". The final files will be saved to your `FILING_CABINET_DIR`.
+
+1.  **Place Files**: Add new PDF documents into the folder you specified as your `INTAKE_DIR`.
+2.  **Start Batch**: On the Mission Control page, click the "Start New Batch" button. The system will process all files from the intake folder.
+3.  **Verify**: A new batch will appear. Click the "Verify" button. Go through each page, approving the AI's category or selecting a new one. Use the "Flag for Review" button if a page has issues (e.g., poor OCR, upside down).
+4.  **Review (If Needed)**: If you flagged any pages, a "Review" button will appear. Use this page to fix rotations, re-run OCR, or delete bad pages.
+5.  **Group**: Once verification is complete, click the "Group" button. On this screen, select pages from the same category and give them a document name (e.g., "January 2024 Bank Statement").
+6.  **Order**: After grouping, click the "Order Pages" button. This will show you all documents with more than one page. Click "Order Pages" on a document to go to the drag-and-drop interface to set the correct page sequence.
+7.  **Finalize & Export**: Once all documents are ordered, click the "Finalize & Export" button. On this screen, you can review and edit the AI-suggested filenames before clicking "Export All Documents". The final files will be saved to your `FILING_CABINET_DIR`.

@@ -1,9 +1,6 @@
-{
-    "__comment__": "This file contains a backup of custom categories created by the user during development or testing. These categories are restored to the database by `restore_categories.py` after an environment reset, ensuring they are available in the UI dropdowns without manual re-entry.",
-    "custom_categories": [
-        "Instructions",
-        "Religious",
-        "Report",
-        "Travel Document"
-    ]
-}
+[
+    "Instructions",
+    "Religious",
+    "Report",
+    "Travel Document"
+]

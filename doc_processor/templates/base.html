@@ -1,106 +1,69 @@
-<!--
-This file, `base.html`, is the foundational Jinja2 template for the entire Flask web application.
-It employs a template inheritance strategy, which is a powerful feature for maintaining a consistent look and feel across multiple pages while minimizing code repetition.
-
-Core Purpose:
--   **Defines the Skeleton:** It establishes the universal HTML structure (<html>, <head>, <body>), including metadata, a consistent navigation bar, and a designated content area.
--   **Centralizes Styling:** It contains the primary CSS for the application, ensuring that all pages share the same fonts, colors, and layout. This makes sitewide style changes easy to implement.
--   **Promotes Reusability:** Child templates (like `index.html`, `verify.html`, etc.) "extend" this base template. They only need to define the content specific to their page, which is then injected into the blocks defined here.
-
-Jinja2 Blocks Explained:
-Jinja2 blocks are placeholders that child templates can override with their own content.
--   `{% block title %}`: This block is located within the `<title>` tag. A child template can override it to set a unique title for the browser tab. If not overridden, a default title is used.
--   `{% block head %}`: This block is an extension point within the `<head>`. It's used by child templates to include page-specific assets, such as additional CSS files or JavaScript libraries (e.g., a charting library for a dashboard page).
--   `{% block content %}`: This is the main and most important block. It designates the area within the `<body>` where the primary content of each individual page will be rendered.
+<!-- 
+This is the base template for the entire application.
+All other templates will inherit from this file.
+It provides the basic HTML structure, including the head, a common navigation bar,
+and a content block that child templates will override.
 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- Specifies the character encoding for the document. UTF-8 is the universal standard and supports all characters. -->
     <meta charset="UTF-8">
-    
-    <!-- 
-        This viewport meta tag is essential for creating a responsive, mobile-friendly website.
-        - `width=device-width`: Sets the width of the viewport to the physical width of the device's screen.
-        - `initial-scale=1.0`: Sets the initial zoom level to 100%, preventing the page from being zoomed out by default on mobile browsers.
-    -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <!--
-        Jinja2 `title` block.
-        A child template can override this block to provide a more specific page title.
-        For example: `{% block title %}Verify Batch {{ batch_id }}{% endblock %}`
-        If a child template does not define this block, the default title "Document Processor" will be rendered.
-    -->
+    
+    <!-- The title block can be overridden by child templates to set a custom page title. -->
     <title>{% block title %}Document Processor{% endblock %}</title>
-
-    <!--
-        Internal CSS Stylesheet.
-        For a small project like this, embedding styles directly in the base template is simple and effective.
-        In a larger, production-grade application, these styles would typically be moved to an external CSS file (e.g., `/static/css/main.css`).
-        This would allow for better organization, maintainability, and allow the browser to cache the stylesheet separately.
-    -->
+    
+    <!-- Basic styling for the application. For a larger application, this would be moved to a separate CSS file. -->
     <style>
         body { 
-            /* A modern, clean font stack that prioritizes system fonts for performance. */
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            margin: 0; /* Removes default browser margin. */
-            background-color: #f4f4f9; /* A soft, light grey background color for the entire page. */
-            color: #333; /* A dark grey for the main text, providing good contrast and readability. */
+            margin: 0;
+            background-color: #f4f4f9;
+            color: #333;
         }
         .navbar {
-            background-color: #4a5568; /* A modern, desaturated blue-grey for the navigation bar. */
-            overflow: hidden; /* Ensures that floated elements within the navbar are contained. */
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1); /* Adds a subtle shadow below the navbar for a sense of depth and separation. */
+            background-color: #4a5568; /* Darker gray-blue */
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .navbar a {
-            float: left; /* Aligns navigation links to the left. */
-            display: block; /* Makes the entire area of the link clickable, not just the text. */
-            color: white; /* White text for high contrast against the dark navbar background. */
+            float: left;
+            display: block;
+            color: white;
             text-align: center;
-            padding: 14px 20px; /* Provides comfortable spacing around the link text. */
-            text-decoration: none; /* Removes the default underline from links. */
-            transition: background-color 0.3s; /* Creates a smooth transition effect for the hover state. */
+            padding: 14px 20px;
+            text-decoration: none;
+            transition: background-color 0.3s;
         }
         .navbar a:hover {
-            background-color: #718096; /* A slightly lighter shade for visual feedback when the user hovers over a link. */
+            background-color: #718096; /* Lighter gray-blue */
         }
         .navbar a.active {
-            background-color: #2c5282; /* A distinct, darker blue to clearly indicate which page the user is currently on. */
+            background-color: #2c5282; /* Dark blue */
         }
         .content {
-            padding: 20px; /* Adds space between the content and the edges of the browser window. */
-            max-width: 1200px; /* Constrains the maximum width of the content on very wide screens, improving readability. */
-            margin: 0 auto; /* A common trick to center a block-level element with a defined width. */
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto; /* Center the content */
         }
     </style>
-
-    <!--
-        Jinja2 `head` block.
-        This provides a hook for child templates to inject any additional elements into the `<head>` section.
-        This is the ideal place for linking to page-specific CSS files or JavaScript libraries that are not needed on every page.
-    -->
+    
+    <!-- The head block can be used by child templates to include additional CSS files or meta tags. -->
     {% block head %}{% endblock %}
 </head>
 <body>
 
-<!--
-    The main navigation bar. It is defined once in this base template, ensuring it appears identically on every page of the application.
--->
+<!-- The main navigation bar. It is consistent across all pages. -->
 <div class="navbar">
-    <!--
-        This link directs the user to the main dashboard, referred to as 'Mission Control'.
-        - `href="{{ url_for('mission_control_page') }}"`: This is a powerful Flask-Jinja2 integration. Instead of hardcoding the URL (e.g., `/mission-control`), it uses the `url_for` function to dynamically generate the URL based on the name of the Python view function (`mission_control_page`). This makes the application more robust to URL changes.
-        - `class="{% if request.endpoint == 'mission_control_page' %}active{% endif %}"`: This is a clever piece of logic to highlight the active navigation link. In Flask, `request.endpoint` holds the name of the view function for the current page. This code checks if the current page's endpoint matches the endpoint for the 'Mission Control' link. If it does, it adds the `active` CSS class, which changes the link's background color.
-    -->
+    <!-- The link always points back to the main dashboard (Mission Control). -->
     <a href="{{ url_for('mission_control_page') }}" class="{% if request.endpoint == 'mission_control_page' %}active{% endif %}">Mission Control</a>
 </div>
 
-<!-- The primary content area. -->
+<!-- The main content area. -->
 <div class="content">
-    <!--
-        Jinja2 `content` block.
-        This is the most critical block for template inheritance. When a child template (e.g., `verify.html`) extends this base template, the content defined within its own `{% block content %}...{% endblock %}` section will be rendered in this exact spot.
+    <!-- 
+    This is the content block. Child templates (like verify.html, group.html, etc.)
+    will replace this block with their own specific HTML content.
     -->
     {% block content %}{% endblock %}
 </div>

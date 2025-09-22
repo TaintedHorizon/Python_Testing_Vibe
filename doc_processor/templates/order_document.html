@@ -1,41 +1,36 @@
 {% extends 'base.html' %}
 
-<!-- Sets the browser tab title for the page, indicating its purpose. -->
 {% block title %}Order Pages for Document{% endblock %}
 
 {% block head %}
-    <!-- 
-        Includes the SortableJS library from a Content Delivery Network (CDN).
-        SortableJS is a lightweight JavaScript library that enables drag-and-drop reordering
-        of elements in a list, which is crucial for the user interface on this page.
-    -->
+    <!-- Include the SortableJS library from a CDN for drag-and-drop functionality -->
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 {% endblock %}
 
 {% block content %}
 <style>
-    /* Main layout for the ordering page: a two-column grid. */
+    /* Main layout for the ordering page: a two-column grid */
     .main-container {
         display: grid;
-        grid-template-columns: 1fr 1fr; /* Creates two columns of equal width. */
-        gap: 20px; /* Spacing between the grid columns. */
-        align-items: start; /* Aligns items to the start of their grid area. */
-        max-width: 1600px; /* Limits the maximum width for better readability on large screens. */
-        margin: auto; /* Centers the container horizontally. */
+        grid-template-columns: 1fr 1fr; /* Two equal columns */
+        gap: 20px;
+        align-items: start;
+        max-width: 1600px;
+        margin: auto;
     }
 
-    /* The left pane, which contains the large image preview. */
+    /* The left pane, which contains the large image preview */
     .preview-pane {
         border: 1px solid #ccc;
         padding: 15px;
         background-color: white;
         border-radius: 5px;
-        position: sticky; /* Makes the preview pane stick to the top of the viewport when scrolling. */
-        top: 20px; /* Distance from the top of the viewport when sticky. */
+        position: sticky; /* The preview will "stick" to the top of the screen on scroll */
+        top: 20px;
     }
     .preview-wrapper {
         width: 100%;
-        height: 80vh; /* Occupies 80% of the viewport height for a large preview. */
+        height: 80vh; /* Takes up most of the viewport height */
         border: 1px solid #ddd;
         background-color: #f0f0f0;
         display: flex;
@@ -47,10 +42,10 @@
     .preview-wrapper img {
         max-width: 100%;
         max-height: 100%;
-        object-fit: contain; /* Ensures the entire image is visible within its container without cropping. */
+        object-fit: contain; /* Ensures the whole image is visible without distortion */
     }
 
-    /* The right pane, which contains the sortable page thumbnails. */
+    /* The right pane, which contains the sortable page thumbnails */
     .order-pane {
         background-color: white;
         padding: 20px;
@@ -59,33 +54,33 @@
     }
     #sortable-pages {
         display: flex;
-        flex-wrap: wrap; /* Allows page items to wrap to the next line if space is limited. */
-        gap: 15px; /* Spacing between individual page items. */
-        list-style-type: none; /* Removes default list bullet points. */
+        flex-wrap: wrap; /* Allows items to wrap to the next line */
+        gap: 15px;
+        list-style-type: none;
         padding: 10px;
-        border: 1px dashed #ccc; /* A dashed border to indicate a draggable area. */
+        border: 1px dashed #ccc;
         background-color: #f9f9f9;
-        min-height: 200px; /* Ensures the area is visible even if empty. */
+        min-height: 200px;
     }
     .page-item {
-        width: 150px; /* Fixed width for each page thumbnail. */
+        width: 150px;
         padding: 10px;
         border: 2px solid #ddd;
         border-radius: 5px;
         background-color: #fff;
         text-align: center;
-        cursor: grab; /* Changes cursor to indicate the item is draggable. */
+        cursor: grab; /* Indicates the item is draggable */
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        transition: all 0.2s; /* Smooth transition for visual effects. */
+        transition: all 0.2s;
     }
     .page-item.selected {
-        border-color: #007BFF; /* Highlights the currently selected item. */
+        border-color: #007BFF; /* Highlight the selected item */
         box-shadow: 0 4px 8px rgba(0, 123, 255, 0.4);
     }
     .page-item:active {
-        cursor: grabbing; /* Changes cursor while an item is being dragged. */
+        cursor: grabbing; /* Change cursor while dragging */
         box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        transform: scale(1.05); /* Slightly enlarges the item while dragging. */
+        transform: scale(1.05);
     }
     .page-item img {
         width: 100%;
@@ -95,60 +90,40 @@
     }
     .page-info { font-size: 0.8em; color: #555; word-wrap: break-word; }
     
-    /* Container for the action buttons at the bottom of the page. */
+    /* Container for the action buttons at the bottom */
     .actions-container { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; }
     .status-message { font-style: italic; color: #555; }
-    .btn { 
-        display: inline-block; 
-        padding: 10px 20px; 
-        text-decoration: none; 
-        color: white; 
-        border-radius: 5px; 
-        border: none; 
-        font-size: 1em; 
-        cursor: pointer; 
-        margin-left: 10px; 
-        transition: background-color 0.2s; 
-    }
-    .btn-save { background-color: #28a745; } /* Green for save action. */
-    .btn-cancel { background-color: #6c757d; } /* Grey for cancel action. */
-    .btn-ai { background-color: #17a2b8; } /* Teal for AI suggestion button. */
+    .btn { display: inline-block; padding: 10px 20px; text-decoration: none; color: white; border-radius: 5px; border: none; font-size: 1em; cursor: pointer; margin-left: 10px; }
+    .btn-save { background-color: #28a745; }
+    .btn-cancel { background-color: #6c757d; }
+    .btn-ai { background-color: #17a2b8; }
 </style>
 
 <div class="main-container">
-    <!-- Left Pane: Image Preview Area -->
+    <!-- Left Pane: Image Preview -->
     <div class="preview-pane">
         <h3>Page Preview</h3>
         <div class="preview-wrapper">
-            <!-- Placeholder text displayed until a thumbnail is clicked. -->
             <span id="preview-placeholder">Click a thumbnail on the right to see a larger preview.</span>
-            <!-- Image element where the selected page's image will be displayed. Initially hidden. -->
             <img id="preview-image" src="" alt="Page Preview" style="display: none;">
         </div>
     </div>
 
-    <!-- Right Pane: Ordering Controls and Page Thumbnails -->
+    <!-- Right Pane: Ordering Controls -->
     <div class="order-pane">
         <h1>Reorder Pages</h1>
         <p>Click a page to preview it. Drag and drop pages to set the correct sequence.</p>
 
-        <!-- The form that will submit the final page order to the backend. -->
+        <!-- The form that will submit the final page order -->
         <form id="order-form" action="{{ url_for('order_document_page', document_id=document_id) }}" method="post">
-            <!-- This hidden input field is crucial. It will be dynamically updated by JavaScript
-                 to store the comma-separated list of page IDs in their current order. -->
+            <!-- This hidden input will store the comma-separated list of page IDs in the correct order -->
             <input type="hidden" id="page-order-input" name="page_order" value="">
 
-            <!-- The `<ul>` element that will contain the draggable page thumbnails.
-                 SortableJS will be initialized on this element. -->
+            <!-- The container for the draggable page thumbnails -->
             <ul id="sortable-pages">
                 {% for page in pages %}
-                <!-- Each `<li>` represents a single page thumbnail. -->
-                <li class="page-item" 
-                    data-id="{{ page.id }}" 
-                    data-img-src="{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}">
-                    <!-- Thumbnail image of the page. -->
+                <li class="page-item" data-id="{{ page.id }}" data-img-src="{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}">
                     <img src="{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}" alt="Page {{ page.page_number }}">
-                    <!-- Display basic information about the page. -->
                     <div class="page-info">
                         <strong>Page ID: {{ page.id }}</strong><br>
                         ({{ page.source_filename }}, Pg {{ page.page_number }})
@@ -157,16 +132,12 @@
                 {% endfor %}
             </ul>
 
-            <!-- Container for the action buttons at the bottom of the form. -->
+            <!-- Action buttons at the bottom of the page -->
             <div class="actions-container">
-                <!-- A paragraph to display status messages to the user (e.g., AI suggestion status). -->
                 <p id="status-message" class="status-message"></p>
                 <div class="actions">
-                    <!-- Cancel button: redirects back to the batch ordering page without saving changes. -->
                     <a href="{{ url_for('order_batch_page', batch_id=batch_id) }}" class="btn btn-cancel">Cancel</a>
-                    <!-- AI Suggest Order button: triggers an AJAX call to get an AI-suggested page order. -->
                     <button type="button" id="suggest-order-btn" class="btn btn-ai">🤖 Suggest Order</button>
-                    <!-- Save Order button: submits the form with the current page order. -->
                     <button type="submit" class="btn btn-save">Save Order</button>
                 </div>
             </div>
@@ -175,7 +146,6 @@
 </div>
 
 <script>
-    // Ensures the script runs only after the entire HTML document has been loaded and parsed.
     document.addEventListener('DOMContentLoaded', function () {
         const sortableList = document.getElementById('sortable-pages');
         const pageOrderInput = document.getElementById('page-order-input');
@@ -183,27 +153,25 @@
         const statusMsg = document.getElementById('status-message');
         const previewImage = document.getElementById('preview-image');
         const previewPlaceholder = document.getElementById('preview-placeholder');
-        let selectedItem = null; // Tracks the currently selected page item for preview.
+        let selectedItem = null;
 
-        // Function to display a page thumbnail in the large preview pane on the left.
+        // Function to display a page thumbnail in the large preview pane.
         function showPreview(pageItem) {
-            // Remove 'selected' class from previously selected item.
             if (selectedItem) {
                 selectedItem.classList.remove('selected');
             }
-            // Set the new selected item and add the 'selected' class.
             selectedItem = pageItem;
             selectedItem.classList.add('selected');
 
-            const imgSrc = pageItem.dataset.imgSrc; // Get the image source from the data attribute.
+            const imgSrc = pageItem.dataset.imgSrc;
             if (imgSrc) {
-                previewPlaceholder.style.display = 'none'; // Hide the placeholder text.
-                previewImage.style.display = 'block'; // Show the image element.
-                previewImage.src = imgSrc; // Set the image source.
+                previewPlaceholder.style.display = 'none';
+                previewImage.style.display = 'block';
+                previewImage.src = imgSrc;
             }
         }
 
-        // Add click listeners to all page items to trigger the preview function.
+        // Add click listeners to all page items to trigger the preview.
         sortableList.querySelectorAll('.page-item').forEach(item => {
             item.addEventListener('click', () => showPreview(item));
         });
@@ -214,48 +182,45 @@
             showPreview(firstPage);
         }
 
-        // Function to update the hidden input field (`page-order-input`) with the current order of page IDs.
-        // This function is called whenever the order changes (e.g., after a drag-and-drop or AI suggestion).
+        // Function to update the hidden input with the current order of page IDs.
         function updatePageOrder() {
             const pageItems = sortableList.querySelectorAll('.page-item');
-            // Map each page item to its `data-id` attribute to get a list of IDs in the current order.
             const pageIds = Array.from(pageItems).map(item => item.dataset.id);
-            pageOrderInput.value = pageIds.join(','); // Join the IDs with commas for submission.
+            pageOrderInput.value = pageIds.join(',');
         }
 
-        // Initialize the SortableJS library on the `sortableList` (the `<ul>` element).
+        // Initialize the SortableJS library on the list of pages.
         const sortable = new Sortable(sortableList, {
-            animation: 150, // Defines the animation speed in milliseconds when items are reordered.
+            animation: 150, // Animation speed in ms
             onEnd: function (evt) {
-                // `onEnd` is a callback function that fires when a drag-and-drop operation is completed.
-                updatePageOrder(); // Update the hidden input with the new order.
+                // When the user finishes dragging, update the hidden input.
+                updatePageOrder();
             }
         });
 
-        // Set the initial order in the hidden input when the page first loads.
+        // Set the initial order in the hidden input when the page loads.
         updatePageOrder();
 
         // Event listener for the "Suggest Order" button.
         suggestBtn.addEventListener('click', async function() {
-            statusMsg.textContent = '🤖 Getting AI suggestion...'; // Provide immediate feedback to the user.
-            suggestBtn.disabled = true; // Disable the button to prevent multiple clicks while processing.
+            statusMsg.textContent = '🤖 Getting AI suggestion...';
+            suggestBtn.disabled = true;
 
             try {
-                // Make an asynchronous API call (POST request) to the backend to get the AI's suggested order.
+                // Make an API call to the backend to get the AI's suggestion.
                 const response = await fetch(`/api/suggest_order/{{ document_id }}`, {
                     method: 'POST'
                 });
-                const data = await response.json(); // Parse the JSON response from the server.
+                const data = await response.json();
                 if (data.success) {
-                    const suggestedOrder = data.page_order; // Get the list of suggested page IDs.
+                    const suggestedOrder = data.page_order;
                     const pageElements = new Map();
-                    // Create a map to quickly look up HTML elements by their page ID.
+                    // Create a map of page ID to its HTML element for easy lookup.
                     sortableList.querySelectorAll('.page-item').forEach(el => {
                         pageElements.set(el.dataset.id, el);
                     });
 
-                    // Re-append the HTML elements to the `sortableList` in the new suggested order.
-                    // This visually reorders the thumbnails on the page.
+                    // Re-append the elements to the list in the new suggested order.
                     suggestedOrder.forEach(pageId => {
                         const pageElement = pageElements.get(String(pageId));
                         if (pageElement) {
@@ -264,15 +229,15 @@
                     });
 
                     updatePageOrder(); // Update the hidden input with the new order.
-                    statusMsg.textContent = '✅ Suggestion applied! Review and save.'; // Success message.
+                    statusMsg.textContent = '✅ Suggestion applied! Review and save.';
                 } else {
-                    statusMsg.textContent = `❌ Error: ${data.error}`; // Display error message from the backend.
+                    statusMsg.textContent = `❌ Error: ${data.error}`;
                 }
             } catch (error) {
-                console.error('Fetch error:', error); // Log any network or parsing errors.
-                statusMsg.textContent = '❌ Error: Could not contact the server.'; // Generic error message for the user.
+                console.error('Fetch error:', error);
+                statusMsg.textContent = '❌ Error: Could not contact the server.';
             } finally {
-                suggestBtn.disabled = false; // Re-enable the button after the operation completes (success or failure).
+                suggestBtn.disabled = false;
             }
         });
     });

@@ -1,72 +1,25 @@
 {% extends 'base.html' %}
 
-<!-- Sets the browser tab title for the page, dynamically including the batch ID. -->
 {% block title %}Order Documents for Batch {{ batch_id }}{% endblock %}
 
-<!-- Main content block for the page. -->
 {% block content %}
 <style>
-    /* Container for the entire page content, centered and styled. */
-    .doc-list-container { 
-        max-width: 800px; 
-        margin: auto; 
-        background-color: white; 
-        padding: 20px; 
-        border: 1px solid #ccc; 
-        border-radius: 5px; 
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
-    }
-    /* Styling for the table that lists documents. */
-    .doc-list-table { 
-        width: 100%; 
-        border-collapse: collapse; 
-        margin-top: 20px; 
-    }
-    .doc-list-table th, .doc-list-table td { 
-        border: 1px solid #ddd; 
-        padding: 12px; 
-        text-align: left; 
-        vertical-align: middle; 
-    }
-    .doc-list-table th { 
-        background-color: #f2f2f2; 
-    }
-    /* General styling for action buttons. */
-    .action-btn { 
-        display: inline-block; 
-        padding: 8px 12px; 
-        text-decoration: none; 
-        color: white; 
-        border-radius: 5px; 
-        font-size: 0.9em; 
-        transition: background-color 0.2s; 
-    }
-    /* Specific color for the "Order Pages" button. */
-    .btn-order { 
-        background-color: #007BFF; 
-    }
-    /* Specific color for the "Revisit Order" button. */
-    .btn-revisit { 
-        background-color: #6c757d; 
-    }
-    /* Styling for the form containing the "Finalize Batch" button. */
-    .finish-form { 
-        margin-top: 20px; 
-        text-align: center; 
-    }
-    /* Styling for the "Finalize Batch" button. */
+    .doc-list-container { max-width: 800px; margin: auto; background-color: white; padding: 20px; border: 1px solid #ccc; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    .doc-list-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    .doc-list-table th, .doc-list-table td { border: 1px solid #ddd; padding: 12px; text-align: left; vertical-align: middle; }
+    .doc-list-table th { background-color: #f2f2f2; }
+    .action-btn { display: inline-block; padding: 8px 12px; text-decoration: none; color: white; border-radius: 5px; font-size: 0.9em; }
+    .btn-order { background-color: #007BFF; }
+    .btn-revisit { background-color: #6c757d; }
+    .finish-form { margin-top: 20px; text-align: center; }
     .finish-btn {
         padding: 10px 25px;
-        background-color: #28a745; /* Green color for a completion action. */
+        background-color: #28a745;
         color: white;
         border-radius: 5px;
         font-size: 1.1em;
         border: none;
         cursor: pointer;
-        transition: background-color 0.2s; 
-    }
-    .finish-btn:hover { 
-        background-color: #218838; 
     }
 </style>
 
@@ -74,7 +27,7 @@
     <h1>Order Documents for Batch #{{ batch_id }}</h1>
     <p>This is the third step of the workflow. This page lists all documents that have multiple pages and may require manual ordering. Single-page documents are considered ordered by default.</p>
 
-    <!-- Table listing all multi-page documents in the batch that need ordering. -->
+    <!-- Table listing all multi-page documents in the batch -->
     <table class="doc-list-table">
         <thead>
             <tr>
@@ -84,12 +37,12 @@
             </tr>
         </thead>
         <tbody>
-            <!-- Jinja2 loop to iterate through the `documents` list passed from the Flask backend. -->
+            <!-- Loop through the documents passed from the Flask backend -->
             {% for doc in documents %}
             <tr>
                 <td>{{ doc.document_name }}</td>
                 <td>
-                    <!-- Display the current ordering status of the document. -->
+                    <!-- Display the ordering status of the document -->
                     {% if doc.status == 'order_set' %}
                         <span style="color: green; font-weight: bold;">Order Set</span>
                     {% else %}
@@ -97,7 +50,7 @@
                     {% endif %}
                 </td>
                 <td>
-                    <!-- Conditional link: either to order pages or to revisit an already ordered document. -->
+                    <!-- Provide a link to the ordering page for this specific document -->
                     {% if doc.status == 'order_set' %}
                         <a href="{{ url_for('order_document_page', document_id=doc.id) }}" class="action-btn btn-revisit">Revisit Order</a>
                     {% else %}
@@ -106,8 +59,7 @@
                 </td>
             </tr>
             {% else %}
-            <!-- This `else` block for the loop is displayed if the `documents` list is empty,
-                 meaning no multi-page documents require ordering in this batch. -->
+            <!-- This message is shown if there are no documents in the batch (or none that need ordering) -->
             <tr>
                 <td colspan="3" style="text-align: center;">No multi-page documents require ordering in this batch.</td>
             </tr>
@@ -115,8 +67,7 @@
         </tbody>
     </table>
 
-    <!-- Form to finalize the entire batch ordering process. -->
-    <!-- Submitting this form updates the batch status and moves the workflow forward. -->
+    <!-- Form to finalize the entire batch ordering process -->
     <form class="finish-form" action="{{ url_for('finalize_batch_action', batch_id=batch_id) }}" method="post" onsubmit="return confirm('Are you sure you are finished ordering all documents for this batch?');">
         <button type="submit" class="finish-btn">Finalize Batch</button>
     </form>

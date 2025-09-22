@@ -1,67 +1,37 @@
-<!--
-This HTML template is responsible for rendering the initial page where a user can kick off a new document processing batch.
-It inherits its structure from a base template (`base.html`) and provides a single, clear call to action.
-
-Key Features:
-- Extends 'base.html', ensuring a consistent look and feel with the rest of the application.
-- Contains a prominent "Start New Batch" button.
-- Submits a POST request to the `/process-batch` endpoint, which is the trigger for the backend processing logic.
-- Includes a simple JavaScript snippet to provide immediate user feedback upon clicking the button, preventing multiple submissions.
--->
 {% extends 'base.html' %}
 
-<!-- 
-  The 'block title' is a Jinja2 placeholder. 
-  The content within this block will replace the corresponding block in the parent 'base.html' template.
-  This sets the title of the HTML page in the browser tab to "New Batch".
--->
 {% block title %}New Batch{% endblock %}
 
-<!-- 
-  The 'block content' is the main placeholder for the page-specific content.
-  Everything inside this block will be injected into the main content area of 'base.html'.
--->
 {% block content %}
-    <!-- This div centers the content on the page. -->
+    <!-- 
+    This page provides a simple user interface to start a new batch process.
+    It is often the initial landing page or a direct action page.
+    Note: In the current application flow, users are redirected to 'mission_control.html'
+    and this page might not be directly used, but it remains functional.
+    -->
     <div style="text-align: center;">
         <h1>Start a New Processing Batch</h1>
         <p>Click the button below to start processing all documents in the intake folder.</p>
         <br>
-
-        <!--
-          This form is the core interactive element of the page.
-          - `id="batch-form"`: A unique identifier for the form, used by the JavaScript below.
-          - `action="{{ url_for('handle_batch_processing') }}"`: A Jinja2 expression that dynamically generates the URL for the Flask route named 'handle_batch_processing'. This is a robust way to manage URLs.
-          - `method="post"`: Specifies that the form should be submitted using the HTTP POST method. POST is appropriate here because the action creates a new resource (a batch) and has side effects on the server.
-        -->
+        
+        <!-- The form submits a POST request to the 'handle_batch_processing' endpoint. -->
         <form id="batch-form" action="{{ url_for('handle_batch_processing') }}" method="post">
-            <!-- The main button that the user clicks to initiate the process. -->
             <button id="start-button" type="submit">Start New Batch</button>
         </form>
 
-        <!--
-          This conditional block checks if a 'message' variable was passed from the Flask backend to this template.
-          If it exists, the message is displayed. This is a simple way to show status updates, like a success or failure message after an action.
-        -->
+        <!-- A message can be passed to this template to show status updates. -->
         {% if message %}
             <p style="margin-top: 2em; font-weight: bold; color: green;">{{ message }}</p>
         {% endif %}
     </div>
 
     <script>
-        // This JavaScript code enhances the user experience by providing instant feedback.
-        // It listens for the 'submit' event on the form.
+        // This script provides simple feedback to the user after they click the button.
         document.getElementById('batch-form').addEventListener('submit', function() {
-            // Get a reference to the button element.
             var button = document.getElementById('start-button');
-            
-            // Disable the button immediately on submission.
-            // This is a crucial step to prevent users from accidentally (or intentionally) clicking the button multiple times,
-            // which could trigger multiple, resource-intensive batch processing jobs on the backend.
+            // Disable the button to prevent multiple submissions.
             button.disabled = true;
-            
-            // Change the button's text to inform the user that the process has started.
-            // This provides clear visual feedback that their request is being handled, especially since the backend process might take some time to complete.
+            // Change the button text to indicate that processing has started.
             button.innerText = 'Processing... Please Wait...';
         });
     </script>
