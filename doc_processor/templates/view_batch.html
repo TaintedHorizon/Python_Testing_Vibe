@@ -1,53 +1,101 @@
 {% extends 'base.html' %}
 
+<!-- Sets the browser tab title for the page, dynamically including the batch ID. -->
 {% block title %}Viewing Batch {{ batch_id }}{% endblock %}
 
+<!-- Main content block for the read-only batch viewing interface. -->
 {% block content %}
 <style>
-    /* Styles are largely copied from revisit.html for a consistent look and feel */
-    .container { display: flex; gap: 20px; align-items: flex-start; }
-    .image-pane { flex: 1; text-align: center; position: sticky; top: 20px; }
-    .image-wrapper { width: 100%; height: 80vh; border: 1px solid #ccc; background-color: #f0f0f0; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    .image-wrapper img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform 0.2s; }
-    .info-pane { flex: 1; }
-    .pagination { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-    .pagination a, .pagination span { padding: 10px 20px; text-decoration: none; border: 1px solid #ddd; background-color: #007BFF; color: white; border-radius: 5px; }
-    .pagination span { background-color: #6c757d; }
-    .info-box { background-color: white; border: 1px solid #ccc; padding: 20px; border-radius: 5px; }
-    .ocr-text { max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 10px; margin-top: 10px; background-color: #f9f9f9; }
-    .ocr-text pre { white-space: pre-wrap; word-wrap: break-word; }
-    .rotate-buttons { margin-top: 10px; }
+    /* Styles are largely consistent with `revisit.html` and `verify.html` for a unified look and feel. */
+    .container { display: flex; gap: 20px; align-items: flex-start; } /* Uses flexbox for a two-column layout. */
+    .image-pane { flex: 1; text-align: center; position: sticky; top: 20px; } /* The image pane takes up half the width and sticks to the top when scrolling. */
+    .image-wrapper { 
+        width: 100%; 
+        height: 80vh; /* Occupies 80% of the viewport height. */
+        border: 1px solid #ccc; 
+        background-color: #f0f0f0; 
+        margin-bottom: 10px; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        overflow: hidden; 
+    }
+    .image-wrapper img { 
+        max-width: 100%; 
+        max-height: 100%; 
+        object-fit: contain; /* Ensures the entire image is visible within the wrapper. */
+        transition: transform 0.2s; /* Smooth transition for rotation effect. */
+    }
+    .info-pane { flex: 1; } /* The info pane takes up the other half of the width. */
+    .pagination { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; } /* Flexbox for pagination controls. */
+    .pagination a, .pagination span { 
+        padding: 10px 20px; 
+        text-decoration: none; 
+        border: 1px solid #ddd; 
+        background-color: #007BFF; 
+        color: white; 
+        border-radius: 5px; 
+        transition: background-color 0.2s; 
+    }
+    .pagination span { 
+        background-color: #6c757d; /* Grey for disabled pagination links. */
+        cursor: not-allowed; 
+    }
+    .info-box { background-color: white; border: 1px solid #ccc; padding: 20px; border-radius: 5px; margin-bottom: 20px; } /* Styling for content boxes. */
+    .ocr-text { max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 10px; margin-top: 10px; background-color: #f9f9f9; } /* Scrollable area for OCR text. */
+    .ocr-text pre { white-space: pre-wrap; word-wrap: break-word; } /* Ensures long text wraps. */
+    /* Styling for rotation buttons. */
+    .rotate-buttons button { 
+        padding: 8px 15px; 
+        margin: 0 5px; 
+        background-color: #6c757d; 
+        color: white; 
+        border: none; 
+        border-radius: 5px; 
+        cursor: pointer; 
+        transition: background-color 0.2s; 
+    }
+    .rotate-buttons button:hover { background-color: #5a6268; }
 </style>
 
 <h1>Viewing Completed Batch #{{ batch_id }} <span style="font-size: 0.6em; color: #666;">(Status: {{ batch.status }})</span></h1>
 <p>This is a read-only view of the pages in this completed batch. If changes are needed, you must use the "Reset Batch" button on the Mission Control page.</p>
 
+<!-- Pagination controls to navigate between pages. -->
 <div class="pagination">
     {% if current_page_num > 1 %}
+        <!-- Link to the previous page. -->
         <a href="{{ url_for('view_batch_page', batch_id=batch_id, page=current_page_num - 1) }}">&laquo; Previous Page</a>
     {% else %}
+        <!-- Disabled "Previous" button on the first page. -->
         <span>&laquo; Previous Page</span>
     {% endif %}
     <strong>Page {{ current_page_num }} of {{ total_pages }}</strong>
     {% if current_page_num < total_pages %}
+        <!-- Link to the next page. -->
         <a href="{{ url_for('view_batch_page', batch_id=batch_id, page=current_page_num + 1) }}">Next Page &raquo;</a>
     {% else %}
+        <!-- On the last page, the "Next" button becomes a "Finish Viewing" button to return to Mission Control. -->
         <a href="{{ url_for('mission_control_page') }}" style="background-color: #17a2b8;">Finish Viewing</a>
     {% endif %}
 </div>
 
 <div class="container">
+    <!-- Left Pane: Displays the page image and client-side rotation controls. -->
     <div class="image-pane">
         <div class="image-wrapper">
+            <!-- The image element for the current page. Its source is dynamically generated by Flask. -->
             <img id="pageImage" src="{{ url_for('serve_processed_file', filepath=current_page.relative_image_path) }}" alt="Scanned page">
         </div>
-        <input type="hidden" id="rotation-input" value="{{ current_page.rotation_angle or 0 }}">
+        <!-- Buttons to rotate the image client-side for better viewing. This does not save the rotation to the database. -->
+        <input type="hidden" id="rotation-input" value="{{ current_page.rotation_angle or 0 }}"> <!-- Hidden input to store the rotation angle for client-side use. -->
         <div class="rotate-buttons">
             <button onclick="rotateImage(-90)">Rotate Left ↺</button>
             <button onclick="rotateImage(90)">Rotate Right ↻</button>
         </div>
     </div>
 
+    <!-- Right Pane: Contains information about the page. -->
     <div class="info-pane">
         <div class="info-box">
             <p><strong>Source File:</strong><br>{{ current_page.source_filename }}, Page {{ current_page.page_number }}</p>
@@ -57,6 +105,7 @@
             <p><strong>Final Verified Category:</strong><br>{{ current_page.human_verified_category or 'N/A' }}</p>
         </div>
         
+        <!-- Box to display the extracted OCR text for review. -->
         <div class="info-box" style="margin-top: 20px;">
             <h3>Extracted OCR Text</h3>
             <div class="ocr-text"><pre>{{ current_page.ocr_text }}</pre></div>
@@ -65,18 +114,18 @@
 </div>
 
 <script>
-    let currentRotation = 0;
-    const rotationInput = document.getElementById('rotation-input');
-    const pageImage = document.getElementById('pageImage');
+    let currentRotation = 0; // Variable to keep track of the image's current rotation angle.
+    const rotationInput = document.getElementById('rotation-input'); // Hidden input to store the rotation angle.
+    const pageImage = document.getElementById('pageImage'); // The image element itself.
     
-    // Function to handle client-side image rotation for viewing.
+    // Function to handle client-side image rotation for viewing purposes.
     function rotateImage(degrees) {
-        currentRotation = (currentRotation + 360 + degrees) % 360;
-        if (pageImage) pageImage.style.transform = `rotate(${currentRotation}deg)`;
+        currentRotation = (currentRotation + 360 + degrees) % 360; // Ensures rotation stays within 0-359 degrees.
+        if (pageImage) pageImage.style.transform = `rotate(${currentRotation}deg)`; // Apply CSS transform for visual rotation.
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        // Set the initial rotation of the image based on the value from the database.
+        // Set the initial rotation of the image when the page loads, based on the value from the database.
         if (rotationInput) { currentRotation = parseInt(rotationInput.value) || 0; }
         if (pageImage) { pageImage.style.transform = `rotate(${currentRotation}deg)`; }
     });

@@ -1,26 +1,42 @@
+<!--
+This HTML template serves as the user interface for the final step in the document processing workflow: Finalization and Export.
+It allows the user to review AI-suggested filenames, make manual edits, and then trigger the final export process for the entire batch.
+
+Key Features:
+- Extends the base.html template for consistent application styling.
+- Displays a clear, editable table of all documents within the batch.
+- For each document, it shows the original name, an editable input for the final filename (pre-filled with an AI suggestion), and the page count.
+- A single "Export All Documents" button triggers the final action.
+- Utilizes a form that submits all document IDs and their corresponding final filenames to the backend.
+- Includes JavaScript to provide a crucial confirmation step and to disable the button upon submission, preventing duplicate actions.
+-->
 {% extends 'base.html' %}
 
+<!-- Sets the browser tab title, dynamically including the batch ID for clear user context. -->
 {% block title %}Finalize & Export Batch {{ batch_id }}{% endblock %}
 
+<!-- Main content block that will be injected into the base template. -->
 {% block content %}
 <style>
+    /* Scoped styles for this specific page to ensure a clean and focused layout. */
     .finalize-container { max-width: 900px; margin: auto; background-color: white; padding: 20px; border: 1px solid #ccc; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
     .doc-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
     .doc-table th, .doc-table td { border: 1px solid #ddd; padding: 12px; text-align: left; vertical-align: middle; }
-    .doc-table th { background-color: #f2f2f2; }
-    .filename-input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+    .doc-table th { background-color: #f2f2f2; } /* Light grey header for the table. */
+    .filename-input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; } /* `box-sizing: border-box` makes width and padding calculations more intuitive. */
     .export-form { margin-top: 20px; text-align: center; }
     .export-btn {
         padding: 12px 30px;
-        background-color: #28a745;
+        background-color: #28a745; /* A green color indicating a positive, final action. */
         color: white;
         border-radius: 5px;
         font-size: 1.2em;
         border: none;
         cursor: pointer;
+        transition: background-color 0.3s; /* Smooth color transition on hover/disable. */
     }
     .export-btn:disabled {
-        background-color: #6c757d;
+        background-color: #6c757d; /* A muted grey to indicate the button is inactive. */
         cursor: not-allowed;
     }
 </style>
@@ -29,6 +45,13 @@
     <h1>Finalize & Export Batch #{{ batch_id }}</h1>
     <p>Review the AI-suggested filenames below. You can edit them as needed. When you are ready, click the button at the bottom to export all documents and complete the batch.</p>
 
+    <!--
+    This form encapsulates the entire finalization process.
+    - `id="export-form"`: A unique ID for the form, used by the JavaScript.
+    - `action`: Dynamically generates the URL for the `export_batch_action` Flask route.
+    - `method="post"`: Uses the POST method because this action is final and modifies the server state (marks the batch as complete and creates files).
+    - `onsubmit`: Hooks into the form submission event to call the `handleExportSubmit` JavaScript function, which adds a confirmation dialog.
+    -->
     <form id="export-form" class="export-form" action="{{ url_for('export_batch_action', batch_id=batch_id) }}" method="post" onsubmit="return handleExportSubmit(this);">
         <table class="doc-table">
             <thead>
@@ -39,16 +62,33 @@
                 </tr>
             </thead>
             <tbody>
+                <!--
+                This Jinja2 `for` loop iterates through the list of 'documents' provided by the Flask backend.
+                Each iteration creates one row `<tr>` in the table, representing one document.
+                -->
                 {% for doc in documents %}
                 <tr>
+                    <!-- Column 1: Displays the temporary name given by the user during the grouping stage. -->
                     <td>{{ doc.document_name }}</td>
                     <td>
+                        <!--
+                        CRITICAL DATA SUBMISSION PATTERN:
+                        This form submits two parallel lists of data for each document.
+                        1. `document_ids`: A hidden input holding the unique ID of the document.
+                        2. `final_filenames`: A text input holding the user-editable final filename.
+                        The Flask backend will receive these as two lists. It must process them in order, pairing the first ID with the first filename, the second with the second, and so on.
+                        -->
                         <input type="hidden" name="document_ids" value="{{ doc.id }}">
                         <input type="text" name="final_filenames" class="filename-input" value="{{ doc.suggested_filename }}">
                     </td>
+                    <!-- Column 3: Displays the number of pages that make up this document. -->
                     <td>{{ doc.page_count }}</td>
                 </tr>
                 {% else %}
+                <!--
+                This `else` block is a feature of Jinja2 loops. It is rendered only if the `documents` list is empty.
+                This provides a much better user experience than showing an empty table.
+                -->
                 <tr>
                     <td colspan="3" style="text-align: center;">No documents found in this batch.</td>
                 </tr>
@@ -56,6 +96,7 @@
             </tbody>
         </table>
 
+        <!-- This conditional logic ensures that the export button is only rendered if there are actually documents to export. -->
         {% if documents %}
             <button id="export-button" type="submit" class="export-btn">Export All Documents</button>
         {% endif %}
@@ -63,17 +104,26 @@
 </div>
 
 <script>
+    /**
+     * This function enhances the user experience for the final export action.
+     * 1. It presents a confirmation dialog to prevent accidental submissions of this irreversible step.
+     * 2. Upon confirmation, it disables the submit button to prevent multiple clicks and redundant server requests.
+     * 3. It provides visual feedback by changing the button text.
+     * @param {HTMLFormElement} form - The form element that is being submitted.
+     * @returns {boolean} - Returns `true` to allow the form submission to proceed, or `false` to cancel it.
+     */
     function handleExportSubmit(form) {
-        // First, show a confirmation dialog to the user
+        // Use the browser's built-in `confirm()` dialog for a simple, blocking confirmation.
         if (confirm('Are you sure you want to export all documents for this batch? This action is final.')) {
             const button = form.querySelector('#export-button');
-            // Disable the button to prevent multiple submissions
+            // Immediately disable the button to prevent double-submission.
             button.disabled = true;
-            // Change the button text to provide feedback
+            // Change the button text to let the user know the process has started.
             button.textContent = 'Exporting... Please Wait...';
-            return true; // Proceed with form submission
+            return true; // Allow the form to be submitted to the server.
         }
-        return false; // Cancel form submission if user clicks "Cancel"
+        // If the user clicks "Cancel" in the confirmation dialog, the function returns false, which stops the form submission.
+        return false;
     }
 </script>
 {% endblock %}
