@@ -1,49 +1,76 @@
+{# This template extends the base.html layout, providing a consistent look and feel across the application. #}
 {% extends 'base.html' %}
 
+{# Sets the title of the HTML page, dynamically including the batch ID for context. #}
 {% block title %}View Exported Documents for Batch {{ batch_id }}{% endblock %}
 
+{# Defines the main content area of the page. #}
 {% block content %}
+{# Internal CSS for styling the document list and related elements. #}
 <style>
+    /* Styles for the main container of the document list, centering it and applying basic card-like styling. */
     .doc-list-container { max-width: 900px; margin: auto; background-color: white; padding: 20px; border: 1px solid #ccc; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    /* Styles for the table displaying documents, ensuring full width and collapsed borders. */
     .doc-list-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    /* Styles for table headers and data cells, including padding, alignment, and vertical alignment. */
     .doc-list-table th, .doc-list-table td { border: 1px solid #ddd; padding: 12px; text-align: left; vertical-align: middle; }
+    /* Background color for table headers. */
     .doc-list-table th { background-color: #f2f2f2; }
+    /* Styles for download links, making them inline blocks with spacing and default blue color. */
     .download-links a { display: inline-block; margin-right: 10px; text-decoration: none; color: #007BFF; }
+    /* Underline effect on hover for download links. */
     .download-links a:hover { text-decoration: underline; }
+    /* Styles for the "Back to Mission Control" link, making it a styled button. */
     .back-link { display: inline-block; margin-top: 20px; padding: 10px 20px; background-color: #6c757d; color: white; text-decoration: none; border-radius: 5px; }
 </style>
 
+{# Main content container for the document list. #}
 <div class="doc-list-container">
+    {# Page heading, dynamically displaying the batch ID. #}
     <h1>Exported Documents for Batch #{{ batch_id }}</h1>
+    {# Introductory paragraph explaining the purpose of the page. #}
     <p>This batch has been successfully exported. You can download the final files for each document below.</p>
 
+    {# Table to display the list of exported documents. #}
     <table class="doc-list-table">
+        {# Table header. #}
         <thead>
             <tr>
                 <th>Final Document Name</th>
                 <th>Downloads</th>
             </tr>
         </thead>
+        {# Table body where document data will be populated. #}
         <tbody>
+            {# Loops through each document in the 'documents' list passed from the Flask backend. #}
             {% for doc in documents %}
+                {# Conditional check: Only display documents that have a final filename base. #}
                 {% if doc.final_filename_base %}
                 <tr>
+                    {# Displays the base name of the final document. #}
                     <td>{{ doc.final_filename_base }}</td>
+                    {# Container for download links for each document. #}
                     <td class="download-links">
+                        {# Link to download the standard PDF, using Flask's url_for to generate the URL. #}
                         <a href="{{ url_for('download_export_file', filepath=doc.pdf_path) }}" title="Download Standard PDF">PDF</a> |
+                        {# Link to download the OCR (searchable) PDF. #}
                         <a href="{{ url_for('download_export_file', filepath=doc.ocr_pdf_path) }}" title="Download Searchable PDF">OCR PDF</a> |
+                        {# Link to download the processing log in Markdown format. #}
                         <a href="{{ url_for('download_export_file', filepath=doc.log_path) }}" title="Download Markdown Log">Log</a>
                     </td>
                 </tr>
                 {% endif %}
+            {# This block is executed if the 'documents' list is empty or no documents have a final filename base. #}
             {% else %}
             <tr>
+                {# Message displayed when no exported documents are found. #}
                 <td colspan="2" style="text-align: center;">No exported documents with saved filenames were found for this batch.</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
 
+    {# Link to navigate back to the Mission Control page. #}
     <a href="{{ url_for('mission_control_page') }}" class="back-link">Back to Mission Control</a>
 </div>
 {% endblock %}
