@@ -16,6 +16,7 @@
     .btn-group { background-color: #28a745; } /* Green */
     .btn-order { background-color: #6f42c1; } /* Purple */
     .btn-revisit { background-color: #6c757d; } /* Gray */
+    .btn-reset { background-color: #dc3545; } /* Red */
     
     /* Styling for the new batch form section */
     .new-batch-form { padding: 20px; background-color: white; border: 1px solid #ccc; border-radius: 5px; margin-bottom: 30px; text-align: center; }
@@ -40,7 +41,7 @@
             <th>Batch ID</th>
             <th>Start Time</th>
             <th>Status</th>
-            <th>Next Action</th>
+            <th>Actions</th>
         </tr>
     </thead>
     <tbody>
@@ -51,39 +52,35 @@
             <td>{{ batch.start_time }}</td>
             <td>{{ batch.status | replace('_', ' ') | title }}</td>
             <td>
-                <!-- 
-                This is the core logic of the dashboard.
-                It displays different action buttons based on the current 'status' of the batch,
-                guiding the user through the workflow.
-                -->
                 {% if batch.status == 'pending_verification' %}
-                    <!-- If the batch is new, the first step is to verify the pages. -->
                     <a href="{{ url_for('verify_batch_page', batch_id=batch.id) }}" class="action-btn btn-verify">Verify</a>
                 
                 {% elif batch.status == 'verification_complete' %}
-                    <!-- After verification, the next step is to group pages into documents. -->
                     <a href="{{ url_for('group_batch_page', batch_id=batch.id) }}" class="action-btn btn-group">Group ({{ batch.ungrouped_count }} ungrouped)</a>
-                    <!-- If any pages were flagged, a 'Review' button is also shown. -->
                     {% if batch.flagged_count > 0 %}
                         <a href="{{ url_for('review_batch_page', batch_id=batch.id) }}" class="action-btn btn-review">Review ({{ batch.flagged_count }} flagged)</a>
                     {% endif %}
                     <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Pages</a>
                 
                 {% elif batch.status == 'grouping_complete' %}
-                    <!-- After grouping, the next step is to order the pages within multi-page documents. -->
                     <a href="{{ url_for('order_batch_page', batch_id=batch.id) }}" class="action-btn btn-order">Order Pages</a>
                     <a href="{{ url_for('group_batch_page', batch_id=batch.id) }}" class="action-btn btn-group">Revisit Grouping</a>
                     <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Pages</a>
                 
                 {% elif batch.status == 'ordering_complete' %}
-                    <!-- If ordering is done, the batch is considered complete. -->
                     <span style="color:green; font-weight: bold;">✓ Complete</span>
-                    <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">View Pages</a>
+                    <a href="{{ url_for('view_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">View Pages</a>
 
                 {% else %}
-                    <!-- A fallback for any other status. -->
-                     <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Batch</a>
+                    <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Batch</a>
                 {% endif %}
+
+                {% if batch.status != 'pending_verification' and batch.status != 'Exported' %}
+                    <form action="{{ url_for('reset_batch_action', batch_id=batch.id) }}" method="post" style="display: inline;" onsubmit="return confirm('Are you sure you want to completely reset this batch? All grouping and ordering will be lost.');">
+                        <button type="submit" class="action-btn btn-reset">Reset Batch</button>
+                    </form>
+                {% endif %}
+
             </td>
         </tr>
         {% else %}

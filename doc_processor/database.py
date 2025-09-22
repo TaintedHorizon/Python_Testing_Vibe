@@ -427,3 +427,91 @@ def update_document_status(document_id, new_status):
     finally:
         if conn:
             conn.close()
+
+# --- NEW FUNCTION FOR RESET BATCH FEATURE ---
+
+def reset_batch_to_start(batch_id):
+    """
+    Completely resets a batch to its initial 'pending_verification' state.
+
+    This is a destructive operation for any manual work (verification, grouping,
+    ordering) done on the batch. It will:
+    1. Delete all document groups created for the batch.
+    2. Reset the status of all pages in the batch to 'pending_verification'.
+    3. Reset the overall batch status to 'pending_verification'.
+
+    Args:
+        batch_id (int): The ID of the batch to be fully reset.
+    """
+    # Establish a connection to the database.
+    conn = get_db_connection()
+    try:
+        # Use 'with conn:' to create a transaction. This ensures that all the
+        # following operations succeed or fail together. If any single operation
+        # raises an error, all previous changes in this block are automatically
+        # rolled back, preventing a partially-reset batch.
+        with conn:
+            # --- Step 1: Delete Document Structures ---
+            
+            # First, find all documents that belong to the target batch.
+            # We need their IDs to delete the links in the 'document_pages' junction table.
+            docs_to_delete = conn.execute(
+                "SELECT id FROM documents WHERE batch_id = ?", (batch_id,)
+            ).fetchall()
+
+            # Check if there are any documents to delete to avoid unnecessary operations.
+            if docs_to_delete:
+                # Extract just the integer IDs from the list of row objects.
+                doc_ids = [doc["id"] for doc in docs_to_delete]
+
+                # Create the correct number of '?' placeholders for the SQL IN clause.
+                # This is the safe, parameterized way to handle a variable number of items.
+                placeholders = ",".join(["?"] * len(doc_ids))
+                
+                # Delete all links in the junction table associated with these documents.
+                # This must be done before deleting the documents themselves to satisfy
+                # the foreign key constraint (a link can't exist to a non-existent document).
+                conn.execute(
+                    f"DELETE FROM document_pages WHERE document_id IN ({placeholders})",
+                    doc_ids,
+                )
+                
+                # Now that the links are gone, safely delete the document parent records.
+                conn.execute("DELETE FROM documents WHERE batch_id = ?", (batch_id,))
+                print(f"Deleted {len(doc_ids)} document groups for batch {batch_id}.")
+
+            # --- Step 2: Reset All Pages in the Batch ---
+            
+            # Update all pages associated with this batch ID.
+            # - Set their status back to 'pending_verification'.
+            # - Clear any `human_verified_category` to NULL.
+            # - Reset the `rotation_angle` to its default of 0.
+            # This effectively reverts every page to its original, post-OCR state.
+            conn.execute(
+                """
+                UPDATE pages 
+                SET status = 'pending_verification', human_verified_category = NULL, rotation_angle = 0
+                WHERE batch_id = ?
+            """,
+                (batch_id,),
+            )
+            print(f"Reset page statuses and categories for batch {batch_id}.")
+
+            # --- Step 3: Reset the Batch Itself ---
+
+            # Finally, update the main batch record to reset its status. This ensures
+            # that it will appear in the "Verify" stage on the Mission Control page.
+            conn.execute(
+                "UPDATE batches SET status = 'pending_verification' WHERE id = ?", (batch_id,)
+            )
+            print(f"Reset status for batch {batch_id}.")
+
+    except sqlite3.Error as e:
+        # If any part of the transaction fails, the 'with' block will trigger
+        # a rollback, and we print an error message for debugging.
+        print(f"Database error while resetting batch {batch_id}. All changes rolled back. Error: {e}")
+    finally:
+        # Ensure the database connection is always closed, whether the
+        # operation succeeded or failed.
+        if conn:
+            conn.close()

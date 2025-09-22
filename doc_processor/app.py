@@ -37,6 +37,7 @@ from database import (
     get_pages_for_document,
     update_page_sequence,
     update_document_status,
+    reset_batch_to_start,  # <-- Import the new reset function
 )
 
 # Initialize the Flask application
@@ -241,6 +242,57 @@ def revisit_batch_page(batch_id):
         categories=combined_categories,
     )
 
+# --- NEW ROUTE FOR READ-ONLY VIEW ---
+
+@app.route("/view/<int:batch_id>")
+def view_batch_page(batch_id):
+    """
+    Provides a strictly read-only view of all pages in a completed batch.
+    This page is for reviewing the final state of a batch without the ability
+    to make any changes.
+    """
+    # Fetch all pages associated with this batch.
+    pages = get_pages_for_batch(batch_id)
+    # If for some reason a completed batch has no pages, redirect to Mission Control.
+    if not pages:
+        return redirect(
+            url_for(
+                "mission_control_page", message=f"No pages found for Batch #{batch_id}."
+            )
+        )
+
+    # Fetch the batch object itself to display its status.
+    batch = get_batch_by_id(batch_id)
+    # Get the base directory for processed images to construct relative paths for the HTML.
+    processed_dir = os.getenv("PROCESSED_DIR")
+    # Create a list of page dictionaries, adding the relative image path to each.
+    pages_with_relative_paths = [
+        dict(
+            p,
+            relative_image_path=os.path.relpath(
+                p["processed_image_path"], processed_dir
+            ),
+        )
+        for p in pages
+    ]
+
+    # Implement pagination to show one page at a time.
+    page_num = request.args.get("page", 1, type=int)
+    # Ensure the page number is valid, defaulting to 1 if it's out of bounds.
+    if not 1 <= page_num <= len(pages_with_relative_paths):
+        page_num = 1
+    # Get the specific page to display based on the page number.
+    current_page = pages_with_relative_paths[page_num - 1]
+
+    # Render the new, dedicated read-only template.
+    return render_template(
+        "view_batch.html",
+        batch_id=batch_id,
+        batch=batch,
+        current_page=current_page,
+        current_page_num=page_num,
+        total_pages=len(pages_with_relative_paths),
+    )
 
 @app.route("/group/<int:batch_id>")
 def group_batch_page(batch_id):
@@ -438,6 +490,23 @@ def reset_grouping_action(batch_id):
     """
     reset_batch_grouping(batch_id)
     return redirect(url_for("group_batch_page", batch_id=batch_id))
+
+
+# --- NEW ROUTE FOR RESET BATCH FEATURE ---
+
+@app.route("/reset_batch/<int:batch_id>", methods=["POST"])
+def reset_batch_action(batch_id):
+    """
+    Handles the action to completely reset a batch to the 'pending_verification' state.
+    This is a destructive action for any verification, grouping, or ordering work.
+
+    Args:
+        batch_id (int): The ID of the batch to reset.
+    """
+    # The core logic is encapsulated in the database function for safety and reusability.
+    reset_batch_to_start(batch_id)
+    # After the reset, send the user back to the main dashboard.
+    return redirect(url_for("mission_control_page"))
 
 
 @app.route("/update_page", methods=["POST"])
