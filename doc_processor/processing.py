@@ -1,4 +1,4 @@
-"This module contains the core business logic for the document processing pipeline.
+"""This module contains the core business logic for the document processing pipeline.
 It handles the heavy lifting of the application, including:
 
 - **File Conversion**: Converting source PDFs into processable PNG images.
@@ -14,7 +14,7 @@ It handles the heavy lifting of the application, including:
 This module is designed to be called by the Flask application (`app.py`) and
 interacts with the database via the functions in `database.py`. It is the
 engine of the application.
-"
+"""
 # Standard library imports
 import os
 import sqlite3
@@ -42,7 +42,7 @@ load_dotenv()
 # Suppress a specific, non-critical warning from PyTorch (a dependency of EasyOCR).
 # This warning is related to memory pinning and is not relevant to the core
 # functionality of this application, so it's hidden to keep the console output clean.
-warnings.filterwarnings("ignore", message=".*'pin_memory' argument is set as true.*")
+warnings.filterwarnings("ignore", message=".*'pin_memory' argument is set as true.*" )
 
 # Initialize the EasyOCR reader. This can be a time-consuming operation as it
 # loads the language model into memory. It's done once when the module is first
@@ -106,7 +106,20 @@ def _process_single_page_from_file(
         else:
             # Use Tesseract's Orientation and Script Detection (OSD) to find the
             # correct orientation of the page.
-            image = Image.open(image_path)
+            try:
+                if not os.path.exists(image_path):
+                    print(f"    - [ERROR] Image file {os.path.basename(image_path)} is missing before opening.")
+                    return False
+                file_size = os.path.getsize(image_path)
+                if file_size == 0:
+                    print(f"    - [ERROR] Image file {os.path.basename(image_path)} is empty before opening.")
+                    return False
+                print(f"    - DEBUG: Attempting to open {os.path.basename(image_path)} (size: {file_size} bytes).")
+                image = Image.open(image_path)
+            except Exception as img_e:
+                print(f"    - [ERROR] Could not open image {os.path.basename(image_path)}: {img_e}")
+                return False
+            
             osd = pytesseract.image_to_osd(image, output_type=pytesseract.Output.DICT)
             rotation = osd.get("rotate", 0)
             # If Tesseract suggests a rotation, apply it before performing OCR.
@@ -117,7 +130,7 @@ def _process_single_page_from_file(
 
             # Perform the main OCR task using EasyOCR.
             print("    - Performing OCR...")
-            ocr_results = reader.readtext(image_path)
+            ocr_results = reader.readtext(np.array(image))
             # Join the text fragments from EasyOCR into a single string.
             ocr_text = " ".join([text for _, text, _ in ocr_results])
 
@@ -205,6 +218,7 @@ def process_batch():
     db_path = os.getenv("DATABASE_PATH")
     conn = None
     batch_id = -1  # Initialize batch_id to a known invalid value.
+    cursor = None # Initialize cursor to None
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
@@ -216,8 +230,15 @@ def process_batch():
 
         # Get directory paths from environment variables.
         intake_dir = os.getenv("INTAKE_DIR")
+        if intake_dir is None:
+            print("[ERROR] INTAKE_DIR environment variable is not set.")
+            return False
         processed_dir = os.getenv("PROCESSED_DIR")
         archive_dir = os.getenv("ARCHIVE_DIR")
+        if archive_dir is None:
+            print("[ERROR] ARCHIVE_DIR environment variable is not set.")
+            return False
+        os.makedirs(archive_dir, exist_ok=True) # Ensure archive directory exists
         # Create a dedicated subdirectory for this batch's images to keep them organized.
         batch_image_dir = os.path.join(processed_dir, str(batch_id))
         os.makedirs(batch_image_dir, exist_ok=True)
@@ -564,8 +585,7 @@ def export_document(pages, final_name_base, category):
 |---------|---------------------|-----------------|-------------------------------|
 """
         for p in pages:
-            log_content += f"| {p['id']} | {p['source_filename']} | {p['page_number']} | {p['ai_suggested_category']} |
-"
+            log_content += f"| {p['id']} | {p['source_filename']} | {p['page_number']} | {p['ai_suggested_category']} |\n"
 
         log_content += "\n## Full Extracted OCR Text\n\n"
         log_content += "```text\n"
@@ -594,6 +614,9 @@ def cleanup_batch_files(batch_id):
     print(f"--- CLEANING UP Batch ID: {batch_id} ---")
     processed_dir = os.getenv("PROCESSED_DIR")
     batch_image_dir = os.path.join(processed_dir, str(batch_id))
+    if processed_dir is None:
+        print("[ERROR] PROCESSED_DIR environment variable is not set.")
+        return False
     if os.path.isdir(batch_image_dir):
         try:
             # `shutil.rmtree` recursively deletes a directory and all its contents.
