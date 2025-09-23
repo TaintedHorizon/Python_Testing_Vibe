@@ -153,29 +153,118 @@ This project is licensed under the MIT License. See `LICENSE` for details.
 ## File-by-File Analysis
 
 ### `app.py`
-
-This is the heart of the web application. It uses the Flask framework to define all the URL routes and handle the logic for the user interface. It orchestrates the entire user workflow, from initiating a new batch to verifying pages, grouping them into documents, ordering them, and finally exporting them. It doesn't perform the heavy lifting itself but instead calls functions from `processing.py` for tasks like OCR and `database.py` to read or write data. It is responsible for rendering the HTML templates and passing the necessary data to them.
-
+The main Flask web application. Handles all routes, UI orchestration, and workflow logic. Delegates heavy processing to `processing.py` and all database operations to `database.py`. Renders HTML templates and manages user session state.
 
 ### `config_manager.py`
 Centralizes all configuration loading and validation. Loads settings from `.env` and provides a type-safe `AppConfig` object for use throughout the app. All configuration is now managed here.
 
 ### `database.py`
-This module is the Data Access Layer (DAL). It contains all the functions that interact directly with the SQLite database. By centralizing all SQL queries here, the rest of the application can be database-agnostic, and the code is much cleaner and easier to maintain. The functions are divided into "queries" (reading data with `SELECT`) and "commands" (modifying data with `INSERT`, `UPDATE`, `DELETE`). It also includes helpers for category management:
-- All categories (default and custom) are stored in the `categories` table.
-- When a user adds a new custom category, it is inserted into the global table if not already present (case-insensitive).
-
-### `database_setup.py`
-
-This is a one-time setup script used to initialize a new, empty database with the correct schema. It creates all the necessary tables (`batches`, `pages`, `documents`, `document_pages`) and defines their columns, primary keys, and foreign key relationships. It is idempotent, meaning it can be run multiple times without causing errors.
-
-### `database_upgrade.py`
-
-This script is for managing database schema changes over time. As new features are added, you might need to add a new column to a table. This script provides a safe, non-destructive way to do that. It checks if a column already exists before adding it, ensuring that it can be run multiple times without causing issues and without destroying existing data. This is a crucial script for maintaining a production application.
+The Data Access Layer (DAL). Contains all functions for interacting with the SQLite database, including queries (SELECT) and commands (INSERT, UPDATE, DELETE). Handles category management and batch/page/document status tracking. All categories (default and custom) are stored in the `categories` table.
 
 ### `processing.py`
+The core processing engine. Handles PDF-to-image conversion, OCR (EasyOCR/Tesseract), AI classification (Ollama), file management, and export logic. Called by `app.py` for all intensive backend tasks.
 
-This is the "engine" of the application. It contains all the core data processing logic. This includes converting PDFs to images, running OCR to extract text, communicating with the Ollama AI to get suggestions for categories and filenames, generating the final PDF and Markdown files, and managing the file system (creating directories, moving files, and cleaning up). This module is called by `app.py` to perform these intensive tasks in the background.
+### `templates/`
+All Jinja2 HTML templates for the Flask UI. Key templates:
+- `base.html`: Main base template, includes navigation and layout
+- `mission_control.html`: Dashboard and workflow hub
+- `verify.html`: Page-by-page verification UI
+- `review.html`: Flagged page review and correction
+- `group.html`: Grouping pages into documents
+- `order_batch.html`, `order_document.html`: Page ordering UIs
+- `finalize.html`: Final review and export
+- `revisit.html`, `view_batch.html`, `view_documents.html`: Read-only and batch/document views
+
+### `dev_tools/`
+All admin/dev scripts for setup, maintenance, and diagnostics:
+- `database_setup.py`: Initialize a new database (idempotent)
+- `database_upgrade.py`: Safely upgrade DB schema (add columns, etc.)
+- `reset_environment.py`: Wipe all data and reset environment for testing
+- `restore_categories.py`: Restore custom categories from backup
+- `clear_grouping_ordering_only.py`: Clear grouping/ordering for a batch
+- `diagnose_grouping_block.py`: Diagnose grouping issues in the DB
+- `force_reset_batch.py`: Force reset a batch to initial state
+- `inspect_batch1_state.py`: Inspect all DB state for batch 1
+
+### `tests/`
+All automated tests (pytest). Add new tests here to cover routes, processing, and database logic. Example: `test_app.py` checks the home route and UI text.
+
+### `docs/`
+Documentation and usage guides. Example: `USAGE.md` covers quick start, workflow, and troubleshooting.
+
+### Project Hygiene Files
+- `Makefile`: Common dev tasks (setup, test, lint, clean, run)
+- `LICENSE`: MIT License
+- `CONTRIBUTING.md`: Contribution guidelines
+- `CHANGELOG.md`: Chronological record of changes
+- `.env.sample`: Example environment file for onboarding
+
+### Other Folders
+- `tools/`: Utility scripts and GUIs (download manager, file copy, SD card imager, etc.)
+- `Document_Scanner_Ollama_outdated/`, `Document_Scanner_Gemini_outdated/`: Legacy/experimental code (not core)
+
+---
+
+## Setup and Installation (Ubuntu)
+
+**1. Install System Dependencies:**
+
+These libraries are required for Tesseract OCR and PDF-to-image conversion.
+
+```bash
+sudo apt-get update
+sudo apt-get install tesseract-ocr poppler-utils sqlite3 -y
+```
+
+**2. Set up Python Environment & Install Packages:**
+
+It is highly recommended to use a virtual environment to manage project dependencies.
+
+```bash
+# Create a virtual environment
+python3 -m venv venv
+
+# Activate the virtual environment
+source venv/bin/activate
+
+# Install all required Python packages
+pip install -r requirements.txt
+```
+
+**3. Configure Environment Variables:**
+
+Copy `.env.sample` to `.env` and edit as needed. All configuration is now loaded from this file via `config_manager.py`.
+
+```bash
+cp .env.sample .env
+# Edit .env to set your paths and options
+```
+
+**4. Initialize the Database:**
+
+This command creates the SQLite database file and sets up all the necessary tables.
+
+```bash
+python dev_tools/database_setup.py
+```
+
+**5. (If Upgrading) Run the Upgrade Script:**
+
+If you have an existing database and have pulled new code that changes the schema, run this script to safely add new columns without losing your data.
+
+```bash
+python dev_tools/database_upgrade.py
+```
+
+**6. Run Tests (Optional):**
+
+To verify your setup, run the test suite:
+
+```bash
+venv/bin/pytest tests/
+```
+
+---
 
 ## Setup and Installation (Ubuntu)
 
