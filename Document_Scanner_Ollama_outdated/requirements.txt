@@ -1,0 +1,12 @@
+# requirements.txt
+# This file lists the Python packages that need to be installed for the script to run.
+# You can install all of them at once using the command:
+# pip install -r requirements.txt
+
+ollama
+PyMuPDF
+Pillow
+easyocr
+torch
+torchvision
+pytesseract

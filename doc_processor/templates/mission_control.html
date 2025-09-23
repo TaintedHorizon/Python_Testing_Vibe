@@ -68,14 +68,19 @@
                     {% endif %}
                     <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Pages</a>
                 
+
                 {% elif batch.status == 'grouping_complete' %}
                     <a href="{{ url_for('order_batch_page', batch_id=batch.id) }}" class="action-btn btn-order">Order Pages</a>
-                    <a href="{{ url_for('group_batch_page', batch_id=batch.id) }}" class="action-btn btn-group">Revisit Grouping</a>
-                    <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Pages</a>
-                
+                    <form action="{{ url_for('reset_grouping_action', batch_id=batch.id) }}" method="post" style="display:inline;">
+                        <button type="submit" class="action-btn btn-group">Revisit Grouping</button>
+                    </form>
+
                 {% elif batch.status == 'ordering_complete' %}
                     <a href="{{ url_for('finalize_batch_page', batch_id=batch.id) }}" class="action-btn btn-finalize">Finalize & Export</a>
-                    <a href="{{ url_for('view_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">View Pages</a>
+                    <form action="{{ url_for('revisit_ordering_action', batch_id=batch.id) }}" method="post" style="display:inline;">
+                        <button type="submit" class="action-btn btn-order">Revisit Ordering</button>
+                    </form>
+                    <a href="{{ url_for('view_documents_page', batch_id=batch.id) }}" class="action-btn btn-view-docs">View Documents</a>
 
                 {% elif batch.status == 'Exported' %}
                     <a href="{{ url_for('view_documents_page', batch_id=batch.id) }}" class="action-btn btn-view-docs">View Documents</a>
@@ -114,6 +119,15 @@
         // Script for the "Finalize & Export" button
         const finalizeLinks = document.querySelectorAll('.btn-finalize');
         finalizeLinks.forEach(link => {
+            link.addEventListener('click', function(event) {
+                link.classList.add('disabled');
+                link.textContent = 'Loading...';
+            });
+        });
+
+        // Script for the "View Documents" button
+        const viewDocsLinks = document.querySelectorAll('.btn-view-docs');
+        viewDocsLinks.forEach(link => {
             link.addEventListener('click', function(event) {
                 link.classList.add('disabled');
                 link.textContent = 'Loading...';

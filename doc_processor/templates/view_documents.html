@@ -24,53 +24,105 @@
     .back-link { display: inline-block; margin-top: 20px; padding: 10px 20px; background-color: #6c757d; color: white; text-decoration: none; border-radius: 5px; }
 </style>
 
-{# Main content container for the document list. #}
-<div class="doc-list-container">
-    {# Page heading, dynamically displaying the batch ID. #}
-    <h1>Exported Documents for Batch #{{ batch_id }}</h1>
-    {# Introductory paragraph explaining the purpose of the page. #}
-    <p>This batch has been successfully exported. You can download the final files for each document below.</p>
 
-    {# Table to display the list of exported documents. #}
-    <table class="doc-list-table">
-        {# Table header. #}
-        <thead>
-            <tr>
-                <th>Final Document Name</th>
-                <th>Downloads</th>
-            </tr>
-        </thead>
-        {# Table body where document data will be populated. #}
-        <tbody>
-            {# Loops through each document in the 'documents' list passed from the Flask backend. #}
-            {% for doc in documents %}
-                {# Conditional check: Only display documents that have a final filename base. #}
-                {% if doc.final_filename_base %}
-                <tr>
-                    {# Displays the base name of the final document. #}
-                    <td>{{ doc.final_filename_base }}</td>
-                    {# Container for download links for each document. #}
-                    <td class="download-links">
-                        {# Link to download the standard PDF, using Flask's url_for to generate the URL. #}
-                        <a href="{{ url_for('download_export_file', filepath=doc.pdf_path) }}" title="Download Standard PDF">PDF</a> |
-                        {# Link to download the OCR (searchable) PDF. #}
-                        <a href="{{ url_for('download_export_file', filepath=doc.ocr_pdf_path) }}" title="Download Searchable PDF">OCR PDF</a> |
-                        {# Link to download the processing log in Markdown format. #}
-                        <a href="{{ url_for('download_export_file', filepath=doc.log_path) }}" title="Download Markdown Log">Log</a>
-                    </td>
-                </tr>
-                {% endif %}
-            {# This block is executed if the 'documents' list is empty or no documents have a final filename base. #}
-            {% else %}
-            <tr>
-                {# Message displayed when no exported documents are found. #}
-                <td colspan="2" style="text-align: center;">No exported documents with saved filenames were found for this batch.</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+
+
+
+    <style>
+        .doc-viewer-main { display: flex; gap: 32px; min-height: 500px; }
+        .doc-preview-pane { flex: 1; min-width: 0; padding-right: 8px; }
+        .doc-list-pane { width: 320px; border-left: 1px solid #e0e0e0; padding-left: 18px; overflow-y: auto; }
+        .doc-list-item { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background 0.15s; }
+        .doc-list-item.selected { background: #eaf3ff; }
+        .doc-thumb { width: 60px; height: 80px; object-fit: cover; border: 1px solid #bbb; border-radius: 3px; background: #f5f5f5; }
+        .doc-details { flex: 1; }
+        .doc-title { font-weight: bold; font-size: 15px; margin-bottom: 2px; }
+        .doc-meta { font-size: 12px; color: #666; margin-bottom: 4px; }
+        .doc-downloads { font-size: 12px; margin-top: 4px; }
+        .doc-downloads a { color: #007BFF; text-decoration: none; margin-right: 8px; }
+        .doc-downloads a:hover { text-decoration: underline; }
+        .doc-preview-title { font-size: 22px; font-weight: bold; margin-bottom: 16px; }
+        .doc-preview-pages { display: flex; flex-direction: column; gap: 28px; max-height: 900px; overflow-y: auto; }
+        .doc-preview-page { display: flex; gap: 32px; align-items: flex-start; background: #f8fafd; border-radius: 8px; padding: 20px; border: 1px solid #e0e0e0; }
+        .doc-preview-img { width: 340px; height: auto; border: 1.5px solid #bbb; border-radius: 5px; background: #f5f5f5; }
+        .doc-preview-text { font-size: 15px; color: #333; max-width: 700px; overflow-x: auto; }
+        @media (max-width: 900px) { .doc-viewer-main { flex-direction: column; } .doc-list-pane { width: 100%; border-left: none; border-top: 1px solid #e0e0e0; padding-left: 0; padding-top: 18px; } .doc-preview-pane { padding-right: 0; } }
+    </style>
+
+    {% if documents %}
+    <div class="doc-viewer-main">
+        <div class="doc-preview-pane" id="doc-preview-pane">
+            <!-- The preview for the selected document will be rendered here by JS -->
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: stretch; width: 320px;">
+            <div class="doc-list-pane" id="doc-list-pane" style="flex: 1 1 auto;">
+                {% for doc in documents %}
+                    <div class="doc-list-item{% if loop.first %} selected{% endif %}" data-doc-idx="{{ loop.index0 }}">
+                        {% if doc.pages and doc.pages[0].image %}
+                            <img class="doc-thumb" src="{{ url_for('serve_processed_file', filepath=doc.pages[0].image) }}" alt="Doc Thumbnail">
+                        {% else %}
+                            <div class="doc-thumb" style="display:flex;align-items:center;justify-content:center;color:#aaa;">No Image</div>
+                        {% endif %}
+                        <div class="doc-details">
+                            <div class="doc-title">{{ doc.suggested_filename or doc.final_filename_base or 'Untitled Document' }}</div>
+                            <div class="doc-meta">Pages: {{ doc.pages|length }}</div>
+                            {% if doc.final_filename_base %}
+                            <div class="doc-downloads">
+                                <a href="{{ url_for('download_export_file', filepath=doc.pdf_path) }}" title="Download Standard PDF">PDF</a>
+                                <a href="{{ url_for('download_export_file', filepath=doc.ocr_pdf_path) }}" title="Download Searchable PDF">OCR PDF</a>
+                                <a href="{{ url_for('download_export_file', filepath=doc.log_path) }}" title="Download Markdown Log">Log</a>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div style="padding: 24px 0 0 0; text-align: center;">
+        <a href="{{ url_for('mission_control_page') }}" class="btn btn-secondary" style="min-width: 180px; background-color: #6c757d; color: white; border-radius: 5px; padding: 10px 20px; text-decoration: none; display: inline-block;">Back to Mission Control</a>
+    </div>
+    <script id="docs-data" type="application/json">{{ documents|tojson|safe }}</script>
+    <script type="text/javascript">
+        // JS to handle document selection and preview update
+        var docs = JSON.parse(document.getElementById('docs-data').textContent);
+        const docListPane = document.getElementById('doc-list-pane');
+        const docPreviewPane = document.getElementById('doc-preview-pane');
+        function renderDocPreview(docIdx) {
+            const doc = docs[docIdx];
+            let html = `<div class='doc-preview-title'>${doc.suggested_filename || doc.final_filename_base || 'Untitled Document'}</div>`;
+            html += `<div class='doc-preview-pages'>`;
+            for (const page of doc.pages) {
+                html += `<div class='doc-preview-page'>`;
+                if (page.image) {
+                    html += `<img class='doc-preview-img' src='${window.location.origin + "{{ url_for('serve_processed_file', filepath='') }}"}${page.image}' alt='Page ${page.page_num}'>`;
+                } else {
+                    html += `<div class='doc-preview-img' style='display:flex;align-items:center;justify-content:center;color:#aaa;'>No Image</div>`;
+                }
+                html += `<div class='doc-preview-text'><div style='font-size:12px;color:#888;margin-bottom:4px;'>Page ${page.page_num}</div>${page.text || ''}</div>`;
+                html += `</div>`;
+            }
+            html += `</div>`;
+            docPreviewPane.innerHTML = html;
+        }
+        // Initial render for the first document
+        if (docs.length > 0) renderDocPreview(0);
+        docListPane.addEventListener('click', function(e) {
+            let item = e.target;
+            while (item && !item.classList.contains('doc-list-item')) item = item.parentElement;
+            if (!item) return;
+            const idx = parseInt(item.getAttribute('data-doc-idx'));
+            // Highlight selected
+            for (const el of docListPane.querySelectorAll('.doc-list-item')) el.classList.remove('selected');
+            item.classList.add('selected');
+            renderDocPreview(idx);
+        });
+    </script>
+    {% else %}
+        <div style="text-align:center; color:#888; margin:40px 0;">No documents found for this batch.</div>
+    {% endif %}
 
     {# Link to navigate back to the Mission Control page. #}
-    <a href="{{ url_for('mission_control_page') }}" class="back-link">Back to Mission Control</a>
+        <!-- Removed duplicate link to Mission Control -->
 </div>
 {% endblock %}

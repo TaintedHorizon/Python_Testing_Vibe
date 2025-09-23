@@ -69,4 +69,36 @@ and a content block that child templates will override.
 </div>
 
 </body>
+<script>
+// Add a loading indicator and disable all action/submit buttons on click/submit
+document.addEventListener('DOMContentLoaded', function () {
+    // For all submit buttons in forms
+    document.querySelectorAll('form').forEach(function(form) {
+        form.addEventListener('submit', function(e) {
+            var btn = form.querySelector('button[type="submit"],input[type="submit"]');
+            if (btn && !btn.disabled) {
+                btn.disabled = true;
+                var orig = btn.innerHTML;
+                btn.innerHTML = '<span style="display:inline-block;width:1em;height:1em;border:2px solid #fff;border-radius:50%;border-top:2px solid #888;animation:spin 1s linear infinite;margin-right:6px;"></span>Processing...';
+                setTimeout(function(){ btn.innerHTML = orig; btn.disabled = false; }, 20000); // fallback re-enable after 20s
+            }
+        });
+    });
+    // For all anchor buttons with .action-btn or .btn classes
+    document.querySelectorAll('a.action-btn, a.btn').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+            if (!link.classList.contains('disabled')) {
+                link.classList.add('disabled');
+                var orig = link.innerHTML;
+                link.innerHTML = '<span style="display:inline-block;width:1em;height:1em;border:2px solid #fff;border-radius:50%;border-top:2px solid #888;animation:spin 1s linear infinite;margin-right:6px;"></span>Processing...';
+                setTimeout(function(){ link.innerHTML = orig; link.classList.remove('disabled'); }, 20000);
+            }
+        });
+    });
+});
+// Simple CSS spinner
+var style = document.createElement('style');
+style.innerHTML = '@keyframes spin { 0% { transform: rotate(0deg);} 100% { transform: rotate(360deg);} }';
+document.head.appendChild(style);
+</script>
 </html>

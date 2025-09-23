@@ -47,11 +47,13 @@
     <!-- Left Pane: Image and Rotation -->
     <div class="image-pane">
         <div class="image-wrapper">
-            <img id="pageImage" src="{{ url_for('serve_processed_file', filepath=current_page.relative_image_path) }}" alt="Scanned page">
+            <img id="pageImage" src="{{ url_for('serve_processed_file', filepath=current_page.relative_image_path) }}?v={{ current_page.rotation_angle or 0 }}" alt="Scanned page">
         </div>
         <div class="rotate-buttons">
-            <button onclick="rotateImage(-90)">Rotate Left ↺</button>
-            <button onclick="rotateImage(90)">Rotate Right ↻</button>
+            <button type="button" onclick="rotateImage(-90)">Rotate Left ↺</button>
+            <button type="button" onclick="rotateImage(90)">Rotate Right ↻</button>
+            <button type="button" id="confirm-rotation-btn" style="margin-left:10px; background:#17a2b8; color:white; border:none; border-radius:5px; padding:8px 16px; cursor:pointer;">Confirm Rotation</button>
+            <span id="rotation-confirm-msg" style="margin-left:10px; color:#28a745; display:none; font-weight:bold;">Rotation saved!</span>
         </div>
     </div>
 
@@ -112,7 +114,7 @@
         // Set the initial rotation of the image based on the value from the database.
         if (rotationInput) { currentRotation = parseInt(rotationInput.value) || 0; }
         if (pageImage) { pageImage.style.transform = `rotate(${currentRotation}deg)`; }
-        
+
         // Logic to show/hide the "New Category Name" input field.
         const categorySelect = document.getElementById('category-select');
         const otherCategoryGroup = document.getElementById('other-category-group');
@@ -121,6 +123,33 @@
                 if (otherCategoryGroup) { 
                     otherCategoryGroup.style.display = (this.value === 'other_new') ? 'block' : 'none'; 
                 }
+            });
+        }
+
+        // Confirm Rotation AJAX handler
+        const confirmBtn = document.getElementById('confirm-rotation-btn');
+        const confirmMsg = document.getElementById('rotation-confirm-msg');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', function() {
+                const pageId = document.querySelector('input[name="page_id"]').value;
+                const batchId = document.querySelector('input[name="batch_id"]').value;
+                const rotation = rotationInput ? rotationInput.value : 0;
+                confirmBtn.disabled = true;
+                fetch("/update_rotation", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ page_id: pageId, batch_id: batchId, rotation: rotation })
+                })
+                .then(resp => resp.json())
+                .then(data => {
+                    if (data.success) {
+                        if (confirmMsg) {
+                            confirmMsg.style.display = 'inline';
+                            setTimeout(() => { confirmMsg.style.display = 'none'; }, 1500);
+                        }
+                    }
+                })
+                .finally(() => { confirmBtn.disabled = false; });
             });
         }
     });

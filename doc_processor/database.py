@@ -73,6 +73,7 @@ def get_db_connection():
         sqlite3.Connection: A configured connection object to the database.
     """
     db_path = os.getenv("DATABASE_PATH")
+    print(f"[APP] Using database file: {os.path.abspath(db_path)}")
     conn = sqlite3.connect(db_path)
     # This factory is a game-changer for readability. Instead of row[0], row[1],
     # we can use row['id'], row['status'], etc.
@@ -199,6 +200,7 @@ def count_ungrouped_verified_pages(batch_id):
         "SELECT COUNT(*) FROM pages p LEFT JOIN document_pages dp ON p.id = dp.page_id WHERE p.batch_id = ? AND p.status = 'verified' AND dp.page_id IS NULL",
         (batch_id,),
     ).fetchone()[0]
+    print(f"[DEBUG] count_ungrouped_verified_pages for batch {batch_id}: {count}")
     conn.close()
     return count
 
@@ -453,10 +455,17 @@ def reset_batch_grouping(batch_id):
     conn = get_db_connection()
     try:
         with conn:
-            # We don't need to manually delete from `document_pages` because the
-            # `ON DELETE CASCADE` constraint on the `documents` foreign key
-            # handles it automatically. Deleting a document will cascade to
-            # delete its entries in `document_pages`.
+
+            # Explicitly delete all document_pages for this batch, including orphans
+            print(f"[RESET GROUPING] Deleting all document_pages for batch {batch_id} (including orphans)")
+            conn.execute("""
+                DELETE FROM document_pages
+                WHERE document_id IN (SELECT id FROM documents WHERE batch_id = ?)
+                   OR page_id IN (SELECT id FROM pages WHERE batch_id = ?)
+            """, (batch_id, batch_id))
+            print(f"[RESET GROUPING] Deleted all document_pages for batch {batch_id}.")
+
+            # Now delete all documents for the batch
             conn.execute("DELETE FROM documents WHERE batch_id = ?", (batch_id,))
 
             # Reset the batch status so the user can re-enter the grouping step.
@@ -529,16 +538,28 @@ def reset_batch_to_start(batch_id):
     Args:
         batch_id (int): The ID of the batch to reset.
     """
+    print(f"[DB] reset_batch_to_start called for batch_id={batch_id}")
     conn = get_db_connection()
     try:
         with conn:
-            # Delete all documents associated with the batch. The `ON DELETE CASCADE`
-            # will handle cleaning up the `document_pages` entries.
+
+            # Delete all document_pages for this batch, even if documents are already gone (orphan cleanup)
+            print(f"[DB] Deleting all document_pages for batch {batch_id} (including orphans)")
+            conn.execute("""
+                DELETE FROM document_pages
+                WHERE document_id IN (SELECT id FROM documents WHERE batch_id = ?)
+                   OR page_id IN (SELECT id FROM pages WHERE batch_id = ?)
+            """, (batch_id, batch_id))
+            print(f"[DB] Deleted all document_pages for batch {batch_id}.")
+
+            # Delete all documents associated with the batch (grouping info)
+            print(f"[DB] Deleting documents for batch {batch_id}")
             conn.execute("DELETE FROM documents WHERE batch_id = ?", (batch_id,))
-            print(f"Deleted document groups for batch {batch_id}.")
+            print(f"[DB] Deleted document groups for batch {batch_id}.")
 
             # Reset the status, category, and rotation for all pages in the batch.
-            conn.execute(
+            print(f"[DB] Resetting page statuses and categories for batch {batch_id}")
+            cur = conn.execute(
                 """
                 UPDATE pages
                 SET status = 'pending_verification', human_verified_category = NULL, rotation_angle = 0
@@ -546,13 +567,15 @@ def reset_batch_to_start(batch_id):
             """,
                 (batch_id,),
             )
-            print(f"Reset page statuses and categories for batch {batch_id}.")
+            print(f"[DB] Reset page statuses and categories for batch {batch_id}. Rows updated: {cur.rowcount}")
+            conn.commit()
 
             # Finally, reset the status of the batch itself.
+            print(f"[DB] Resetting batch status for batch {batch_id}")
             conn.execute(
                 "UPDATE batches SET status = 'pending_verification' WHERE id = ?", (batch_id,)
             )
-            print(f"Reset status for batch {batch_id}.")
+            print(f"[DB] Reset status for batch {batch_id}.")
 
     except sqlite3.Error as e:
         # The `with conn:` block ensures that if any of these steps fail,

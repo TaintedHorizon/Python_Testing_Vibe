@@ -74,7 +74,7 @@ from flask import (
 # Local application imports
 from .security import validate_path, sanitize_input, validate_file_upload, require_safe_path
 from .exceptions import DocProcessorError, FileProcessingError, OCRError
-from .config_manager import app_config, DEFAULT_CATEGORIES
+from doc_processor.config_manager import app_config, DEFAULT_CATEGORIES
 
 # Core business logic and database functions
 from .processing import (
@@ -85,7 +85,7 @@ from .processing import (
     export_document,
     cleanup_batch_files,
 )
-from database import (
+from doc_processor.database import (
     get_pages_for_batch,
     update_page_data,
     get_flagged_pages_for_batch,
@@ -109,9 +109,85 @@ from database import (
     insert_category_if_not_exists,
 )
 
+
+
 # Initialize the Flask application
 # This is the core object that handles web requests and responses.
+
 app = Flask(__name__)
+
+# --- API: APPLY DOCUMENT NAME ---
+@app.route("/api/apply_name/<int:document_id>", methods=["POST"])
+def apply_name_api(document_id):
+    """
+    API endpoint to set the document's name from the order page, via AJAX.
+    """
+    data = request.get_json()
+    filename = data.get("filename", "").strip()
+    if not filename:
+        return jsonify({"success": False, "error": "Filename cannot be empty."}), 400
+    update_document_final_filename(document_id, filename)
+    return jsonify({"success": True})
+
+# --- API: SUGGEST DOCUMENT NAME ---
+@app.route("/api/suggest_name/<int:document_id>", methods=["POST"])
+def suggest_name_api(document_id):
+    """
+    API endpoint to suggest a document name using AI, based on the document's pages and category.
+    """
+    pages_raw = get_pages_for_document(document_id)
+    if not pages_raw:
+        return jsonify({"success": False, "error": "Document not found or has no pages."}), 404
+    pages = [dict(p) for p in pages_raw]
+    full_doc_text = "\n---\n".join([p["ocr_text"] for p in pages if p.get("ocr_text")])
+    doc_category = pages[0]["human_verified_category"] if pages[0].get("human_verified_category") else ""
+    try:
+        suggested_name = get_ai_suggested_filename(full_doc_text, doc_category)
+        return jsonify({"success": True, "suggested_name": suggested_name})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+# --- DOCUMENT-LEVEL REVISIT ORDERING ROUTE ---
+@app.route("/revisit_ordering_document/<int:document_id>", methods=["POST"])
+def revisit_ordering_document_action(document_id):
+    """
+    Allows the user to revisit the ordering step for a single document by resetting its status to 'pending_order'.
+    """
+    conn = get_db_connection()
+    conn.execute(
+        "UPDATE documents SET status = 'pending_order' WHERE id = ?",
+        (document_id,)
+    )
+    conn.commit()
+    conn.close()
+    print(f"[REVISIT ORDERING DOCUMENT] Document {document_id} status reset to pending_order. User can now reorder this document.")
+    return ("", 204)
+
+# --- REVISIT ORDERING ROUTE ---
+@app.route("/revisit_ordering/<int:batch_id>", methods=["POST"])
+def revisit_ordering_action(batch_id):
+    """
+    Allows the user to revisit the ordering step by resetting the batch status to 'grouping_complete'.
+    """
+    conn = get_db_connection()
+    conn.execute("UPDATE batches SET status = 'grouping_complete' WHERE id = ?", (batch_id,))
+    conn.commit()
+    conn.close()
+    print(f"[REVISIT ORDERING] Batch {batch_id} status reset to grouping_complete. User can now reorder documents.")
+    return redirect(url_for("order_batch_page", batch_id=batch_id))
+
+# --- FINISH ORDERING ROUTE ---
+@app.route("/finish_ordering/<int:batch_id>", methods=["POST"])
+def finish_ordering_action(batch_id):
+    """
+    Marks ordering as complete for the batch and returns to Mission Control.
+    """
+    conn = get_db_connection()
+    conn.execute("UPDATE batches SET status = 'ordering_complete' WHERE id = ?", (batch_id,))
+    conn.commit()
+    conn.close()
+    print(f"[ORDERING] Batch {batch_id} marked as ordering_complete.")
+    return redirect(url_for("mission_control_page"))
 
 # Set a secret key for session management. This is crucial for security and for
 # features like flashed messages that persist across requests.
@@ -407,13 +483,41 @@ def group_batch_page(batch_id):
     # Fetch all verified pages that have not yet been assigned to a document.
     # The data is returned as a dictionary where keys are categories.
     ungrouped_pages_data = get_verified_pages_for_grouping(batch_id)
-    # Also fetch documents that have already been created for this batch to
-    # display them on the same page, giving the user context of what's already done.
     created_docs = get_created_documents_for_batch(batch_id)
-
-    # Create relative image paths for all the ungrouped pages so they can be
-    # displayed in the browser.
     processed_dir = os.getenv("PROCESSED_DIR")
+
+    # Only auto-group if batch is in verification_complete state
+    from doc_processor.database import get_batch_by_id, count_ungrouped_verified_pages, get_db_connection
+    batch = get_batch_by_id(batch_id)
+    auto_grouped = []
+    to_remove = []
+    if batch and dict(batch)["status"] == "verification_complete":
+        for category, pages in list(ungrouped_pages_data.items()):
+            if len(pages) == 1:
+                page = pages[0]
+                from .processing import get_ai_suggested_filename
+                doc_text = page["ocr_text"] if "ocr_text" in page else ""
+                print(f"[AUTO-GROUP] Requesting AI filename for single-page doc: category={category}, page_id={page['id']}")
+                doc_name = get_ai_suggested_filename(doc_text, category)
+                print(f"[AUTO-GROUP] AI suggested filename: {doc_name}")
+                from doc_processor.database import create_document_and_link_pages
+                create_document_and_link_pages(batch_id, doc_name, [page["id"]])
+                auto_grouped.append(doc_name)
+                to_remove.append(category)
+        for cat in to_remove:
+            ungrouped_pages_data.pop(cat, None)
+        if auto_grouped:
+            created_docs = get_created_documents_for_batch(batch_id)
+        # If all pages are grouped, update status to grouping_complete
+        if count_ungrouped_verified_pages(batch_id) == 0:
+            conn = get_db_connection()
+            conn.execute(
+                "UPDATE batches SET status = 'grouping_complete' WHERE id = ?", (batch_id,)
+            )
+            conn.commit()
+            conn.close()
+
+    # Add relative image paths for remaining ungrouped pages
     for category, pages in ungrouped_pages_data.items():
         for i, page in enumerate(pages):
             page_dict = dict(page)
@@ -422,8 +526,6 @@ def group_batch_page(batch_id):
             )
             ungrouped_pages_data[category][i] = page_dict
 
-    # The 'group.html' template is designed to show both the ungrouped pages
-    # (organized by category) and the already created documents.
     return render_template(
         "group.html",
         batch_id=batch_id,
@@ -485,25 +587,29 @@ def order_document_page(document_id):
         # The new order is submitted by a JavaScript function as a comma-separated
         # string of page IDs (e.g., "3,1,2").
         page_order = request.form.get("page_order")
+        filename = request.form.get("filename")
         if not page_order:
             abort(400, "No page order provided")
-            
         ordered_page_ids = page_order.split(",")
         # Sanitize the list to ensure all IDs are integers before database insertion.
         page_ids_as_int = [int(pid) for pid in ordered_page_ids if pid.isdigit()]
-        
         if not page_ids_as_int:
             abort(400, "Invalid page order format")
         # The database function handles the complex update of the sequence numbers.
         update_page_sequence(document_id, page_ids_as_int)
         # Mark the document's status as having the order set.
         update_document_status(document_id, "order_set")
+        # Save the user-edited filename if provided
+        if filename:
+            update_document_final_filename(document_id, filename)
         # Redirect back to the list of documents to be ordered for the same batch.
         return redirect(url_for("order_batch_page", batch_id=batch_id))
 
     # For a GET request, display the page ordering UI.
     pages_raw = get_pages_for_document(document_id)
     processed_dir = os.getenv("PROCESSED_DIR")
+    # Convert all rows to dicts for .get() compatibility
+    pages_dicts = [dict(p) for p in pages_raw]
     pages = [
         dict(
             p,
@@ -511,12 +617,21 @@ def order_document_page(document_id):
                 p["processed_image_path"], processed_dir
             ),
         )
-        for p in pages_raw
+        for p in pages_dicts
     ]
+    # AI-suggested filename for this document
+    suggested_filename = None
+    if pages_dicts:
+        full_doc_text = "\n---\n".join([p["ocr_text"] for p in pages_dicts if p.get("ocr_text")])
+        doc_category = pages_dicts[0]["human_verified_category"] if pages_dicts[0].get("human_verified_category") else ""
+        try:
+            suggested_filename = get_ai_suggested_filename(full_doc_text, doc_category)
+        except Exception:
+            suggested_filename = None
     # The 'order_document.html' template contains the JavaScript for the
     # drag-and-drop interface (e.g., using SortableJS).
     return render_template(
-        "order_document.html", document_id=document_id, pages=pages, batch_id=batch_id
+        "order_document.html", document_id=document_id, pages=pages, batch_id=batch_id, suggested_filename=suggested_filename
     )
 
 
@@ -624,6 +739,12 @@ def reset_grouping_action(batch_id):
     ungrouped, verified state, ready to be grouped again.
     """
     reset_batch_grouping(batch_id)
+    # Always revert status to verification_complete, even if already set
+    conn = get_db_connection()
+    conn.execute("UPDATE batches SET status = 'verification_complete' WHERE id = ?", (batch_id,))
+    conn.commit()
+    conn.close()
+    print(f"[REVISIT GROUPING] Batch {batch_id} status reset to verification_complete. Ready for regrouping.")
     return redirect(url_for("group_batch_page", batch_id=batch_id))
 
 
@@ -637,7 +758,9 @@ def reset_batch_action(batch_id):
     """
     # The core logic is encapsulated in the database function for safety and
     # to ensure all related data is reset correctly.
+    print(f"[ROUTE] /reset_batch/{batch_id} called. Calling reset_batch_to_start...")
     reset_batch_to_start(batch_id)
+    print(f"[ROUTE] /reset_batch/{batch_id} completed reset_batch_to_start.")
     # After the reset, send the user back to the main dashboard.
     return redirect(url_for("mission_control_page"))
 
@@ -922,35 +1045,50 @@ def export_batch_action(batch_id):
 # --- VIEW EXPORTED DOCUMENTS ROUTES ---
 # This section provides a way for users to access the final exported files.
 
+
 @app.route('/view_documents/<int:batch_id>')
 def view_documents_page(batch_id):
     """
-    Displays a list of all documents that have been exported for a given batch,
-    providing direct download links to the final PDF and log files.
+    Displays a list of all documents for a given batch, providing a preview of each document (ordered page thumbnails and text snippets) and download links to the final PDF and log files.
     """
     documents = get_documents_for_batch(batch_id)
-    # The database stores the base filename. This code reconstructs the full
-    # relative paths to the exported files so they can be used in the template's
-    # download links.
-    docs_with_paths = []
+    processed_dir = os.getenv("PROCESSED_DIR")
+    docs_with_previews = []
     for doc in documents:
         doc_dict = dict(doc)
-        if doc_dict.get("final_filename_base"):
-            pages = get_pages_for_document(doc_dict["id"])
-            if pages:
-                category = pages[0]['human_verified_category']
-                # The category name is sanitized to match the folder naming
-                # convention used during the export process.
-                category_dir_name = "".join(c for c in category if c.isalnum() or c in (' ', '-', '_')).rstrip().replace(' ', '_')
-                base = doc_dict["final_filename_base"]
-                
-                # Create relative paths for the various exported files.
-                doc_dict['pdf_path'] = os.path.join(category_dir_name, f"{base}.pdf")
-                doc_dict['ocr_pdf_path'] = os.path.join(category_dir_name, f"{base}_ocr.pdf")
-                doc_dict['log_path'] = os.path.join(category_dir_name, f"{base}_log.md")
-        docs_with_paths.append(doc_dict)
+        pages = get_pages_for_document(doc_dict["id"])
+        page_previews = []
+        page_dicts = [dict(p) for p in pages]
+        for p in page_dicts:
+            rel_img = os.path.relpath(p["processed_image_path"], processed_dir) if processed_dir and p.get("processed_image_path") else None
+            text_snippet = (p.get("ocr_text") or "")[:200]
+            page_previews.append({
+                "image": rel_img,
+                "text": text_snippet,
+                "page_num": p.get("sequence_num", 0) + 1
+            })
+        doc_dict["pages"] = page_previews
+        # Add AI-suggested filename for preview (same as finalize)
+        if page_dicts:
+            full_doc_text = "\n---\n".join([p["ocr_text"] for p in page_dicts if p.get("ocr_text")])
+            doc_category = page_dicts[0]["human_verified_category"] if page_dicts[0].get("human_verified_category") else ""
+            try:
+                doc_dict["suggested_filename"] = get_ai_suggested_filename(full_doc_text, doc_category)
+            except Exception:
+                doc_dict["suggested_filename"] = None
+        # Add download links if exported
+        if doc_dict.get("final_filename_base") and page_dicts:
+            category = page_previews[0]["text"] if page_previews else ""
+            first_page = page_dicts[0]
+            category = first_page.get('human_verified_category', '')
+            category_dir_name = "".join(c for c in category if c.isalnum() or c in (' ', '-', '_')).rstrip().replace(' ', '_')
+            base = doc_dict["final_filename_base"]
+            doc_dict['pdf_path'] = os.path.join(category_dir_name, f"{base}.pdf")
+            doc_dict['ocr_pdf_path'] = os.path.join(category_dir_name, f"{base}_ocr.pdf")
+            doc_dict['log_path'] = os.path.join(category_dir_name, f"{base}_log.md")
+        docs_with_previews.append(doc_dict)
 
-    return render_template("view_documents.html", documents=docs_with_paths, batch_id=batch_id)
+    return render_template("view_documents.html", documents=docs_with_previews, batch_id=batch_id)
 
 
 @app.route('/download_export/<path:filepath>')

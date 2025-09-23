@@ -37,11 +37,13 @@
     <div class="image-pane">
         <h4>Source: {{ page.source_filename }}, Page {{ page.page_number }} (DB ID: {{ page.id }})</h4>
         <div class="image-wrapper">
-            <img id="pageImage_{{ page.id }}" src="{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}" alt="Scanned page">
+            <img id="pageImage_{{ page.id }}" src="{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}?v={{ page.rotation_angle or 0 }}" alt="Scanned page">
         </div>
         <div class="rotate-buttons">
-            <button onclick="rotateImage({{ page.id }}, -90)">Rotate Left ↺</button>
-            <button onclick="rotateImage({{ page.id }}, 90)">Rotate Right ↻</button>
+            <button type="button" onclick="rotateImage({{ page.id }}, -90)">Rotate Left ↺</button>
+            <button type="button" onclick="rotateImage({{ page.id }}, 90)">Rotate Right ↻</button>
+            <button type="button" class="confirm-rotation-btn" data-pageid="{{ page.id }}" style="margin-left:10px; background:#17a2b8; color:white; border:none; border-radius:5px; padding:8px 16px; cursor:pointer;">Confirm Rotation</button>
+            <span id="rotation-confirm-msg-{{ page.id }}" style="margin-left:10px; color:#28a745; display:none; font-weight:bold;">Rotation saved!</span>
         </div>
     </div>
 
@@ -50,6 +52,9 @@
         <!-- Box for correcting the category -->
         <div class="info-box">
             <form action="{{ url_for('update_page') }}" method="post">
+                <input type="hidden" id="action-input_{{ page.id }}" name="action" value="save">
+                <input type="hidden" name="current_page_num" value="1">
+                <input type="hidden" name="total_pages" value="1">
                 <p><strong>Reason for Flag:</strong> AI Suggestion was '{{ page.ai_suggested_category }}', but page was manually flagged.</p>
                 <hr>
                 <!-- Hidden inputs to send page context back to the server -->
@@ -74,7 +79,7 @@
                     <input type="text" id="other-category-input_{{ page.id }}" name="other_category">
                 </div>
                 <div class="actions">
-                    <button type="submit" name="action" value="correct" class="btn-correct">Approve Correction</button>
+                    <button type="submit" data-action="save" class="btn-correct">Approve Correction</button>
                 </div>
             </form>
         </div>
@@ -141,14 +146,52 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        // Apply the initial rotation to all images when the page loads.
+        // Ensure the correct action is always sent for each page's form
+        document.querySelectorAll('.actions button.btn-correct').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                const pageId = this.closest('form').querySelector('input[name="page_id"]').value;
+                const actionInput = document.getElementById('action-input_' + pageId);
+                if (actionInput) actionInput.value = this.getAttribute('data-action');
+            });
+        });
+        // Apply the initial rotation to all images and hidden inputs when the page loads.
         for (const pageId in rotations) {
             const angle = rotations[pageId];
             const imageElement = document.getElementById('pageImage_' + pageId);
             if (imageElement) {
                 imageElement.style.transform = `rotate(${angle}deg)`;
             }
+            const rotationInput = document.getElementById('rotation-input_' + pageId);
+            if (rotationInput) {
+                rotationInput.value = angle;
+            }
         }
+        // Confirm Rotation AJAX handler (event delegation)
+        document.querySelectorAll('.confirm-rotation-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const pageId = this.getAttribute('data-pageid');
+                const batchId = document.querySelector('input[name="batch_id"]').value;
+                const rotationInput = document.getElementById('rotation-input_' + pageId);
+                const rotation = rotationInput ? rotationInput.value : 0;
+                const confirmMsg = document.getElementById('rotation-confirm-msg-' + pageId);
+                btn.disabled = true;
+                fetch("/update_rotation", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ page_id: pageId, batch_id: batchId, rotation: rotation })
+                })
+                .then(resp => resp.json())
+                .then(data => {
+                    if (data.success) {
+                        if (confirmMsg) {
+                            confirmMsg.style.display = 'inline';
+                            setTimeout(() => { confirmMsg.style.display = 'none'; }, 1500);
+                        }
+                    }
+                })
+                .finally(() => { btn.disabled = false; });
+            });
+        });
 
         // Add event listeners to the category dropdowns to show/hide the "Other" text input.
         const selects = document.querySelectorAll('select[name="category_dropdown"]');
