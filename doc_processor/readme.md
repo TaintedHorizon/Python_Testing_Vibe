@@ -1,6 +1,11 @@
 
 # Human-in-the-Loop (HITL) Document Processing System
 
+## Project Status
+
+**Current Module Under Test:** Finalize & Export  
+**Status:** All previous modules (Batch Processing, Verification, Review, Grouping, Ordering) have been tested and are complete. The system is currently focused on testing and refinement of the final export functionality.
+
 ## Recent Changes (September 2025)
 
 - **Major project hygiene and structure improvements:**
@@ -20,7 +25,7 @@
 This project is a web-based, human-in-the-loop document processing pipeline designed to ingest, classify, and organize scanned documents. It uses a combination of automated OCR and AI classification with a robust user interface for verification and correction, ensuring high-quality, structured data as the final output.
 
 **Recent Updates (September 2025):**
-- All configuration is now managed via `config_manager.py` and the `.env` file. The old `config.py` is no longer used.
+- All configuration is now managed via `config_manager.py` and the `.env` file.
 - Custom categories are now global: when you add a new category during verification or review, it is saved in the database and will appear in the dropdown for all future batches.
 - The dropdowns for category selection in verify, review, and revisit always show all categories (default and custom) from the database.
 - The workflow for adding custom categories is fully database-driven and persistent.
@@ -32,7 +37,7 @@ This project has recently completed Module 5, which finalizes the document proce
 ## Features
 
 *   **Automated Ingestion**: Automatically processes all PDFs from a designated intake folder.
-*   **OCR and Pre-processing**: Converts PDFs to images, detects and corrects page orientation, and extracts text using EasyOCR and Tesseract.
+*   **OCR and Pre-processing**: Converts PDFs to images, detects and corrects page orientation, and extracts text using EasyOCR and Tesseract OCR.
 *   **AI-Powered Classification**: Uses a local Large Language Model (via Ollama) to provide an initial "best guess" category for each page.
 *   **Guided Web Interface**: A step-by-step workflow presented in a central "Mission Control" dashboard that guides the user through each stage.
 *   **Verification & Correction**: A rapid, page-by-page UI to approve or correct AI-suggested categories.
@@ -46,7 +51,7 @@ This project has recently completed Module 5, which finalizes the document proce
 
 *   **Backend**: Python 3, Flask
 *   **Database**: SQLite
-*   **OCR & Pre-processing**: EasyOCR, Tesseract, pdf2image
+*   **OCR & Pre-processing**: EasyOCR, Tesseract OCR, pdf2image
 *   **AI/LLM**: A local Ollama server (e.g., running Llama 3)
 *   **Frontend**: Vanilla JavaScript, HTML, CSS (with SortableJS for drag-and-drop)
 
@@ -205,6 +210,8 @@ Documentation and usage guides. Example: `USAGE.md` covers quick start, workflow
 
 ---
 
+
+
 ## Setup and Installation (Ubuntu)
 
 **1. Install System Dependencies:**
@@ -231,71 +238,17 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+
 **3. Configure Environment Variables:**
 
-Copy `.env.sample` to `.env` and edit as needed. All configuration is now loaded from this file via `config_manager.py`.
+Copy `.env.sample` to `.env` and edit as needed. All configuration is now loaded from this file via `config_manager.py`. For detailed configuration options, see `docs/USAGE.md`.
 
 ```bash
 cp .env.sample .env
 # Edit .env to set your paths and options
 ```
 
-**4. Initialize the Database:**
-
-This command creates the SQLite database file and sets up all the necessary tables.
-
-```bash
-python dev_tools/database_setup.py
-```
-
-**5. (If Upgrading) Run the Upgrade Script:**
-
-If you have an existing database and have pulled new code that changes the schema, run this script to safely add new columns without losing your data.
-
-```bash
-python dev_tools/database_upgrade.py
-```
-
-**6. Run Tests (Optional):**
-
-To verify your setup, run the test suite:
-
-```bash
-venv/bin/pytest tests/
-```
-
----
-
-## Setup and Installation (Ubuntu)
-
-**1. Install System Dependencies:**
-
-These libraries are required for Tesseract OCR and PDF-to-image conversion.
-
-```bash
-sudo apt-get update
-sudo apt-get install tesseract-ocr poppler-utils sqlite3 -y
-```
-
-**2. Set up Python Environment & Install Packages:**
-
-It is highly recommended to use a virtual environment to manage project dependencies.
-
-```bash
-# Create a virtual environment
-python3 -m venv venv
-
-# Activate the virtual environment
-source venv/bin/activate
-
-# Install all required Python packages
-pip install -r requirements.txt
-```
-
-
-**3. Configure Environment Variables:**
-
-Create a file named `.env` in the `doc_processor` directory. This file stores your local configuration. All configuration is now loaded from this file via `config_manager.py`. Copy and paste the following, adjusting the paths to match your system.
+Alternatively, you can create a `.env` file manually with the following template:
 
 ```
 # --- Directory Paths (use absolute paths) ---
@@ -319,7 +272,7 @@ DEBUG_SKIP_OCR=false
 This command creates the SQLite database file and sets up all the necessary tables.
 
 ```bash
-python doc_processor/database_setup.py
+python dev_tools/database_setup.py
 ```
 
 **5. (If Upgrading) Run the Upgrade Script:**
@@ -327,7 +280,7 @@ python doc_processor/database_setup.py
 If you have an existing database and have pulled new code that changes the schema, run this script to safely add new columns without losing your data.
 
 ```bash
-python doc_processor/upgrade_database.py
+python dev_tools/database_upgrade.py
 ```
 
 ## How to Run & Use
@@ -335,7 +288,7 @@ python doc_processor/upgrade_database.py
 **1. Start the Server:**
 
 ```bash
-python doc_processor/app.py
+python -m doc_processor.app
 ```
 
 **2. Access the Application:**
@@ -343,6 +296,8 @@ python doc_processor/app.py
 Open your web browser and go to `http://<your_vm_ip>:5000`. This will take you to the "Mission Control" page.
 
 **3. Workflow Guide:**
+
+For detailed usage instructions and troubleshooting, see `docs/USAGE.md`. The basic workflow is:
 
 1.  **Place Files**: Add new PDF documents into the folder you specified as your `INTAKE_DIR`.
 2.  **Start Batch**: On the Mission Control page, click the "Start New Batch" button. The system will process all files from the intake folder.
