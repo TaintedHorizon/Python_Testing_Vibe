@@ -1,4 +1,18 @@
+
 # Human-in-the-Loop (HITL) Document Processing System
+
+## Recent Changes (September 2025)
+
+- **Major project hygiene and structure improvements:**
+    - All dev/admin scripts moved to `dev_tools/`
+    - Added `tests/` for pytest-based testing
+    - Added `docs/` for documentation and usage guides
+    - Added project hygiene files: `Makefile`, `LICENSE`, `CONTRIBUTING.md`, `CHANGELOG.md`, `.env.sample`
+    - Removed obsolete and duplicate files; validated all core `.py` files as referenced
+    - Added `.gitignore` to exclude model weights and backup files from version control
+    - Updated and clarified documentation throughout the project
+
+---
 
 ## Overview
 
@@ -36,30 +50,105 @@ This project has recently completed Module 5, which finalizes the document proce
 *   **AI/LLM**: A local Ollama server (e.g., running Llama 3)
 *   **Frontend**: Vanilla JavaScript, HTML, CSS (with SortableJS for drag-and-drop)
 
-## Project Structure
+doc_processor/
+
+## Project Structure (as of September 2025)
 
 ```
 doc_processor/
 │
-├── .env                # Local configuration file (you must create this)
-├── app.py              # The main Flask application, defines all web routes and UI logic.
-├── config_manager.py   # Centralized configuration management, loads settings from .env and provides type safety.
-├── database.py         # Contains all functions for interacting with the database (queries and commands), including category management.
-├── database_setup.py   # Script to initialize a new, empty database with the correct schema.
-├── processing.py       # Handles the core backend logic: PDF conversion, OCR, and AI communication.
-├── requirements.txt    # A list of all Python dependencies for the project.
-├── database_upgrade.py # Safely upgrades an existing database with new columns without losing data.
-│
-└── templates/          # Directory for all HTML templates.
-    ├── base.html           # The main base template that all other pages inherit from.
-    ├── group.html          # Page for grouping verified pages into documents.
-    ├── mission_control.html# The main dashboard and workflow hub.
-    ├── order_batch.html    # Page that lists documents that need page ordering.
-    ├── order_document.html # Page for re-ordering the pages within a single document.
-    ├── review.html         # Page for reviewing and correcting pages that were flagged.
-    ├── revisit.html        # A read-only view to look at pages of an already-processed batch.
-    └── verify.html         # The first step in the workflow: page-by-page verification.
+├── .env                # Local configuration file (user-created, see .env.sample)
+├── .env.sample         # Example environment file for onboarding
+├── app.py              # Main Flask application (web routes, UI logic)
+├── config_manager.py   # Centralized configuration management (loads from .env)
+├── database.py         # Data access layer (all DB queries/commands)
+├── processing.py       # Core backend logic: PDF conversion, OCR, AI, file ops
+├── requirements.txt    # Python dependencies
+├── Makefile            # Common dev tasks (setup, test, lint, clean, run)
+├── LICENSE             # MIT License
+├── CONTRIBUTING.md     # Contribution guidelines
+├── CHANGELOG.md        # Project changelog
+├── docs/               # Documentation and usage guides
+│   └── USAGE.md
+├── tests/              # Pytest-based tests
+│   └── test_app.py
+├── dev_tools/          # All admin/dev scripts (database setup, reset, diagnostics)
+│   ├── database_setup.py
+│   ├── database_upgrade.py
+│   ├── reset_environment.py
+│   ├── restore_categories.py
+│   ├── clear_grouping_ordering_only.py
+│   ├── diagnose_grouping_block.py
+│   ├── force_reset_batch.py
+│   └── inspect_batch1_state.py
+├── templates/          # HTML templates for Flask UI
+│   ├── base.html
+│   ├── group.html
+│   ├── mission_control.html
+│   ├── order_batch.html
+│   ├── order_document.html
+│   ├── review.html
+│   ├── revisit.html
+│   └── verify.html
+└── documents.db        # SQLite database (ignored by git)
 ```
+
+Other top-level folders:
+- `tools/` — Utility scripts and GUIs (e.g., download manager, file copy, SD card imager)
+- `Document_Scanner_Ollama_outdated/`, `Document_Scanner_Gemini_outdated/` — Legacy/experimental code (not core)
+
+---
+## Project Hygiene Files
+
+- **Makefile**: Common developer tasks (setup, test, lint, clean, run)
+- **LICENSE**: MIT License for open source use
+- **CONTRIBUTING.md**: Guidelines for contributing, code style, and issue reporting
+- **CHANGELOG.md**: Chronological record of all notable changes
+- **.env.sample**: Example environment file for onboarding
+- **docs/USAGE.md**: Usage guide and troubleshooting
+
+---
+## Testing
+
+This project uses `pytest` for automated testing. All tests are located in the `tests/` directory.
+
+To run tests:
+
+```bash
+venv/bin/pytest tests/
+```
+
+---
+## .gitignore and Large Files
+
+The following files are excluded from version control:
+- Model/data weights: `Document_Scanner_Ollama_outdated/model_cache/*.pth`
+- Database files: `**/documents.db`
+- Python cache: `**/__pycache__/`
+- Virtual environments: `venv/`
+- Logs: `*.log`
+- Backup files: `custom_categories_backup.json`
+
+If you need to version large files (e.g., model weights), consider using [Git LFS](https://git-lfs.github.com/).
+
+---
+## Contributing
+
+See `CONTRIBUTING.md` for guidelines on contributing, code style, and issue reporting.
+
+---
+## License
+
+This project is licensed under the MIT License. See `LICENSE` for details.
+
+---
+## Troubleshooting & FAQ
+
+- If you see `Import "pytest" could not be resolved`, install pytest in your environment: `pip install pytest`
+- If you encounter issues with large files, check your `.gitignore` and consider Git LFS
+- For database or environment issues, use scripts in `dev_tools/` for diagnostics and resets
+
+---
 
 ## File-by-File Analysis
 
