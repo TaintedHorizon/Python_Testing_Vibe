@@ -1,6 +1,10 @@
 
 # Human-in-the-Loop (HITL) Document Processing System
 
+## Project Status
+
+**Currently Testing**: The project is actively testing the 'Finalize & Export' module. All prior modules have been developed and tested successfully.
+
 ## Recent Changes (September 2025)
 
 - **Major project hygiene and structure improvements:**
@@ -46,8 +50,9 @@ This project has recently completed Module 5, which finalizes the document proce
 
 *   **Backend**: Python 3, Flask
 *   **Database**: SQLite
-*   **OCR & Pre-processing**: EasyOCR, Tesseract, pdf2image
-*   **AI/LLM**: A local Ollama server (e.g., running Llama 3)
+*   **OCR Libraries**: EasyOCR (primary), Tesseract (secondary)
+*   **PDF Processing**: pdf2image
+*   **AI/LLM**: Local Ollama server (e.g., running Llama 3)
 *   **Frontend**: Vanilla JavaScript, HTML, CSS (with SortableJS for drag-and-drop)
 
 doc_processor/
@@ -100,12 +105,12 @@ Other top-level folders:
 ---
 ## Project Hygiene Files
 
-- **Makefile**: Common developer tasks (setup, test, lint, clean, run)
+- **Makefile**: Common developer tasks (setup, test, lint, clean, run) - Note: Uses `python app.py` for compatibility but `python -m doc_processor.app` is the preferred method
 - **LICENSE**: MIT License for open source use
 - **CONTRIBUTING.md**: Guidelines for contributing, code style, and issue reporting
 - **CHANGELOG.md**: Chronological record of all notable changes
 - **.env.sample**: Example environment file for onboarding
-- **docs/USAGE.md**: Usage guide and troubleshooting
+- **docs/USAGE.md**: Detailed usage guide and troubleshooting
 
 ---
 ## Testing
@@ -190,10 +195,10 @@ All admin/dev scripts for setup, maintenance, and diagnostics:
 All automated tests (pytest). Add new tests here to cover routes, processing, and database logic. Example: `test_app.py` checks the home route and UI text.
 
 ### `docs/`
-Documentation and usage guides. Example: `USAGE.md` covers quick start, workflow, and troubleshooting.
+Documentation and usage guides. The `docs/USAGE.md` file provides detailed usage instructions, workflow guidance, and troubleshooting tips.
 
 ### Project Hygiene Files
-- `Makefile`: Common dev tasks (setup, test, lint, clean, run)
+- `Makefile`: Common dev tasks (setup, test, lint, clean, run) - Note: Uses `python app.py` for compatibility but `python -m doc_processor.app` is the preferred method
 - `LICENSE`: MIT License
 - `CONTRIBUTING.md`: Contribution guidelines
 - `CHANGELOG.md`: Chronological record of changes
@@ -240,6 +245,25 @@ cp .env.sample .env
 # Edit .env to set your paths and options
 ```
 
+The `.env` file should contain your local configuration with absolute paths:
+
+```
+# --- Directory Paths (use absolute paths) ---
+INTAKE_DIR=/path/to/your/intake_folder
+PROCESSED_DIR=/path/to/your/processed_folder
+ARCHIVE_DIR=/path/to/your/archive_folder
+DATABASE_PATH=/path/to/your/database/documents.db
+FILING_CABINET_DIR=/path/to/your/filing_cabinet
+
+# --- Ollama AI Configuration ---
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=llama3
+
+# --- Debugging ---
+# Set to "true" to skip the slow OCR process for faster UI testing.
+DEBUG_SKIP_OCR=false
+```
+
 **4. Initialize the Database:**
 
 This command creates the SQLite database file and sets up all the necessary tables.
@@ -264,78 +288,14 @@ To verify your setup, run the test suite:
 venv/bin/pytest tests/
 ```
 
----
 
-## Setup and Installation (Ubuntu)
-
-**1. Install System Dependencies:**
-
-These libraries are required for Tesseract OCR and PDF-to-image conversion.
-
-```bash
-sudo apt-get update
-sudo apt-get install tesseract-ocr poppler-utils sqlite3 -y
-```
-
-**2. Set up Python Environment & Install Packages:**
-
-It is highly recommended to use a virtual environment to manage project dependencies.
-
-```bash
-# Create a virtual environment
-python3 -m venv venv
-
-# Activate the virtual environment
-source venv/bin/activate
-
-# Install all required Python packages
-pip install -r requirements.txt
-```
-
-
-**3. Configure Environment Variables:**
-
-Create a file named `.env` in the `doc_processor` directory. This file stores your local configuration. All configuration is now loaded from this file via `config_manager.py`. Copy and paste the following, adjusting the paths to match your system.
-
-```
-# --- Directory Paths (use absolute paths) ---
-INTAKE_DIR=/path/to/your/intake_folder
-PROCESSED_DIR=/path/to/your/processed_folder
-ARCHIVE_DIR=/path/to/your/archive_folder
-DATABASE_PATH=/path/to/your/database/documents.db
-FILING_CABINET_DIR=/path/to/your/filing_cabinet
-
-# --- Ollama AI Configuration ---
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama3
-
-# --- Debugging ---
-# Set to "true" to skip the slow OCR process for faster UI testing.
-DEBUG_SKIP_OCR=false
-```
-
-**4. Initialize the Database:**
-
-This command creates the SQLite database file and sets up all the necessary tables.
-
-```bash
-python doc_processor/database_setup.py
-```
-
-**5. (If Upgrading) Run the Upgrade Script:**
-
-If you have an existing database and have pulled new code that changes the schema, run this script to safely add new columns without losing your data.
-
-```bash
-python doc_processor/upgrade_database.py
-```
 
 ## How to Run & Use
 
 **1. Start the Server:**
 
 ```bash
-python doc_processor/app.py
+python -m doc_processor.app
 ```
 
 **2. Access the Application:**
@@ -343,6 +303,8 @@ python doc_processor/app.py
 Open your web browser and go to `http://<your_vm_ip>:5000`. This will take you to the "Mission Control" page.
 
 **3. Workflow Guide:**
+
+For detailed usage instructions, see `docs/USAGE.md`.
 
 1.  **Place Files**: Add new PDF documents into the folder you specified as your `INTAKE_DIR`.
 2.  **Start Batch**: On the Mission Control page, click the "Start New Batch" button. The system will process all files from the intake folder.
