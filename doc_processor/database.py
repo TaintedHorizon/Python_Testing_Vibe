@@ -291,6 +291,21 @@ def get_pages_for_document(document_id):
     return pages
 
 
+def get_all_categories():
+    """
+    Fetches all category names from the dedicated 'categories' table.
+
+    Returns:
+        list: A sorted list of strings, where each string is a category name.
+    """
+    conn = get_db_connection()
+    # The query returns a list of Row objects; this list comprehension extracts
+    # just the category name string from each row.
+    categories = conn.execute("SELECT name FROM categories ORDER BY name ASC").fetchall()
+    conn.close()
+    return [row["name"] for row in categories]
+
+
 # --- DATA MODIFICATION FUNCTIONS (COMMANDS) ---
 # These functions change the state of the database.
 

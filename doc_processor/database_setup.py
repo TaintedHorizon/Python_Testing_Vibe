@@ -215,8 +215,46 @@ def create_database():
         )
         print("Table 'document_pages' created or already exists.")
 
-        # Commit all the `CREATE TABLE` statements to the database, making the
-        # changes permanent.
+        # --- Create 'categories' table ---
+        # This table stores the predefined list of document categories that the
+        # user can assign to documents.
+        cursor.execute(
+            """
+        CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, -- A unique identifier for each category.
+            name TEXT NOT NULL UNIQUE -- The name of the category (e.g., "Financial Document"). The UNIQUE constraint prevents duplicate category names.
+        );
+        """
+        )
+        print("Table 'categories' created or already exists.")
+
+        # --- Seed Initial Categories ---
+        # This section populates the 'categories' table with a default set of
+        # document types. It uses an INSERT OR IGNORE statement to prevent errors
+        # if the categories already exist, making the seeding operation safe to
+        # run multiple times.
+        initial_categories = [
+            "Financial Document",
+            "Legal Document",
+            "Personal Correspondence",
+            "Technical Document",
+            "Medical Record",
+            "Educational Material",
+            "Receipt or Invoice",
+            "Form or Application",
+            "News Article or Publication",
+            "Other",
+        ]
+        # executemany is an efficient way to insert multiple rows at once.
+        # The list comprehension creates a list of tuples, as required by executemany.
+        cursor.executemany(
+            "INSERT OR IGNORE INTO categories (name) VALUES (?)",
+            [(cat,) for cat in initial_categories],
+        )
+        print("Default categories seeded or already exist.")
+
+        # Commit all the `CREATE TABLE` and `INSERT` statements to the database,
+        # making the changes permanent.
         conn.commit()
         print("Database schema is up to date.")
 
