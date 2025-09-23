@@ -86,6 +86,42 @@ def upgrade_database():
                     f"Column '{column_name}' already exists in table '{table_name}'. Skipping."
                 )
 
+        # --- Helper function to check if a table exists ---
+        def table_exists(table_name):
+            cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+            return cursor.fetchone() is not None
+
+        # --- Helper function to seed initial categories if missing ---
+        def seed_categories_if_missing():
+            # Only attempt to seed if the categories table actually exists
+            if not table_exists("categories"):
+                print("Table 'categories' does not exist. Skipping category seeding in upgrade script.")
+                return
+
+            initial_categories = [
+                "Financial Document",
+                "Legal Document",
+                "Personal Correspondence",
+                "Technical Document",
+                "Medical Record",
+                "Educational Material",
+                "Receipt or Invoice",
+                "Form or Application",
+                "News Article or Publication",
+                "Other",
+            ]
+
+            print("\nChecking for missing categories and seeding if necessary...")
+            for category_name in initial_categories:
+                # INSERT OR IGNORE ensures that if a category already exists, it's not re-inserted
+                cursor.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (category_name,))
+                if cursor.rowcount > 0: # rowcount > 0 means an insert actually happened
+                    print(f"  - Added missing category: '{category_name}'")
+                else:
+                    print(f"  - Category '{category_name}' already exists. Skipping.")
+            conn.commit() # Commit category seeding changes
+            print("Category seeding check complete.")
+
         # --- Define Schema Upgrades ---
         # This section is the "migration log". When a new feature requires a
         # new column, a new call to `add_column_if_not_exists` is added here.
@@ -110,6 +146,9 @@ def upgrade_database():
         # Commit the changes to the database, making them permanent.
         conn.commit()
         print("\nDatabase upgrade check complete. Schema is up to date.")
+
+        # --- Run category seeding ---
+        seed_categories_if_missing()
 
     except sqlite3.Error as e:
         # Catch any SQLite-specific errors that occur during the process.

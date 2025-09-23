@@ -5,7 +5,15 @@ It includes functions for:
 - Running OCR (Optical Character Recognition) on images to extract text.
 - Interacting with an AI model (via Ollama) for tasks like document
   classification, page number extraction, and filename suggestion.
-- Managing the processing workflow via a SQLite database.
+- Managing the p                cursor.execute(
+                "INSERT INTO batches (status) VALUES (?)",
+                (app_config.STATUS_PENDING_VERIFICATION,)
+            )
+            batch_id = cursor.lastrowid
+            conn.commit()
+            logging.info(f"Created new batch with ID: {batch_id}")
+            os.makedirs(app_config.ARCHIVE_DIR, exist_ok=True)
+            batch_image_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id)) workflow via a SQLite database.
 - Exporting the final, processed documents into various formats.
 
 The main entry point for the pipeline is the `process_batch` function, which
@@ -32,8 +40,10 @@ from pdf2image import convert_from_path
 from PIL import Image
 
 # Local application imports
-import config  # Centralized configuration
-from database import get_all_categories
+from .config_manager import app_config
+from .exceptions import FileProcessingError, OCRError, AIServiceError
+from .security import validate_path, sanitize_filename
+from .database import get_all_categories
 
 # --- LOGGING SETUP ---
 # Configures a consistent logging format for the entire module.
@@ -94,7 +104,7 @@ def database_connection():
     """
     conn = None
     try:
-        conn = sqlite3.connect(config.DATABASE_PATH)
+        conn = sqlite3.connect(app_config.DATABASE_PATH)
         conn.row_factory = sqlite3.Row
         yield conn
     except sqlite3.Error as e:
@@ -123,13 +133,13 @@ def _query_ollama(prompt: str, timeout: int = 60) -> Optional[str]:
         Optional[str]: The text content of the AI's response, or None if an
                        error occurred or the required configuration is missing.
     """
-    if not config.OLLAMA_HOST or not config.OLLAMA_MODEL:
+    if not app_config.OLLAMA_HOST or not app_config.OLLAMA_MODEL:
         logging.error("[AI ERROR] OLLAMA_HOST or OLLAMA_MODEL is not set.")
         return None
     try:
         response = requests.post(
-            f"{config.OLLAMA_HOST}/api/generate",
-            json={"model": config.OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            f"{app_config.OLLAMA_HOST}/api/generate",
+            json={"model": app_config.OLLAMA_MODEL, "prompt": prompt, "stream": False},
             timeout=timeout,
         )
         response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
@@ -140,14 +150,65 @@ def _query_ollama(prompt: str, timeout: int = 60) -> Optional[str]:
 
 
 # --- FILENAME SANITIZATION ---
+def _validate_file_type(file_path: str) -> bool:
+    """
+    Validates that a file is a legitimate PDF by checking its magic numbers and structure.
+    
+    Args:
+        file_path (str): Path to the file to validate
+        
+    Returns:
+        bool: True if file is a valid PDF, False otherwise
+    """
+    try:
+        with open(file_path, 'rb') as f:
+            # Check PDF magic number
+            header = f.read(4)
+            if header != b'%PDF':
+                logging.error(f"Invalid PDF header in file: {file_path}")
+                return False
+            
+            # Basic structure validation
+            f.seek(0, 2)  # Seek to end
+            file_size = f.tell()
+            if file_size < 32:  # Minimum size for a valid PDF
+                logging.error(f"File too small to be valid PDF: {file_path}")
+                return False
+            
+        return True
+    except Exception as e:
+        logging.error(f"Error validating file {file_path}: {e}")
+        return False
+
 def _sanitize_filename(filename: str) -> str:
-    """Sanitizes a string to be safe for use as a filename base."""
+    """
+    Sanitizes a string to be safe for use as a filename base.
+    
+    Args:
+        filename (str): Original filename to sanitize
+        
+    Returns:
+        str: Sanitized filename
+    """
+    # Remove any directory components
+    filename = os.path.basename(filename)
+    
     # Keep only alphanumeric characters, hyphens, and underscores
     sanitized = "".join(
         [c for c in os.path.splitext(filename)[0] if c.isalnum() or c in ("-", "_")]
     ).rstrip()
+    
     # If the sanitization results in an empty string, default to "document"
-    return sanitized if sanitized else "document"
+    # Add timestamp for uniqueness
+    if not sanitized:
+        sanitized = f"document_{int(datetime.now().timestamp())}"
+        
+    # Enforce maximum length
+    MAX_FILENAME_LENGTH = 255
+    if len(sanitized) > MAX_FILENAME_LENGTH:
+        sanitized = sanitized[:MAX_FILENAME_LENGTH]
+        
+    return sanitized
 
 
 def _sanitize_category(category: str) -> str:
@@ -181,7 +242,7 @@ def _process_single_page_from_file(
         ocr_text = f"OCR SKIPPED FOR DEBUG - Page {page_num} of {source_filename}"
         rotation = 0
 
-        if not config.DEBUG_SKIP_OCR:
+        if not app_config.DEBUG_SKIP_OCR:
             if not os.path.exists(image_path) or os.path.getsize(image_path) == 0:
                 logging.error(
                     f"    - Image file {os.path.basename(image_path)} is missing or empty."
@@ -228,7 +289,7 @@ def _process_single_page_from_file(
                 page_num,
                 image_path,
                 ocr_text,
-                config.STATUS_PENDING_VERIFICATION,
+                app_config.STATUS_PENDING_VERIFICATION,
                 rotation,
             ),
         )
@@ -282,34 +343,58 @@ TEXT TO ANALYZE:
 def process_batch() -> bool:
     """
     The main function for processing a new batch of documents from the intake directory.
+    
+    Returns:
+        bool: True if batch processing was successful, False otherwise
     """
     logging.info("--- Starting New Batch ---")
     batch_id = -1
+    
+    # Validate configuration
+    required_dirs = {
+        "INTAKE_DIR": app_config.INTAKE_DIR,
+        "ARCHIVE_DIR": app_config.ARCHIVE_DIR,
+        "PROCESSED_DIR": app_config.PROCESSED_DIR
+    }
+    
+    # Check all required directories are configured and accessible
+    for dir_name, dir_path in required_dirs.items():
+        if not dir_path:
+            logging.error(f"{dir_name} environment variable is not set.")
+            return False
+            
+        # Convert to absolute path and validate
+        abs_path = os.path.abspath(dir_path)
+        try:
+            os.makedirs(abs_path, exist_ok=True)
+            if not os.access(abs_path, os.R_OK | os.W_OK):
+                logging.error(f"Insufficient permissions for directory: {abs_path}")
+                return False
+        except OSError as e:
+            logging.error(f"Failed to create/access directory {abs_path}: {e}")
+            return False
+    
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
             # Create a new batch record and get its ID
-            cursor.execute("INSERT INTO batches (status) VALUES (?)", (config.STATUS_PENDING_VERIFICATION,))
+            cursor.execute(
+                "INSERT INTO batches (status) VALUES (?)",
+                (app_config.STATUS_PENDING_VERIFICATION,)
+            )
             batch_id = cursor.lastrowid
             conn.commit()
             logging.info(f"Created new batch with ID: {batch_id}")
-
-            # Ensure required directories exist
-            if not config.INTAKE_DIR or not config.ARCHIVE_DIR or not config.PROCESSED_DIR:
-                logging.error(
-                    "INTAKE_DIR, ARCHIVE_DIR, or PROCESSED_DIR environment variable is not set."
-                )
-                return False
-            os.makedirs(config.ARCHIVE_DIR, exist_ok=True)
-            batch_image_dir = os.path.join(config.PROCESSED_DIR, str(batch_id))
+            os.makedirs(app_config.ARCHIVE_DIR, exist_ok=True)
+            batch_image_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
             os.makedirs(batch_image_dir, exist_ok=True)
 
             # Process each PDF file in the intake directory
             pdf_files = [
-                f for f in os.listdir(config.INTAKE_DIR) if f.lower().endswith(".pdf")
+                f for f in os.listdir(app_config.INTAKE_DIR) if f.lower().endswith(".pdf")
             ]
             for filename in pdf_files:
-                source_pdf_path = os.path.join(config.INTAKE_DIR, filename)
+                source_pdf_path = os.path.join(app_config.INTAKE_DIR, filename)
                 logging.info(f"\nProcessing file: {filename}")
                 sanitized_filename = _sanitize_filename(filename)
 
@@ -342,7 +427,7 @@ def process_batch() -> bool:
                 # Move the original PDF to the archive directory
                 try:
                     shutil.move(
-                        source_pdf_path, os.path.join(config.ARCHIVE_DIR, filename)
+                        source_pdf_path, os.path.join(app_config.ARCHIVE_DIR, filename)
                     )
                     logging.info("  - Archived original file.")
                 except OSError as move_e:
@@ -376,7 +461,7 @@ def process_batch() -> bool:
                 with database_connection() as conn:
                     conn.execute(
                         "UPDATE batches SET status = ? WHERE id = ?",
-                        (config.STATUS_FAILED, batch_id),
+                        (app_config.STATUS_FAILED, batch_id),
                     )
                     conn.commit()
             except Exception as update_e:
@@ -390,16 +475,37 @@ def rerun_ocr_on_page(page_id: int, rotation_angle: int) -> bool:
     """
     Re-runs the OCR process on a single page, applying a specified rotation.
     This is used when the user manually corrects the orientation of a page.
+    
+    Args:
+        page_id (int): The ID of the page to process
+        rotation_angle (int): Rotation angle in degrees (must be 0, 90, 180, or 270)
+        
+    Returns:
+        bool: True if OCR was successful, False otherwise
+        
+    Raises:
+        ValueError: If rotation_angle is not valid
     """
+    # Validate rotation angle
+    valid_rotations = {0, 90, 180, 270}
+    if rotation_angle not in valid_rotations:
+        logging.error(f"Invalid rotation angle: {rotation_angle}. Must be one of {valid_rotations}")
+        raise ValueError(f"Rotation angle must be one of {valid_rotations}")
+    
     logging.info(
         f"--- Re-running OCR for Page ID: {page_id} with rotation {rotation_angle} ---"
     )
+    
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
             page = cursor.execute(
                 "SELECT processed_image_path FROM pages WHERE id = ?", (page_id,)
             ).fetchone()
+            
+            if not page:
+                logging.error(f"Page ID {page_id} not found in database")
+                return False
 
             if not page:
                 logging.error(f"  - No page found with ID {page_id}")
@@ -549,14 +655,14 @@ def export_document(
     2. A searchable, multi-page PDF with the OCR text embedded.
     3. A Markdown file containing the full OCR text and metadata."""
     logging.info(f"--- EXPORTING Document: {final_name_base} ---")
-    if not config.FILING_CABINET_DIR:
+    if not app_config.FILING_CABINET_DIR:
         logging.error(
             "FILING_CABINET_DIR is not set in the .env file. Cannot export."
         )
         return False
 
     category_dir_name = _sanitize_category(category)
-    destination_dir = os.path.join(config.FILING_CABINET_DIR, category_dir_name)
+    destination_dir = os.path.join(app_config.FILING_CABINET_DIR, category_dir_name)
     os.makedirs(destination_dir, exist_ok=True)
 
     image_paths = [p["processed_image_path"] for p in pages]
@@ -651,11 +757,11 @@ def cleanup_batch_files(batch_id: int) -> bool:
     This is called after a batch has been successfully exported and finalized.
     """
     logging.info(f"--- CLEANING UP Batch ID: {batch_id} ---")
-    if not config.PROCESSED_DIR:
+    if not app_config.PROCESSED_DIR:
         logging.error("PROCESSED_DIR environment variable is not set.")
         return False
 
-    batch_image_dir = os.path.join(config.PROCESSED_DIR, str(batch_id))
+    batch_image_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
     if os.path.isdir(batch_image_dir):
         try:
             shutil.rmtree(batch_image_dir)

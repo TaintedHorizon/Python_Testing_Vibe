@@ -13,7 +13,24 @@ one or more routes in this file:
     handles the heavy lifting of OCR, image conversion, and initial AI-based
     categorization.
 
-2.  **Verification**: The user manually reviews each page of the batch. They can
+2    page_id = request.form.get("page_id", type=int)
+    batch_id = request.form.get("batch_id", type=int)
+    rotation = request.form.get("rotation", 0, type=int)
+    
+    if page_id is None or batch_id is None:
+        abort(400, "Page ID and Batch ID are required")
+    
+    # Validate rotation angle
+    if rotation not in {0, 90, 180, 270}:
+        abort(400, "Invalid rotation angle")
+    
+    # The `rerun_ocr_on_page` function in `processing.py` handles the image
+    # manipulation and the call to the OCR engine.
+    try:
+        rerun_ocr_on_page(page_id, rotation)
+    except OCRError as e:
+        logging.error(f"OCR error for page {page_id}: {e}")
+        abort(500, "OCR processing failed")erification**: The user manually reviews each page of the batch. They can
     correct the AI's suggested category, rotate pages, or flag pages that
     require special attention. This is the primary quality control step.
 
@@ -40,6 +57,7 @@ experience.
 """
 # Standard library imports
 import os
+import logging
 
 # Third-party imports
 from flask import (
@@ -54,12 +72,14 @@ from flask import (
 )
 
 # Local application imports
-# These imports bring in the core business logic and database functions
-# from other modules in the application.
-from processing import (
+from .security import validate_path, sanitize_input, validate_file_upload, require_safe_path
+from .exceptions import DocProcessorError, FileProcessingError, OCRError
+from .config_manager import app_config, DEFAULT_CATEGORIES
+
+# Core business logic and database functions
+from .processing import (
     process_batch,
     rerun_ocr_on_page,
-    BROAD_CATEGORIES,
     get_ai_suggested_order,
     get_ai_suggested_filename,
     export_document,
@@ -207,17 +227,20 @@ def verify_batch_page(batch_id):
 
     # Simple pagination is implemented to show one page at a time. The current
     # page number is taken from the URL query parameters (e.g., ?page=2).
-    page_num = request.args.get("page", 1, type=int)
-    if not 1 <= page_num <= len(pages_with_relative_paths):
-        page_num = 1  # Default to the first page if the page number is invalid.
-    current_page = pages_with_relative_paths[page_num - 1]
+    try:
+        page_num = max(1, request.args.get("page", 1, type=int))
+        page_num = min(page_num, len(pages_with_relative_paths))
+        current_page = pages_with_relative_paths[page_num - 1]
+    except (ValueError, TypeError):
+        page_num = 1
+        current_page = pages_with_relative_paths[0]
 
     # To provide a comprehensive list of categories in the dropdown, we combine
-    # a predefined list of broad categories with all categories that have been
-    # previously used and saved in the database. This allows for consistency
-    # and the ability to introduce new categories organically.
+    # default categories with all categories that have been previously used
+    # and saved in the database. This allows for consistency and the ability
+    # to introduce new categories organically.
     db_categories = get_all_unique_categories()
-    combined_categories = sorted(list(set(BROAD_CATEGORIES + db_categories)))
+    combined_categories = sorted(list(set(DEFAULT_CATEGORIES + db_categories)))
 
     # Render the verification template, passing all the necessary data for
     # displaying the current page, pagination controls, and category options.
@@ -263,7 +286,7 @@ def review_batch_page(batch_id):
     # The category list is needed here as well, so the user can correct
     # categories for flagged pages.
     db_categories = get_all_unique_categories()
-    combined_categories = sorted(list(set(BROAD_CATEGORIES + db_categories)))
+    combined_categories = sorted(list(set(DEFAULT_CATEGORIES + db_categories)))
 
     # Render the review template, which is specifically designed for handling
     # multiple flagged pages at once.
@@ -311,7 +334,7 @@ def revisit_batch_page(batch_id):
     current_page = pages_with_relative_paths[page_num - 1]
 
     db_categories = get_all_unique_categories()
-    combined_categories = sorted(list(set(BROAD_CATEGORIES + db_categories)))
+    combined_categories = sorted(list(set(DEFAULT_CATEGORIES + db_categories)))
 
     # The 'revisit.html' template is similar to 'verify.html' but with form
     # submission elements disabled to enforce the read-only nature of this view.
@@ -462,9 +485,16 @@ def order_document_page(document_id):
     if request.method == "POST":
         # The new order is submitted by a JavaScript function as a comma-separated
         # string of page IDs (e.g., "3,1,2").
-        ordered_page_ids = request.form.get("page_order").split(",")
+        page_order = request.form.get("page_order")
+        if not page_order:
+            abort(400, "No page order provided")
+            
+        ordered_page_ids = page_order.split(",")
         # Sanitize the list to ensure all IDs are integers before database insertion.
         page_ids_as_int = [int(pid) for pid in ordered_page_ids if pid.isdigit()]
+        
+        if not page_ids_as_int:
+            abort(400, "Invalid page order format")
         # The database function handles the complex update of the sequence numbers.
         update_page_sequence(document_id, page_ids_as_int)
         # Mark the document's status as having the order set.
@@ -620,71 +650,113 @@ def update_page():
     the status, category, and rotation of a single page. This is one of the
     most critical interactive routes.
     """
-    # Extract all data from the submitted form. Using .get() with defaults
-    # provides robustness against missing form fields.
-    action = request.form.get("action")
-    page_id = request.form.get("page_id", type=int)
-    batch_id = request.form.get("batch_id", type=int)
-    rotation = request.form.get("rotation", 0, type=int)
-    current_page_num = request.form.get("current_page_num", type=int)
-    total_pages = request.form.get("total_pages", type=int)
-    category = ""
-    status = ""
-    dropdown_choice = request.form.get("category_dropdown")
-    other_choice = request.form.get("other_category", "").strip()
+    try:
+        # Extract and validate required parameters
+        page_id = request.form.get("page_id", type=int)
+        batch_id = request.form.get("batch_id", type=int)
+        if page_id is None or batch_id is None:
+            abort(400, "Page ID and Batch ID are required")
 
-    # Determine the new status and category based on which button the user clicked
-    # ('Flag for Review' vs. 'Save and Next').
-    if action == "flag":
-        status = "flagged"
-        category = "NEEDS_REVIEW"  # A special category for flagged pages.
-    else:
-        status = "verified"
-        # This logic handles the category selection, allowing a user to either
-        # pick an existing category from the dropdown or create a new one by
-        # typing into the "other" text field.
-        if dropdown_choice == "other_new" and other_choice:
-            category = other_choice
-        elif dropdown_choice and dropdown_choice != "other_new":
-            category = dropdown_choice
+        # Extract optional parameters with validation
+        rotation = request.form.get("rotation", 0, type=int)
+        if rotation not in {0, 90, 180, 270}:
+            abort(400, "Invalid rotation angle")
+            
+        current_page_num = request.form.get("current_page_num", type=int)
+        total_pages = request.form.get("total_pages", type=int)
+        if current_page_num is not None and total_pages is not None:
+            if not (1 <= current_page_num <= total_pages):
+                abort(400, "Invalid page number")
+
+        # Extract and validate action
+        action = request.form.get("action")
+        if action not in {"flag", "save"}:
+            abort(400, "Invalid action")
+
+        # Initialize and validate category-related fields
+        category = ""
+        status = ""
+        dropdown_choice = request.form.get("category_dropdown")
+        other_choice = sanitize_input(request.form.get("other_category", "").strip())
+    except (ValueError, TypeError) as e:
+        logging.error(f"Form validation error: {e}")
+        abort(400, "Invalid form data")
+    except Exception as e:
+        logging.error(f"Unexpected error in update_page: {e}")
+        abort(500, "Internal server error")
+
+    try:
+        # Determine the new status and category based on which button the user clicked
+        # ('Flag for Review' vs. 'Save and Next').
+        if action == "flag":
+            status = "flagged"
+            category = "NEEDS_REVIEW"  # A special category for flagged pages.
         else:
-            # If the user doesn't make an explicit choice, the system defaults
-            # to using the original AI suggestion.
-            category = request.form.get("ai_suggestion")
+            status = "verified"
+            # This logic handles the category selection, allowing a user to either
+            # pick an existing category from the dropdown or create a new one by
+            # typing into the "other" text field.
+            if dropdown_choice == "other_new" and other_choice:
+                category = other_choice
+            elif dropdown_choice and dropdown_choice != "other_new":
+                category = dropdown_choice
+            else:
+                # If the user doesn't make an explicit choice, the system defaults
+                # to using the original AI suggestion.
+                category = request.form.get("ai_suggestion")
+                
+        if not category:
+            abort(400, "Category is required")
 
-    # Save the updated page data to the database.
-    update_page_data(page_id, category, status, rotation)
+        # Save the updated page data to the database.
+        try:
+            update_page_data(page_id, category, status, rotation)
+        except DocProcessorError as e:
+            logging.error(f"Failed to update page data: {e}")
+            abort(500, "Failed to save page updates")
 
-    # --- Redirection Logic ---
-    # The application needs to intelligently redirect the user back to where
-    # they came from.
-    if "revisit" in request.referrer:
-        # If they were on the revisit page, they should stay on that page.
-        return redirect(
-            url_for("revisit_batch_page", batch_id=batch_id, page=current_page_num)
-        )
-    if "review" in request.referrer:
-        # If they were on the review page, they should return there to see the
-        # list of remaining flagged pages.
-        return redirect(url_for("review_batch_page", batch_id=batch_id))
+        # --- Redirection Logic ---
+        # The application needs to intelligently redirect the user back to where
+        # they came from.
+        if "revisit" in request.referrer:
+            # If they were on the revisit page, they should stay on that page.
+            return redirect(
+                url_for("revisit_batch_page", batch_id=batch_id, page=current_page_num)
+            )
+        if "review" in request.referrer:
+            # If they were on the review page, they should return there to see the
+            # list of remaining flagged pages.
+            return redirect(url_for("review_batch_page", batch_id=batch_id))
 
-    # If in the main verification flow, proceed to the next page.
-    if current_page_num < total_pages:
-        return redirect(
-            url_for("verify_batch_page", batch_id=batch_id, page=current_page_num + 1)
-        )
-    else:
-        # If this was the last page of the batch, the verification step is
-        # considered complete. The batch status is updated, and the user is
-        # returned to the main dashboard.
-        conn = get_db_connection()
-        conn.execute(
-            "UPDATE batches SET status = 'verification_complete' WHERE id = ?",
-            (batch_id,)
-        )
-        conn.commit()
-        conn.close()
-        return redirect(url_for("mission_control_page"))
+        # If in the main verification flow, proceed to the next page.
+        if current_page_num is not None and total_pages is not None and current_page_num < total_pages:
+            return redirect(
+                url_for("verify_batch_page", batch_id=batch_id, page=current_page_num + 1)
+            )
+        else:
+            # If this was the last page of the batch, the verification step is
+            # considered complete. The batch status is updated, and the user is
+            # returned to the main dashboard.
+            conn = None
+            try:
+                conn = get_db_connection()
+                conn.execute(
+                    "UPDATE batches SET status = 'verification_complete' WHERE id = ?",
+                    (batch_id,)
+                )
+                conn.commit()
+            except Exception as e:
+                logging.error(f"Failed to update batch status: {e}")
+                if conn:
+                    conn.rollback()
+                abort(500, "Failed to update batch status")
+            finally:
+                if conn:
+                    conn.close()
+            return redirect(url_for("mission_control_page"))
+    except Exception as e:
+        logging.error(f"Error processing page update: {e}")
+        abort(500, "Failed to process page update")
 
 
 @app.route("/delete_page/<int:page_id>", methods=["POST"])
@@ -708,12 +780,32 @@ def rerun_ocr_action():
     applying a rotation first. This is useful if the initial OCR was poor due
     to the page being scanned upside down or sideways.
     """
+    # Validate required parameters
     page_id = request.form.get("page_id", type=int)
     batch_id = request.form.get("batch_id", type=int)
     rotation = request.form.get("rotation", 0, type=int)
+    
+    if page_id is None or batch_id is None:
+        abort(400, "Page ID and Batch ID are required")
+    
+    # Validate rotation angle
+    if rotation not in {0, 90, 180, 270}:
+        abort(400, "Invalid rotation angle")
+    
     # The `rerun_ocr_on_page` function in `processing.py` handles the image
     # manipulation and the call to the OCR engine.
-    rerun_ocr_on_page(page_id, rotation)
+    try:
+        rerun_ocr_on_page(page_id, rotation)
+    except OCRError as e:
+        logging.error(f"OCR error for page {page_id}: {e}")
+        abort(500, "OCR processing failed")
+    except FileProcessingError as e:
+        logging.error(f"File processing error for page {page_id}: {e}")
+        abort(500, "File processing failed")
+    except DocProcessorError as e:
+        logging.error(f"Document processing error for page {page_id}: {e}")
+        abort(500, "Processing failed")
+    
     # After re-running OCR, the user is returned to the review page to see
     # the updated OCR text and re-evaluate the page.
     return redirect(url_for("review_batch_page", batch_id=batch_id))
@@ -731,7 +823,14 @@ def serve_processed_file(filepath):
     preventing directory traversal attacks where a user might try to access
     sensitive files elsewhere on the server.
     """
-    processed_dir = os.getenv("PROCESSED_DIR")
+    processed_dir = app_config.PROCESSED_DIR
+    if not processed_dir or not os.path.isdir(processed_dir):
+        abort(500, "Processed directory not configured")
+    
+    # Validate the requested filepath
+    if not validate_path(filepath):
+        abort(400, "Invalid file path")
+        
     return send_from_directory(processed_dir, filepath)
 
 

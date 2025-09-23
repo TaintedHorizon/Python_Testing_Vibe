@@ -8,15 +8,12 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+# Local application imports
+from config_manager import DEFAULT_CATEGORIES
+
 # --- CONFIGURATION ---
 TABLES_TO_CLEAR = ["document_pages", "documents", "pages", "batches"]
 CATEGORIES_BACKUP_FILE = "custom_categories_backup.json"
-BROAD_CATEGORIES = [
-    "Financial Document", "Legal Document", "Personal Correspondence",
-    "Technical Document", "Medical Record", "Educational Material",
-    "Receipt or Invoice", "Form or Application", "News Article or Publication",
-    "Other",
-]
 
 def get_db_connection():
     """Establishes a connection to the SQLite database."""
@@ -35,7 +32,7 @@ def backup_custom_categories(conn):
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT human_verified_category FROM pages WHERE human_verified_category IS NOT NULL")
         all_categories = {row[0] for row in cursor.fetchall() if row[0]}
-        custom_categories = sorted(list(all_categories - set(BROAD_CATEGORIES)))
+        custom_categories = sorted(list(all_categories - set(DEFAULT_CATEGORIES)))
         
         if not custom_categories:
             print("No custom categories found to back up.")
