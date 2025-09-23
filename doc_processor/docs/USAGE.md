@@ -15,7 +15,7 @@
    ```
 4. Start the Flask server:
    ```bash
-   python app.py
+   python -m doc_processor.app
    ```
 5. Access the web UI at [http://localhost:5000](http://localhost:5000)
 
