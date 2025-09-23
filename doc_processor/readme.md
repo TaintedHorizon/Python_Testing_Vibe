@@ -2,7 +2,14 @@
 
 ## Overview
 
+
 This project is a web-based, human-in-the-loop document processing pipeline designed to ingest, classify, and organize scanned documents. It uses a combination of automated OCR and AI classification with a robust user interface for verification and correction, ensuring high-quality, structured data as the final output.
+
+**Recent Updates (September 2025):**
+- All configuration is now managed via `config_manager.py` and the `.env` file. The old `config.py` is no longer used.
+- Custom categories are now global: when you add a new category during verification or review, it is saved in the database and will appear in the dropdown for all future batches.
+- The dropdowns for category selection in verify, review, and revisit always show all categories (default and custom) from the database.
+- The workflow for adding custom categories is fully database-driven and persistent.
 
 The core philosophy is to use automation for the heavy lifting (like text extraction and initial categorization) and empower a human user to quickly and efficiently verify, correct, and organize the results.
 
@@ -36,11 +43,12 @@ doc_processor/
 │
 ├── .env                # Local configuration file (you must create this)
 ├── app.py              # The main Flask application, defines all web routes and UI logic.
-├── database.py         # Contains all functions for interacting with the database (queries and commands).
+├── config_manager.py   # Centralized configuration management, loads settings from .env and provides type safety.
+├── database.py         # Contains all functions for interacting with the database (queries and commands), including category management.
 ├── database_setup.py   # Script to initialize a new, empty database with the correct schema.
 ├── processing.py       # Handles the core backend logic: PDF conversion, OCR, and AI communication.
 ├── requirements.txt    # A list of all Python dependencies for the project.
-├── upgrade_database.py # Safely upgrades an existing database with new columns without losing data.
+├── database_upgrade.py # Safely upgrades an existing database with new columns without losing data.
 │
 └── templates/          # Directory for all HTML templates.
     ├── base.html           # The main base template that all other pages inherit from.
@@ -59,9 +67,14 @@ doc_processor/
 
 This is the heart of the web application. It uses the Flask framework to define all the URL routes and handle the logic for the user interface. It orchestrates the entire user workflow, from initiating a new batch to verifying pages, grouping them into documents, ordering them, and finally exporting them. It doesn't perform the heavy lifting itself but instead calls functions from `processing.py` for tasks like OCR and `database.py` to read or write data. It is responsible for rendering the HTML templates and passing the necessary data to them.
 
-### `database.py`
 
-This module is the Data Access Layer (DAL). It contains all the functions that interact directly with the SQLite database. By centralizing all SQL queries here, the rest of the application can be database-agnostic, and the code is much cleaner and easier to maintain. The functions are divided into "queries" (reading data with `SELECT`) and "commands" (modifying data with `INSERT`, `UPDATE`, `DELETE`). It also includes a connection utility that configures connections to return dictionary-like rows for more readable code.
+### `config_manager.py`
+Centralizes all configuration loading and validation. Loads settings from `.env` and provides a type-safe `AppConfig` object for use throughout the app. All configuration is now managed here.
+
+### `database.py`
+This module is the Data Access Layer (DAL). It contains all the functions that interact directly with the SQLite database. By centralizing all SQL queries here, the rest of the application can be database-agnostic, and the code is much cleaner and easier to maintain. The functions are divided into "queries" (reading data with `SELECT`) and "commands" (modifying data with `INSERT`, `UPDATE`, `DELETE`). It also includes helpers for category management:
+- All categories (default and custom) are stored in the `categories` table.
+- When a user adds a new custom category, it is inserted into the global table if not already present (case-insensitive).
 
 ### `database_setup.py`
 
@@ -101,9 +114,10 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+
 **3. Configure Environment Variables:**
 
-Create a file named `.env` in the `doc_processor` directory. This file stores your local configuration. Copy and paste the following, adjusting the paths to match your system.
+Create a file named `.env` in the `doc_processor` directory. This file stores your local configuration. All configuration is now loaded from this file via `config_manager.py`. Copy and paste the following, adjusting the paths to match your system.
 
 ```
 # --- Directory Paths (use absolute paths) ---
@@ -154,8 +168,8 @@ Open your web browser and go to `http://<your_vm_ip>:5000`. This will take you t
 
 1.  **Place Files**: Add new PDF documents into the folder you specified as your `INTAKE_DIR`.
 2.  **Start Batch**: On the Mission Control page, click the "Start New Batch" button. The system will process all files from the intake folder.
-3.  **Verify**: A new batch will appear. Click the "Verify" button. Go through each page, approving the AI's category or selecting a new one. Use the "Flag for Review" button if a page has issues (e.g., poor OCR, upside down).
-4.  **Review (If Needed)**: If you flagged any pages, a "Review" button will appear. Use this page to fix rotations, re-run OCR, or delete bad pages.
+3.  **Verify**: A new batch will appear. Click the "Verify" button. Go through each page, approving the AI's category or selecting a new one. You can add a new custom category at any time; it will be saved globally and appear in all future dropdowns. Use the "Flag for Review" button if a page has issues (e.g., poor OCR, upside down).
+4.  **Review (If Needed)**: If you flagged any pages, a "Review" button will appear. Use this page to fix rotations, re-run OCR, or delete bad pages. All categories (default and custom) are always available in the dropdown.
 5.  **Group**: Once verification is complete, click the "Group" button. On this screen, select pages from the same category and give them a document name (e.g., "January 2024 Bank Statement").
 6.  **Order**: After grouping, click the "Order Pages" button. This will show you all documents with more than one page. Click "Order Pages" on a document to go to the drag-and-drop interface to set the correct page sequence.
 7.  **Finalize & Export**: Once all documents are ordered, click the "Finalize & Export" button. On this screen, you can review and edit the AI-suggested filenames before clicking "Export All Documents". The final files will be saved to your `FILING_CABINET_DIR`.

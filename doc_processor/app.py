@@ -105,6 +105,8 @@ from database import (
     update_document_status,
     reset_batch_to_start,
     update_document_final_filename,
+    get_all_categories,
+    insert_category_if_not_exists,
 )
 
 # Initialize the Flask application
@@ -239,8 +241,7 @@ def verify_batch_page(batch_id):
     # default categories with all categories that have been previously used
     # and saved in the database. This allows for consistency and the ability
     # to introduce new categories organically.
-    db_categories = get_all_unique_categories()
-    combined_categories = sorted(list(set(DEFAULT_CATEGORIES + db_categories)))
+    combined_categories = get_all_categories()
 
     # Render the verification template, passing all the necessary data for
     # displaying the current page, pagination controls, and category options.
@@ -285,8 +286,7 @@ def review_batch_page(batch_id):
 
     # The category list is needed here as well, so the user can correct
     # categories for flagged pages.
-    db_categories = get_all_unique_categories()
-    combined_categories = sorted(list(set(DEFAULT_CATEGORIES + db_categories)))
+    combined_categories = get_all_categories()
 
     # Render the review template, which is specifically designed for handling
     # multiple flagged pages at once.
@@ -333,8 +333,7 @@ def revisit_batch_page(batch_id):
         page_num = 1
     current_page = pages_with_relative_paths[page_num - 1]
 
-    db_categories = get_all_unique_categories()
-    combined_categories = sorted(list(set(DEFAULT_CATEGORIES + db_categories)))
+    combined_categories = get_all_categories()
 
     # The 'revisit.html' template is similar to 'verify.html' but with form
     # submission elements disabled to enforce the read-only nature of this view.
@@ -698,13 +697,16 @@ def update_page():
             # typing into the "other" text field.
             if dropdown_choice == "other_new" and other_choice:
                 category = other_choice
+                # Insert the new custom category into the global categories table
+                insert_category_if_not_exists(category)
             elif dropdown_choice and dropdown_choice != "other_new":
                 category = dropdown_choice
             else:
                 # If the user doesn't make an explicit choice, the system defaults
                 # to using the original AI suggestion.
                 category = request.form.get("ai_suggestion")
-                
+            # If the selected category is not in the categories table, insert it (handles AI suggestions or legacy data)
+            insert_category_if_not_exists(category)
         if not category:
             abort(400, "Category is required")
 

@@ -1,3 +1,30 @@
+# --- CATEGORY INSERTION HELPER ---
+def insert_category_if_not_exists(category_name):
+    """
+    Inserts a new category into the categories table if it does not already exist (case-insensitive).
+    Args:
+        category_name (str): The name of the category to insert.
+    """
+    if not category_name:
+        return
+    conn = get_db_connection()
+    try:
+        with conn:
+            # Use COLLATE NOCASE for case-insensitive uniqueness
+            exists = conn.execute(
+                "SELECT 1 FROM categories WHERE name = ? COLLATE NOCASE",
+                (category_name,)
+            ).fetchone()
+            if not exists:
+                conn.execute(
+                    "INSERT INTO categories (name) VALUES (?)",
+                    (category_name,)
+                )
+    except sqlite3.Error as e:
+        print(f"Database error while inserting category '{category_name}': {e}")
+    finally:
+        if conn:
+            conn.close()
 """
 This module serves as the Data Access Layer (DAL) for the application.
 It encapsulates all the SQL queries and database interactions, providing a clean,
