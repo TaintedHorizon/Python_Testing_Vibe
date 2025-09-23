@@ -7,7 +7,7 @@ setup:
 	venv/bin/pip install -r requirements.txt
 
 run:
-	venv/bin/python app.py
+	venv/bin/python -m doc_processor.app
 
 test:
 	venv/bin/pytest tests/
