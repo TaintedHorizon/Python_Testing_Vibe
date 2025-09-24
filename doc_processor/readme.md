@@ -210,8 +210,6 @@ Documentation and usage guides. Example: `USAGE.md` covers quick start, workflow
 
 ---
 
-
-
 ## Setup and Installation (Ubuntu)
 
 **1. Install System Dependencies:**
