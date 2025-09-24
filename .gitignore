@@ -1,3 +1,6 @@
+# Ignore model weights and backup files
+Document_Scanner_Ollama_outdated/model_cache/*.pth
+custom_categories_backup.json
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.pyc
@@ -35,6 +38,10 @@ Thumbs.db
 # Logs
 *.log
 log/
+
+# Database files
+documents.db
+*.db
 
 # Document Scanner Ollama specific
 Document_Scanner_Ollama/__pycache__/
