@@ -2,8 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+
 ## [Unreleased]
-- Ongoing improvements and refactoring.
+- Added full interaction logging: every AI prompt/response, human correction, and status change is now recorded in the `interaction_log` table for RAG and audit
+- Database schema and backend updated for robust auditability and future LLM workflows
+- Export workflow and documentation improved for clarity and traceability
 
 ## [2025-09-23]
 - Major project cleanup and reorganization.

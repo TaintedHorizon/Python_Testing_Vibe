@@ -1,3 +1,75 @@
+# --- INTERACTION LOGGING UTILITIES ---
+def log_interaction(batch_id, document_id=None, user_id=None, event_type=None, step=None, content=None, notes=None):
+    """
+    Inserts a new interaction log entry into the interaction_log table.
+    Args:
+        batch_id (int): The batch this event is associated with.
+        document_id (int, optional): The document this event is associated with.
+        user_id (str, optional): The user performing the action.
+        event_type (str): The type of event ('ai_prompt', 'ai_response', 'human_correction', 'status_change', etc.).
+        step (str, optional): The workflow step ('verify', 'review', 'group', 'order', 'name', etc.).
+        content (str, optional): The prompt, response, correction, or status info (JSON or text).
+        notes (str, optional): Any extra context.
+    """
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO interaction_log (batch_id, document_id, user_id, event_type, step, content, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (batch_id, document_id, user_id, event_type, step, content, notes)
+            )
+    except sqlite3.Error as e:
+        print(f"Database error while logging interaction: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+def get_interactions_for_document(document_id):
+    """
+    Retrieves all interaction log entries for a given document, ordered by timestamp.
+    Args:
+        document_id (int): The document to fetch logs for.
+    Returns:
+        list: A list of sqlite3.Row objects for each log entry.
+    """
+    conn = get_db_connection()
+    try:
+        logs = conn.execute(
+            "SELECT * FROM interaction_log WHERE document_id = ? ORDER BY timestamp ASC",
+            (document_id,)
+        ).fetchall()
+        return logs
+    except sqlite3.Error as e:
+        print(f"Database error while fetching interaction logs for document {document_id}: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def get_interactions_for_batch(batch_id):
+    """
+    Retrieves all interaction log entries for a given batch, ordered by timestamp.
+    Args:
+        batch_id (int): The batch to fetch logs for.
+    Returns:
+        list: A list of sqlite3.Row objects for each log entry.
+    """
+    conn = get_db_connection()
+    try:
+        logs = conn.execute(
+            "SELECT * FROM interaction_log WHERE batch_id = ? ORDER BY timestamp ASC",
+            (batch_id,)
+        ).fetchall()
+        return logs
+    except sqlite3.Error as e:
+        print(f"Database error while fetching interaction logs for batch {batch_id}: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
 # --- CATEGORY INSERTION HELPER ---
 def insert_category_if_not_exists(category_name):
     """
@@ -73,6 +145,8 @@ def get_db_connection():
         sqlite3.Connection: A configured connection object to the database.
     """
     db_path = os.getenv("DATABASE_PATH")
+    if not db_path:
+        raise RuntimeError("DATABASE_PATH environment variable is not set.")
     print(f"[APP] Using database file: {os.path.abspath(db_path)}")
     conn = sqlite3.connect(db_path)
     # This factory is a game-changer for readability. Instead of row[0], row[1],

@@ -105,6 +105,7 @@ def create_database():
         )
         print("Table 'document_pages' created or already exists.")
 
+
         # --- Create 'categories' table ---
         # This table stores the predefined list of document categories that the
         # user can assign to documents.
@@ -117,6 +118,27 @@ def create_database():
         """
         )
         print("Table 'categories' created or already exists.")
+
+        # --- Create 'interaction_log' table ---
+        # This table logs every AI prompt/response, human correction, and status change for RAG and audit.
+        cursor.execute(
+            """
+        CREATE TABLE IF NOT EXISTS interaction_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, -- Unique identifier for the log entry.
+            batch_id INTEGER, -- Foreign key referencing the batch.
+            document_id INTEGER, -- Foreign key referencing the document (nullable for batch-level events).
+            user_id TEXT, -- User identifier (nullable).
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- When the event occurred.
+            event_type TEXT NOT NULL, -- 'ai_prompt', 'ai_response', 'human_correction', 'status_change', etc.
+            step TEXT, -- Workflow step: 'verify', 'review', 'group', 'order', 'name', etc.
+            content TEXT, -- The prompt, response, correction, or status info (JSON or text).
+            notes TEXT, -- Optional extra context.
+            FOREIGN KEY (batch_id) REFERENCES batches (id),
+            FOREIGN KEY (document_id) REFERENCES documents (id)
+        );
+        """
+        )
+        print("Table 'interaction_log' created or already exists.")
 
         # --- Seed Initial Categories ---
         # This section populates the 'categories' table with a default set of

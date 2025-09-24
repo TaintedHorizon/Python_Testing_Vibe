@@ -43,7 +43,14 @@ from PIL import Image
 from .config_manager import app_config
 from .exceptions import FileProcessingError, OCRError, AIServiceError
 from .security import validate_path, sanitize_filename
-from .database import get_all_categories
+from .database import get_all_categories, log_interaction
+
+# --- USER CONTEXT HELPER (stub) ---
+def get_current_user_id():
+    """
+    Returns the current user ID for logging. Replace with real user context if/when available.
+    """
+    return None  # Replace with actual user ID logic if multi-user
 
 # --- LOGGING SETUP ---
 # Configures a consistent logging format for the entire module.
@@ -136,6 +143,16 @@ def _query_ollama(prompt: str, timeout: int = 60) -> Optional[str]:
     if not app_config.OLLAMA_HOST or not app_config.OLLAMA_MODEL:
         logging.error("[AI ERROR] OLLAMA_HOST or OLLAMA_MODEL is not set.")
         return None
+    # Log the AI prompt
+    log_interaction(
+        batch_id=None,  # Fill in batch_id if available in calling context
+        document_id=None,  # Fill in document_id if available in calling context
+        user_id=get_current_user_id(),
+        event_type="ai_prompt",
+        step=None,
+        content=prompt,
+        notes="Ollama prompt sent"
+    )
     try:
         response = requests.post(
             f"{app_config.OLLAMA_HOST}/api/generate",
@@ -143,7 +160,18 @@ def _query_ollama(prompt: str, timeout: int = 60) -> Optional[str]:
             timeout=timeout,
         )
         response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
-        return response.json().get("response", "").strip()
+        ai_response = response.json().get("response", "").strip()
+        # Log the AI response
+        log_interaction(
+            batch_id=None,  # Fill in batch_id if available in calling context
+            document_id=None,  # Fill in document_id if available in calling context
+            user_id=get_current_user_id(),
+            event_type="ai_response",
+            step=None,
+            content=ai_response,
+            notes="Ollama response received"
+        )
+        return ai_response
     except requests.exceptions.RequestException as e:
         logging.error(f"[AI ERROR] Could not connect to Ollama: {e}")
         return None
@@ -293,6 +321,16 @@ def _process_single_page_from_file(
                 rotation,
             ),
         )
+        # Log human review/group action (page added to batch)
+        log_interaction(
+            batch_id=batch_id,
+            document_id=None,
+            user_id=get_current_user_id(),
+            event_type="human_correction",
+            step="review_group",
+            content=f"Added page {page_num} from {source_filename} to batch {batch_id}.",
+            notes=f"Image path: {image_path}"
+        )
         return True
     except Exception as e:
         logging.error(
@@ -385,6 +423,16 @@ def process_batch() -> bool:
             batch_id = cursor.lastrowid
             conn.commit()
             logging.info(f"Created new batch with ID: {batch_id}")
+            # Log batch status transition to pending_verification
+            log_interaction(
+                batch_id=batch_id,
+                document_id=None,
+                user_id=get_current_user_id(),
+                event_type="status_change",
+                step="pending_verification",
+                content=f"Batch {batch_id} created and set to pending_verification.",
+                notes=None
+            )
             os.makedirs(app_config.ARCHIVE_DIR, exist_ok=True)
             batch_image_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
             os.makedirs(batch_image_dir, exist_ok=True)
@@ -446,6 +494,16 @@ def process_batch() -> bool:
                     "UPDATE pages SET ai_suggested_category = ? WHERE id = ?",
                     (ai_category, page["id"]),
                 )
+                # Log AI classification event
+                log_interaction(
+                    batch_id=batch_id,
+                    document_id=None,
+                    user_id=get_current_user_id(),
+                    event_type="ai_response",
+                    step="classify",
+                    content=f"AI classified page {page['id']} as '{ai_category}'",
+                    notes=None
+                )
             conn.commit()
 
         logging.info("\n--- Batch Processing Complete ---")
@@ -464,6 +522,16 @@ def process_batch() -> bool:
                         (app_config.STATUS_FAILED, batch_id),
                     )
                     conn.commit()
+                # Log batch status transition
+                log_interaction(
+                    batch_id=batch_id,
+                    document_id=None,
+                    user_id=get_current_user_id(),
+                    event_type="status_change",
+                    step="batch_failed",
+                    content=f"Batch {batch_id} marked as failed due to error: {e}",
+                    notes=None
+                )
             except Exception as update_e:
                 logging.error(
                     f"Failed to update batch status to failed: {update_e}"
@@ -500,15 +568,11 @@ def rerun_ocr_on_page(page_id: int, rotation_angle: int) -> bool:
         with database_connection() as conn:
             cursor = conn.cursor()
             page = cursor.execute(
-                "SELECT processed_image_path FROM pages WHERE id = ?", (page_id,)
+                "SELECT processed_image_path, batch_id FROM pages WHERE id = ?", (page_id,)
             ).fetchone()
             
             if not page:
                 logging.error(f"Page ID {page_id} not found in database")
-                return False
-
-            if not page:
-                logging.error(f"  - No page found with ID {page_id}")
                 return False
 
             image_path = page["processed_image_path"]
@@ -519,8 +583,6 @@ def rerun_ocr_on_page(page_id: int, rotation_angle: int) -> bool:
             new_ocr_text = ""
             try:
                 with Image.open(image_path) as img:
-                    # PIL rotates counter-clockwise. A negative angle is used to match
-                    # typical UI expectations of clockwise rotation.
                     rotated_image = img.rotate(-rotation_angle, expand=True)
                     rotated_image.save(image_path, "PNG")
                     logging.info(f"  - Physically rotated and saved image at {image_path}")
@@ -537,6 +599,16 @@ def rerun_ocr_on_page(page_id: int, rotation_angle: int) -> bool:
                 (new_ocr_text, rotation_angle, page_id),
             )
             conn.commit()
+            # Log human correction event
+            log_interaction(
+                batch_id=page["batch_id"],
+                document_id=None,
+                user_id=get_current_user_id(),
+                event_type="human_correction",
+                step="ocr_correction",
+                content=f"Re-ran OCR with rotation {rotation_angle} for page {page_id}.",
+                notes=f"Image path: {image_path}"
+            )
             logging.info("--- OCR Re-run Complete ---")
             return True
     except Exception as e:
@@ -585,6 +657,16 @@ def get_ai_suggested_order(pages: List[Dict]) -> List[int]:
         page_id = page["id"]
         logging.info(f"  - Extracting page number from Page ID: {page_id}...")
         extracted_num = _get_page_number_from_ai(page["ocr_text"])
+        # Log AI ordering suggestion
+        log_interaction(
+            batch_id=page.get("batch_id"),
+            document_id=page.get("document_id"),
+            user_id=get_current_user_id(),
+            event_type="ai_response",
+            step="order",
+            content=f"AI suggested page number {extracted_num} for page {page_id}",
+            notes=None
+        )
         if extracted_num is not None:
             logging.info(f"    - AI found page number: {extracted_num}")
             numbered_pages.append({"id": page_id, "num": extracted_num})
@@ -630,6 +712,16 @@ DOCUMENT TEXT (Category: '{category}'):
 END DOCUMENT TEXT:
 """
     ai_title = _query_ollama(prompt, timeout=90)
+    # Log AI filename suggestion
+    log_interaction(
+        batch_id=None,  # Fill in if available
+        document_id=None,  # Fill in if available
+        user_id=get_current_user_id(),
+        event_type="ai_response",
+        step="name",
+        content=f"AI suggested filename: {ai_title}",
+        notes=None
+    )
     current_date = datetime.now().strftime("%Y-%m-%d")
 
     if ai_title is None:
@@ -655,6 +747,12 @@ def export_document(
     2. A searchable, multi-page PDF with the OCR text embedded.
     3. A Markdown file containing the full OCR text and metadata."""
     logging.info(f"--- EXPORTING Document: {final_name_base} ---")
+    # Log export event (status_change: finalize/export) after destination_dir is defined
+    try:
+        batch_id = pages[0]["batch_id"] if pages and "batch_id" in pages[0] else None
+    except Exception:
+        batch_id = None
+    # destination_dir is defined below, so move log_interaction after that
     if not app_config.FILING_CABINET_DIR:
         logging.error(
             "FILING_CABINET_DIR is not set in the .env file. Cannot export."
