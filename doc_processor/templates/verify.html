@@ -107,8 +107,7 @@
                 </div>
                 <!-- Action buttons that submit the form with different 'action' values -->
                 <div class="actions">
-                    <button type="submit" data-action="save" class="btn-approve">Approve & Next</button>
-                    <button type="submit" data-action="save" class="btn-correct">Correct & Next</button>
+                    <button type="submit" id="primary-action-btn" data-action="save" class="btn-approve">Approve & Next</button>
                     <button type="submit" data-action="flag" class="btn-flag">Flag for Review</button>
                 </div>
             </div>
@@ -138,7 +137,7 @@
         // Ensure the correct action is always sent
         const actionInput = document.getElementById('action-input');
         document.querySelectorAll('.actions button').forEach(btn => {
-            btn.addEventListener('click', function(e) {
+            btn.addEventListener('click', function() {
                 if (actionInput) actionInput.value = this.getAttribute('data-action');
             });
         });
@@ -154,8 +153,35 @@
                 if (otherCategoryGroup) { 
                     otherCategoryGroup.style.display = (this.value === 'other_new') ? 'block' : 'none'; 
                 }
+                updatePrimaryButtonLabel();
             });
         }
+        const otherCategoryInput = document.getElementById('other-category-input');
+        if (otherCategoryInput) {
+            otherCategoryInput.addEventListener('input', updatePrimaryButtonLabel);
+        }
+
+        function normalize(str){return (str||'').trim().toLowerCase();}
+        function updatePrimaryButtonLabel(){
+            const aiSuggestion = normalize(document.querySelector('input[name="ai_suggestion"]').value);
+            let chosen = '';
+            if (categorySelect){
+                if (categorySelect.value === 'other_new') {
+                    chosen = normalize(otherCategoryInput ? otherCategoryInput.value : '');
+                } else if (categorySelect.value) {
+                    chosen = normalize(categorySelect.value);
+                } else {
+                    chosen = aiSuggestion; // no change
+                }
+            }
+            const primaryBtn = document.getElementById('primary-action-btn');
+            if (!primaryBtn) return;
+            const isCorrection = chosen && chosen !== aiSuggestion;
+            primaryBtn.textContent = isCorrection ? 'Correct & Next' : 'Approve & Next';
+            primaryBtn.classList.toggle('btn-correct', isCorrection);
+            primaryBtn.classList.toggle('btn-approve', !isCorrection);
+        }
+        updatePrimaryButtonLabel();
 
         // Confirm Rotation AJAX handler
         const confirmBtn = document.getElementById('confirm-rotation-btn');

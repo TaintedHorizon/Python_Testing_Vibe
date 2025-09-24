@@ -423,7 +423,7 @@ def process_batch() -> bool:
             batch_id = cursor.lastrowid
             conn.commit()
             logging.info(f"Created new batch with ID: {batch_id}")
-            # Log batch status transition to pending_verification
+            # Log batch status transition to pending_verification (after commit)
             log_interaction(
                 batch_id=batch_id,
                 document_id=None,
@@ -471,7 +471,7 @@ def process_batch() -> bool:
                 logging.info(
                     f"  - Successfully processed and saved {len(images)} pages."
                 )
-
+                # Log after commit (if needed)
                 # Move the original PDF to the archive directory
                 try:
                     shutil.move(
@@ -494,7 +494,10 @@ def process_batch() -> bool:
                     "UPDATE pages SET ai_suggested_category = ? WHERE id = ?",
                     (ai_category, page["id"]),
                 )
-                # Log AI classification event
+            conn.commit()
+            # Log AI classification events after commit
+            for page in pages_to_classify:
+                ai_category = get_ai_classification(page["ocr_text"])
                 log_interaction(
                     batch_id=batch_id,
                     document_id=None,
@@ -504,7 +507,6 @@ def process_batch() -> bool:
                     content=f"AI classified page {page['id']} as '{ai_category}'",
                     notes=None
                 )
-            conn.commit()
 
         logging.info("\n--- Batch Processing Complete ---")
         return True
@@ -583,12 +585,11 @@ def rerun_ocr_on_page(page_id: int, rotation_angle: int) -> bool:
             new_ocr_text = ""
             try:
                 with Image.open(image_path) as img:
-                    rotated_image = img.rotate(-rotation_angle, expand=True)
-                    rotated_image.save(image_path, "PNG")
-                    logging.info(f"  - Physically rotated and saved image at {image_path}")
-
+                    # Rotate only in-memory for OCR extraction; preserve original stored orientation
+                    working_image = img.rotate(-rotation_angle, expand=True) if rotation_angle else img
+                    logging.info(f"  - Applied in-memory rotation (not saved) for OCR: {rotation_angle} degrees")
                     reader = EasyOCRSingleton.get_reader()
-                    ocr_results = reader.readtext(np.array(rotated_image))
+                    ocr_results = reader.readtext(np.array(working_image))
                     new_ocr_text = " ".join([text for _, text, _ in ocr_results])
             except IOError as e:
                 logging.error(f"  - Could not open or process image {image_path}: {e}")
@@ -658,9 +659,11 @@ def get_ai_suggested_order(pages: List[Dict]) -> List[int]:
         logging.info(f"  - Extracting page number from Page ID: {page_id}...")
         extracted_num = _get_page_number_from_ai(page["ocr_text"])
         # Log AI ordering suggestion
+        # If page is a sqlite3.Row, convert to dict for .get()
+        page_dict = dict(page) if not isinstance(page, dict) else page
         log_interaction(
-            batch_id=page.get("batch_id"),
-            document_id=page.get("document_id"),
+            batch_id=page_dict.get("batch_id"),
+            document_id=page_dict.get("document_id"),
             user_id=get_current_user_id(),
             event_type="ai_response",
             step="order",
@@ -749,7 +752,11 @@ def export_document(
     logging.info(f"--- EXPORTING Document: {final_name_base} ---")
     # Log export event (status_change: finalize/export) after destination_dir is defined
     try:
-        batch_id = pages[0]["batch_id"] if pages and "batch_id" in pages[0] else None
+        # Ensure first page is a dict for .get() access
+        first_page = pages[0] if pages else None
+        if first_page is not None and not isinstance(first_page, dict):
+            first_page = dict(first_page)
+        batch_id = first_page.get("batch_id") if first_page and "batch_id" in first_page else None
     except Exception:
         batch_id = None
     # destination_dir is defined below, so move log_interaction after that
@@ -763,6 +770,8 @@ def export_document(
     destination_dir = os.path.join(app_config.FILING_CABINET_DIR, category_dir_name)
     os.makedirs(destination_dir, exist_ok=True)
 
+    # Ensure all pages are dicts for safe .get() and key access
+    pages = [dict(p) if not isinstance(p, dict) else p for p in pages]
     image_paths = [p["processed_image_path"] for p in pages]
     full_ocr_text = "\n\n---\n\n".join([p["ocr_text"] for p in pages])
 
@@ -832,7 +841,9 @@ def export_document(
 |---------|---------------------|-----------------|-------------------------------|
 """
         for p in pages:
-            log_content += f"| {p['id']} | {p['source_filename']} | {p['page_number']} | {p.get('ai_suggested_category', '')} |\n"
+            # If p is a sqlite3.Row, convert to dict for .get()
+            p_dict = dict(p) if not isinstance(p, dict) else p
+            log_content += f"| {p_dict['id']} | {p_dict['source_filename']} | {p_dict['page_number']} | {p_dict.get('ai_suggested_category', '')} |\n"
 
         log_content += "\n## Full Extracted OCR Text\n\n"
         log_content += "```text\n"

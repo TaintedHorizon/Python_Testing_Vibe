@@ -119,7 +119,11 @@ this file need to be updated.
 # Standard library imports
 import sqlite3
 import os
+import json
+import stat
+import time
 from collections import defaultdict
+import logging
 
 # Third-party imports
 from dotenv import load_dotenv
@@ -130,27 +134,54 @@ load_dotenv()
 
 # --- DATABASE CONNECTION UTILITY ---
 
+def _gather_db_file_metadata(db_path: str) -> dict:
+    """Return metadata about the SQLite database file for richer startup logging."""
+    info = {
+        "path": os.path.abspath(db_path),
+        "exists": False,
+    }
+    try:
+        if os.path.exists(db_path):
+            st = os.stat(db_path)
+            info.update(
+                {
+                    "exists": True,
+                    "size_bytes": st.st_size,
+                    "last_modified_iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(st.st_mtime)),
+                    "permissions_octal": oct(stat.S_IMODE(st.st_mode)),
+                }
+            )
+    except Exception as e:
+        info["metadata_error"] = str(e)
+    return info
+
+
+_DB_LOGGED_ONCE = False
+
+
 def get_db_connection():
-    """
-    Establishes and configures a connection to the SQLite database.
-
-    This is a factory function that creates a new database connection each time
-    it's called. It retrieves the database file path from the environment
-    variables. Crucially, it sets the `row_factory` to `sqlite3.Row`, which
-    allows accessing query results like dictionaries (e.g., `row['column_name']`)
-    instead of just by index. This makes the code much more readable and less
-    prone to errors.
-
-    Returns:
-        sqlite3.Connection: A configured connection object to the database.
-    """
+    """Create and return a configured SQLite connection (logs rich context once)."""
+    global _DB_LOGGED_ONCE
     db_path = os.getenv("DATABASE_PATH")
     if not db_path:
         raise RuntimeError("DATABASE_PATH environment variable is not set.")
-    print(f"[APP] Using database file: {os.path.abspath(db_path)}")
+
+    if not _DB_LOGGED_ONCE:
+        # Structured, one-time metadata log (safe even if logger not configured yet)
+        meta = _gather_db_file_metadata(db_path)
+        payload = {
+            "event": "database_init",
+            "description": "SQLite database configuration",
+            "metadata": meta,
+        }
+        try:
+            logging.getLogger(__name__).info(json.dumps(payload))
+        except Exception:
+            # Fallback minimal print if logging not yet configured
+            print(f"[APP][database_init] {payload}")
+        _DB_LOGGED_ONCE = True
+
     conn = sqlite3.connect(db_path)
-    # This factory is a game-changer for readability. Instead of row[0], row[1],
-    # we can use row['id'], row['status'], etc.
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -216,6 +247,20 @@ def get_all_unique_categories():
     # The query returns a list of Row objects; this list comprehension extracts
     # just the category name string from each row.
     return [row["human_verified_category"] for row in results]
+
+def get_active_categories():
+    """Return list of active category names from categories table (soft-delete aware).
+
+    Falls back to distinct verified categories if categories table missing columns.
+    """
+    conn = get_db_connection()
+    try:
+        rows = conn.execute("SELECT name FROM categories WHERE is_active = 1 ORDER BY name COLLATE NOCASE").fetchall()
+        conn.close()
+        return [r["name"] for r in rows]
+    except Exception:
+        conn.close()
+        return get_all_unique_categories()
 
 
 def get_batch_by_id(batch_id):
@@ -436,6 +481,30 @@ def update_page_data(page_id, category, status, rotation):
             )
     except sqlite3.Error as e:
         print(f"Database error while updating page {page_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+def update_page_rotation(page_id: int, rotation: int) -> bool:
+    """Update only the rotation_angle for a page.
+
+    Args:
+        page_id (int): Page primary key.
+        rotation (int): One of 0,90,180,270.
+
+    Returns:
+        bool: True on success, False on error or invalid rotation.
+    """
+    if rotation not in {0,90,180,270}:
+        return False
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute("UPDATE pages SET rotation_angle = ? WHERE id = ?", (rotation, page_id))
+        return True
+    except Exception as e:
+        print(f"Database error while updating rotation for page {page_id}: {e}")
+        return False
     finally:
         if conn:
             conn.close()

@@ -1,3 +1,27 @@
+# --- ARCHIVE CLEANUP ON NEW BATCH ---
+import time
+from pathlib import Path
+
+def cleanup_old_archives():
+    days = getattr(app_config, "ARCHIVE_RETENTION_DAYS", 30)
+    archive_dir = getattr(app_config, "ARCHIVE_DIR", None)
+    if not archive_dir:
+        logging.warning("No ARCHIVE_DIR set, skipping archive cleanup.")
+        return
+    cutoff = time.time() - days * 86400
+    deleted = 0
+    for root, dirs, files in os.walk(archive_dir):
+        for fname in files:
+            fpath = os.path.join(root, fname)
+            try:
+                if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+                    deleted += 1
+            except Exception as e:
+                logging.error(f"Failed to delete old archive file {fpath}: {e}")
+    if deleted:
+        logging.info(f"Deleted {deleted} old files from archive (>{days} days old)")
+
 """
 This module is the central hub of the document processing web application.
 It uses the Flask web framework to create a user interface for a multi-stage
@@ -58,6 +82,37 @@ experience.
 # Standard library imports
 import os
 import logging
+import json
+from logging.handlers import RotatingFileHandler
+# --- LOGGING CONFIGURATION ---
+LOG_DIR = os.getenv("LOG_DIR", os.path.join(os.path.dirname(__file__), "..", "logs"))
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "app.log")
+
+# Rotating file handler: 5MB per file, keep 5 backups
+file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5*1024*1024, backupCount=5, encoding="utf-8")
+file_handler.setLevel(logging.INFO)
+file_fmt = logging.Formatter('[%(asctime)s] %(levelname)s %(name)s: %(message)s')
+file_handler.setFormatter(file_fmt)
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_fmt = logging.Formatter('%(levelname)s %(name)s: %(message)s')
+console_handler.setFormatter(console_fmt)
+
+# Root logger setup
+logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
+
+# Capture all uncaught exceptions
+def log_uncaught_exceptions(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        return  # Don't log keyboard interrupts
+    logging.getLogger().error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+import sys
+sys.excepthook = log_uncaught_exceptions
+import logging
 
 # Third-party imports
 from flask import (
@@ -107,6 +162,9 @@ from doc_processor.database import (
     update_document_final_filename,
     get_all_categories,
     insert_category_if_not_exists,
+    log_interaction,
+    get_active_categories,
+    update_page_rotation,
 )
 
 
@@ -115,6 +173,166 @@ from doc_processor.database import (
 # This is the core object that handles web requests and responses.
 
 app = Flask(__name__)
+# ------------------ CATEGORY MANAGEMENT HELPERS ------------------
+def fetch_all_categories(include_inactive=True, sort="name"):
+    # Whitelist allowed sort keys to prevent SQL injection
+    sort_key = "name" if sort not in {"id", "name"} else sort
+    order_clause = "name COLLATE NOCASE" if sort_key == "name" else "id"
+    base_query = "SELECT id, name, is_active, previous_name, notes FROM categories"
+    if include_inactive:
+        query = f"{base_query} ORDER BY {order_clause}"
+        params = ()
+    else:
+        query = f"{base_query} WHERE is_active = 1 ORDER BY {order_clause}"
+        params = ()
+    conn = get_db_connection()
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def add_category(name, notes=None):
+    if not name:
+        return False, "Name required"
+    conn = get_db_connection()
+    try:
+        conn.execute("INSERT INTO categories (name, is_active, notes) VALUES (?, 1, ?)", (name.strip(), notes))
+        cat_id = conn.execute("SELECT id FROM categories WHERE name = ?", (name.strip(),)).fetchone()["id"]
+        # category_change_log
+        conn.execute("INSERT INTO category_change_log (category_id, action, new_name, notes) VALUES (?, 'add', ?, ?)", (cat_id, name.strip(), notes))
+        # interaction_log (batch/document null for admin action)
+        conn.execute("INSERT INTO interaction_log (event_type, step, content, notes) VALUES ('category_change', 'admin', ?, ?)", (
+            json.dumps({"action":"add","category_id":cat_id,"new_name":name.strip()}), notes
+        ))
+        conn.commit()
+        return True, None
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
+    finally:
+        conn.close()
+
+def soft_delete_category(cat_id):
+    conn = get_db_connection()
+    try:
+        old_name = conn.execute("SELECT name FROM categories WHERE id = ?", (cat_id,)).fetchone()
+        conn.execute("UPDATE categories SET is_active = 0 WHERE id = ?", (cat_id,))
+        conn.execute("INSERT INTO category_change_log (category_id, action, old_name, new_name) VALUES (?, 'soft_delete', ?, ?)", (cat_id, old_name["name"] if old_name else None, old_name["name"] if old_name else None))
+        conn.execute("INSERT INTO interaction_log (event_type, step, content) VALUES ('category_change', 'admin', ?)", (
+            json.dumps({"action":"soft_delete","category_id":cat_id,"name": old_name["name"] if old_name else None}),
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+def restore_category(cat_id):
+    conn = get_db_connection()
+    try:
+        name_row = conn.execute("SELECT name FROM categories WHERE id = ?", (cat_id,)).fetchone()
+        conn.execute("UPDATE categories SET is_active = 1 WHERE id = ?", (cat_id,))
+        conn.execute("INSERT INTO category_change_log (category_id, action, new_name) VALUES (?, 'restore', ?)", (cat_id, name_row["name"] if name_row else None))
+        conn.execute("INSERT INTO interaction_log (event_type, step, content) VALUES ('category_change', 'admin', ?)", (
+            json.dumps({"action":"restore","category_id":cat_id,"name": name_row["name"] if name_row else None}),
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+def rename_category(cat_id, new_name, skip_backfill=False):
+    if not new_name:
+        return False, "New name required"
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT name FROM categories WHERE id = ?", (cat_id,)).fetchone()
+        if not row:
+            return False, "Category not found"
+        old_name = row["name"]
+        if old_name == new_name.strip():
+            return True, None
+        # Backfill pages with old category to new category (only if they still match old_name)
+        pages_updated = 0
+        if not skip_backfill:
+            pages_updated = conn.execute("SELECT COUNT(*) AS c FROM pages WHERE human_verified_category = ?", (old_name,)).fetchone()["c"]
+            conn.execute("UPDATE pages SET human_verified_category = ? WHERE human_verified_category = ?", (new_name.strip(), old_name))
+        conn.execute("UPDATE categories SET name = ?, previous_name = ? WHERE id = ?", (new_name.strip(), old_name, cat_id))
+        note_text = f"Renamed and backfilled {pages_updated} pages" if pages_updated and not skip_backfill else ("Renamed (no backfill)" if skip_backfill else None)
+        conn.execute("INSERT INTO category_change_log (category_id, action, old_name, new_name, notes) VALUES (?, 'rename', ?, ?, ?)", (cat_id, old_name, new_name.strip(), note_text))
+        conn.execute("INSERT INTO interaction_log (event_type, step, content, notes) VALUES ('category_change', 'admin', ?, ?)", (
+            json.dumps({"action":"rename","category_id":cat_id,"old_name":old_name,"new_name":new_name.strip(),"pages_updated":pages_updated,"skip_backfill":skip_backfill}), note_text
+        ))
+        conn.commit()
+        return True, None
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
+    finally:
+        conn.close()
+
+# ------------------ CATEGORY MANAGEMENT ROUTES ------------------
+@app.route("/categories", methods=["GET"])
+def categories_page():
+    sort = request.args.get("sort", "name").lower()
+    if sort not in {"id", "name"}:
+        sort = "name"
+    categories = fetch_all_categories(include_inactive=True, sort=sort)
+    # filters
+    limit = request.args.get("limit", type=int) or 25
+    if limit > 200:
+        limit = 200
+    category_filter = request.args.get("category_id", type=int)
+    conn = get_db_connection()
+    if category_filter:
+        history_rows = conn.execute(
+            "SELECT id, category_id, action, old_name, new_name, notes, timestamp FROM category_change_log WHERE category_id = ? ORDER BY id DESC LIMIT ?",
+            (category_filter, limit),
+        ).fetchall()
+    else:
+        history_rows = conn.execute(
+            "SELECT id, category_id, action, old_name, new_name, notes, timestamp FROM category_change_log ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    conn.close()
+    history = [dict(r) for r in history_rows]
+    return render_template("categories.html", categories=categories, history=history, current_sort=sort)
+
+@app.route("/categories/add", methods=["POST"])
+def add_category_action():
+    name = request.form.get("name", "").strip()
+    notes = request.form.get("notes") or None
+    ok, err = add_category(name, notes)
+    if not ok:
+        return jsonify({"success": False, "error": err}), 400
+    return redirect(url_for("categories_page"))
+
+@app.route("/categories/<int:cat_id>/rename", methods=["POST"])
+def rename_category_action(cat_id):
+    new_name = request.form.get("new_name", "").strip()
+    skip_backfill = request.form.get("skip_backfill") == "on"
+    ok, err = rename_category(cat_id, new_name, skip_backfill=skip_backfill)
+    if not ok:
+        return jsonify({"success": False, "error": err}), 400
+    return redirect(url_for("categories_page"))
+
+@app.route("/categories/<int:cat_id>/delete", methods=["POST"])
+def delete_category_action(cat_id):
+    soft_delete_category(cat_id)
+    return redirect(url_for("categories_page"))
+
+@app.route("/categories/<int:cat_id>/restore", methods=["POST"])
+def restore_category_action(cat_id):
+    restore_category(cat_id)
+    return redirect(url_for("categories_page"))
+# --- Batch Audit Trail View ---
+@app.route("/batch_audit/<int:batch_id>")
+def batch_audit_view(batch_id):
+    conn = get_db_connection()
+    batch = conn.execute("SELECT * FROM batches WHERE id = ?", (batch_id,)).fetchone()
+    page_count = conn.execute("SELECT COUNT(*) FROM pages WHERE batch_id = ?", (batch_id,)).fetchone()[0]
+    document_count = conn.execute("SELECT COUNT(*) FROM documents WHERE batch_id = ?", (batch_id,)).fetchone()[0]
+    logs = conn.execute("SELECT * FROM interaction_log WHERE batch_id = ? ORDER BY timestamp ASC", (batch_id,)).fetchall()
+    conn.close()
+    batch_dict = dict(batch) if batch else {}
+    logs_dicts = [dict(row) for row in logs]
+    return render_template("batch_audit.html", batch=batch_dict, page_count=page_count, document_count=document_count, interaction_logs=logs_dicts)
 
 # --- API: APPLY DOCUMENT NAME ---
 @app.route("/api/apply_name/<int:document_id>", methods=["POST"])
@@ -220,6 +438,7 @@ def handle_batch_processing():
     # The core logic for OCR, image conversion, and AI analysis is encapsulated
     # in the `process_batch` function to keep the Flask app focused on handling
     # web requests and orchestrating the workflow.
+    cleanup_old_archives()
     process_batch()
     # After processing, a redirect forces a page refresh, so the user sees
     # the new batch in the list on the Mission Control page.
@@ -256,6 +475,9 @@ def mission_control_page():
 
     # Render the main dashboard template, passing the prepared list of batches
     # to be displayed in a table.
+    # Add audit trail links for each batch
+    for batch in all_batches:
+        batch["audit_url"] = url_for("batch_audit_view", batch_id=batch["id"])
     return render_template("mission_control.html", batches=all_batches)
 
 
@@ -317,7 +539,7 @@ def verify_batch_page(batch_id):
     # default categories with all categories that have been previously used
     # and saved in the database. This allows for consistency and the ability
     # to introduce new categories organically.
-    combined_categories = get_all_categories()
+    combined_categories = get_active_categories()
 
     # Render the verification template, passing all the necessary data for
     # displaying the current page, pagination controls, and category options.
@@ -327,7 +549,7 @@ def verify_batch_page(batch_id):
         current_page=current_page,
         current_page_num=page_num,
         total_pages=len(pages_with_relative_paths),
-        categories=combined_categories,
+    categories=combined_categories,
     )
 
 
@@ -362,7 +584,7 @@ def review_batch_page(batch_id):
 
     # The category list is needed here as well, so the user can correct
     # categories for flagged pages.
-    combined_categories = get_all_categories()
+    combined_categories = get_active_categories()
 
     # Render the review template, which is specifically designed for handling
     # multiple flagged pages at once.
@@ -371,7 +593,7 @@ def review_batch_page(batch_id):
         batch_id=batch_id,
         batch=batch,
         flagged_pages=pages_with_relative_paths,
-        categories=combined_categories,
+    categories=combined_categories,
     )
 
 
@@ -409,7 +631,7 @@ def revisit_batch_page(batch_id):
         page_num = 1
     current_page = pages_with_relative_paths[page_num - 1]
 
-    combined_categories = get_all_categories()
+    combined_categories = get_active_categories()
 
     # The 'revisit.html' template is similar to 'verify.html' but with form
     # submission elements disabled to enforce the read-only nature of this view.
@@ -420,7 +642,7 @@ def revisit_batch_page(batch_id):
         current_page=current_page,
         current_page_num=page_num,
         total_pages=len(pages_with_relative_paths),
-        categories=combined_categories,
+    categories=combined_categories,
     )
 
 
@@ -935,6 +1157,32 @@ def rerun_ocr_action():
     # the updated OCR text and re-evaluate the page.
     return redirect(url_for("review_batch_page", batch_id=batch_id))
 
+@app.route("/update_rotation", methods=["POST"])
+def update_rotation_api():
+    """AJAX endpoint to persist rotation without changing status/category.
+
+    Expected JSON body: { page_id: int, batch_id: int, rotation: int }
+    Returns JSON: { success: bool, error?: str }
+    """
+    try:
+        data = request.get_json(force=True)
+        page_id = int(data.get("page_id"))
+        batch_id = int(data.get("batch_id"))
+        rotation = int(data.get("rotation", 0))
+    except Exception:
+        return jsonify({"success": False, "error": "Invalid input"}), 400
+    if rotation not in {0,90,180,270}:
+        return jsonify({"success": False, "error": "Invalid rotation"}), 400
+    ok = update_page_rotation(page_id, rotation)
+    if not ok:
+        return jsonify({"success": False, "error": "DB update failed"}), 500
+    # Log interaction for audit trail
+    try:
+        log_interaction(batch_id=batch_id, document_id=None, user_id=None, event_type="human_correction", step="rotation_update", content=json.dumps({"page_id":page_id,"rotation":rotation}), notes=None)
+    except Exception:
+        pass
+    return jsonify({"success": True})
+
 
 # --- UTILITY ROUTES ---
 # These routes provide helper functionalities, like serving files.
@@ -1015,17 +1263,19 @@ def export_batch_action(batch_id):
         if not pages:
             print(f"Skipping export for document ID {doc_id}: No pages found.")
             continue
-        
         category = pages[0]['human_verified_category']
-        # The filename from the form might include an extension, but the export
-        # function expects a base name.
         final_name_base = os.path.splitext(final_name)[0]
-
-        # The final, user-approved filename is saved to the database for
-        # record-keeping and for the "view exported documents" feature.
+        # Log the finalized name as a human correction event
+        log_interaction(
+            batch_id=batch_id,
+            document_id=doc_id,
+            user_id=None,  # Optionally set user_id if available
+            event_type='human_correction',
+            step='finalize',
+            content=final_name_base,
+            notes='Final filename set during export.'
+        )
         update_document_final_filename(doc_id, final_name_base)
-        # The `export_document` function in `processing.py` handles the creation
-        # of the final PDF files and the log file.
         export_document(pages, final_name_base, category)
 
     # After all documents are exported, the temporary files associated with the

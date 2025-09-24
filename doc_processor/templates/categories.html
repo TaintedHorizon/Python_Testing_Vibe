@@ -1,0 +1,158 @@
+{% extends 'base.html' %}
+{% block title %}Manage Categories{% endblock %}
+{% block content %}
+<h1>Category Management</h1>
+<p>Active categories appear in verification/review dropdowns. Inactive (removed) categories are hidden but kept for history and LLM mapping. Renamed categories retain their previous name for training alignment.</p>
+
+<style>
+.cat-table { width:100%; border-collapse:collapse; background:#fff; box-shadow:0 2px 4px rgba(0,0,0,0.05); }
+.cat-table th, .cat-table td { border:1px solid #ddd; padding:8px; text-align:left; }
+.cat-table th { background:#f2f2f2; }
+.status-pill { display:inline-block; padding:2px 8px; border-radius:12px; font-size:0.75rem; color:#fff; }
+.status-active { background:#28a745; }
+.status-inactive { background:#6c757d; }
+.status-renamed { background:#17a2b8; }
+.action-form { display:inline; }
+.inline-edit { display:flex; gap:6px; }
+.inline-edit input { flex:1; padding:4px 6px; }
+.add-form { margin:20px 0; background:#fff; padding:15px; border:1px solid #ccc; border-radius:6px; }
+.add-form input, .add-form textarea { width:100%; padding:8px; margin-top:4px; }
+.add-form button { margin-top:10px; padding:10px 18px; background:#2c5282; color:#fff; border:none; border-radius:4px; cursor:pointer; }
+.add-form button:hover { background:#23476b; }
+.restore-btn { background:#17a2b8; }
+.delete-btn { background:#dc3545; }
+.rename-btn { background:#6f42c1; }
+.sort-btn { background:#6c757d; }
+.sort-btn.active { background:#2c5282; }
+.small-btn { padding:6px 10px; font-size:0.8rem; border:none; color:#fff; border-radius:4px; cursor:pointer; }
+form + form { margin-left:4px; }
+.note { font-size:0.8rem; color:#555; }
+</style>
+
+<div class="add-form">
+  <h3>Add New Category</h3>
+  <form action="{{ url_for('add_category_action') }}" method="post">
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" placeholder="e.g. Insurance Policy" required />
+    <label for="notes">Notes (optional)</label>
+    <textarea id="notes" name="notes" rows="2" placeholder="Context or LLM guidance"></textarea>
+    <button type="submit">Add Category</button>
+  </form>
+</div>
+
+<div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; margin-bottom:4px; flex-wrap:wrap; gap:10px;">
+  <strong>Categories</strong>
+  <div style="font-size:0.8rem; display:flex; gap:6px; align-items:center;">
+    <span style="color:#555;">Sort:</span>
+    {% set args_id = request.args.copy().to_dict() %}
+    {% set _ = args_id.update({'sort':'id'}) %}
+    {% set args_name = request.args.copy().to_dict() %}
+    {% set _ = args_name.update({'sort':'name'}) %}
+    <a href="{{ url_for('categories_page', **args_name) }}" class="small-btn sort-btn {% if current_sort=='name' %}active{% endif %}">Name</a>
+    <a href="{{ url_for('categories_page', **args_id) }}" class="small-btn sort-btn {% if current_sort=='id' %}active{% endif %}">ID</a>
+  </div>
+</div>
+<table class="cat-table">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Name</th>
+      <th>Status</th>
+      <th>Previous Name</th>
+      <th>Notes</th>
+      <th>Rename</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for cat in categories %}
+    <tr>
+      <td>{{ cat.id }}</td>
+      <td>{{ cat.name }}</td>
+      <td>
+        {% if not cat.is_active %}
+          <span class="status-pill status-inactive">Inactive</span>
+        {% elif cat.previous_name %}
+          <span class="status-pill status-renamed">Renamed</span>
+        {% else %}
+          <span class="status-pill status-active">Active</span>
+        {% endif %}
+      </td>
+      <td>{{ cat.previous_name or '' }}</td>
+      <td style="max-width:250px; font-size:0.85rem;">{{ cat.notes or '' }}</td>
+      <td>
+        <form action="{{ url_for('rename_category_action', cat_id=cat.id) }}" method="post" class="inline-edit" style="flex-direction:column; align-items:stretch; gap:4px;">
+          <div style="display:flex; gap:6px;">
+            <input type="text" name="new_name" placeholder="New name" />
+            <button type="submit" class="small-btn rename-btn">Rename</button>
+          </div>
+            <label style="font-size:0.65rem; display:flex; align-items:center; gap:4px; color:#555;">
+              <input type="checkbox" name="skip_backfill" /> No backfill
+            </label>
+        </form>
+      </td>
+      <td>
+        {% if cat.is_active %}
+          <form action="{{ url_for('delete_category_action', cat_id=cat.id) }}" method="post" class="action-form" onsubmit="return confirm('Hide (soft delete) this category? It can be restored later.');">
+            <button type="submit" class="small-btn delete-btn">Remove</button>
+          </form>
+        {% else %}
+          <form action="{{ url_for('restore_category_action', cat_id=cat.id) }}" method="post" class="action-form">
+            <button type="submit" class="small-btn restore-btn">Restore</button>
+          </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" style="text-align:center;">No categories found.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2 style="margin-top:40px;">Recent Category Changes</h2>
+<form method="get" action="{{ url_for('categories_page') }}" style="margin-bottom:10px; display:flex; gap:10px; align-items:flex-end;">
+  <div>
+    <label for="filter_category" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:#555;">Filter by Category ID</label><br>
+    <input type="number" name="category_id" id="filter_category" value="{{ request.args.get('category_id','') }}" style="padding:4px 6px; width:140px;" />
+  </div>
+  <div>
+    <label for="limit" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:#555;">Limit</label><br>
+    <input type="number" name="limit" id="limit" min="1" max="200" value="{{ request.args.get('limit','25') }}" style="padding:4px 6px; width:100px;" />
+  </div>
+  <div>
+    <button type="submit" class="small-btn" style="background:#2c5282;">Apply</button>
+    <a href="{{ url_for('categories_page') }}" class="small-btn" style="background:#6c757d; text-decoration:none;">Reset</a>
+  </div>
+</form>
+<p class="note">Showing the {{ history|length }} most recent changes (add, rename, remove, restore). Backfilled renames include pages_updated; skipped backfill shows "Renamed (no backfill)".</p>
+<table class="cat-table">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Action</th>
+      <th>Old Name</th>
+      <th>New Name</th>
+      <th>Notes</th>
+      <th>Timestamp</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for h in history %}
+    <tr>
+      <td>{{ h.id }}</td>
+      <td>{{ h.action }}</td>
+      <td>{{ h.old_name or '' }}</td>
+      <td>{{ h.new_name or '' }}</td>
+      <td style="max-width:260px; font-size:0.8rem;">{{ h.notes or '' }}</td>
+      <td>{{ h.timestamp }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" style="text-align:center;">No history yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div style="text-align:center; margin-top:30px;">
+  <a href="{{ url_for('mission_control_page') }}" style="background:#6c757d; color:#fff; padding:10px 22px; border-radius:5px; text-decoration:none;">Back to Mission Control</a>
+</div>
+{% endblock %}
