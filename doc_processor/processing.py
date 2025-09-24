@@ -45,6 +45,30 @@ from .exceptions import FileProcessingError, OCRError, AIServiceError
 from .security import validate_path, sanitize_filename
 from .database import get_all_categories, log_interaction
 
+# --- INTERNAL HELPERS (typing / compatibility) ---
+def _doc_new_page(doc: Any, *, width: float, height: float):
+    """Create a new page on a PyMuPDF Document with backwards compatibility.
+
+    Newer versions expose `Document.new_page`, older ones used `Document.newPage`.
+    Some type stubs shipped with PyMuPDF used historically by Pylance may
+    not declare one or the other, triggering a false-positive
+    reportAttributeAccessIssue. Centralizing the access here avoids scattering
+    per-line `# type: ignore` comments and keeps runtime compatibility.
+
+    Args:
+        doc: A PyMuPDF Document instance (dynamic C-extension object).
+        width: Page width.
+        height: Page height.
+
+    Returns:
+        The created page object.
+    """
+    if hasattr(doc, "new_page"):
+        return getattr(doc, "new_page")(width=width, height=height)  # type: ignore[attr-defined]
+    if hasattr(doc, "newPage"):
+        return getattr(doc, "newPage")(width=width, height=height)  # type: ignore[attr-defined]
+    raise AttributeError("Document object lacks new_page/newPage methods (PyMuPDF API change?)")
+
 # --- USER CONTEXT HELPER (stub) ---
 def get_current_user_id():
     """
@@ -814,7 +838,8 @@ def export_document(
                 with fitz.open(img_path) as img_doc:
                     rect = img_doc[0].rect
                     # Create a new page in the output PDF with the same dimensions as the image
-                    pdf_page = doc.new_page(width=rect.width, height=rect.height)
+                    # Use helper for compatibility + to satisfy static analysis (Pylance)
+                    pdf_page = _doc_new_page(doc, width=rect.width, height=rect.height)
                     # Place the image on the page
                     pdf_page.insert_image(rect, filename=img_path)
                     # Add the OCR text as an invisible text layer (render_mode=3)
