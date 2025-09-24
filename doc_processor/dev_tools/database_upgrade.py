@@ -143,6 +143,35 @@ def upgrade_database():
         # This might have been added in version 1.3.
         add_column_if_not_exists("documents", "final_filename_base", "TEXT")
 
+        # New: Ensure categories table has soft delete / rename metadata columns
+        if table_exists("categories"):
+            add_column_if_not_exists("categories", "is_active", "BOOLEAN NOT NULL DEFAULT 1")
+            add_column_if_not_exists("categories", "previous_name", "TEXT")
+            add_column_if_not_exists("categories", "notes", "TEXT")
+        else:
+            print("Table 'categories' missing; skipping category column upgrades.")
+
+        # New: Create category_change_log table if not exists
+        if not table_exists("category_change_log"):
+            print("Creating 'category_change_log' table...")
+            cursor.execute(
+                """
+                CREATE TABLE category_change_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    category_id INTEGER,
+                    action TEXT NOT NULL,
+                    old_name TEXT,
+                    new_name TEXT,
+                    notes TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (category_id) REFERENCES categories (id)
+                );
+                """
+            )
+            print("  ... success.")
+        else:
+            print("Table 'category_change_log' already exists. Skipping creation.")
+
         # Commit the changes to the database, making them permanent.
         conn.commit()
         print("\nDatabase upgrade check complete. Schema is up to date.")

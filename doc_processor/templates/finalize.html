@@ -32,11 +32,10 @@
     <form id="export-form" class="export-form" action="{{ url_for('export_batch_action', batch_id=batch_id) }}" method="post" onsubmit="return handleExportSubmit(this);">
         <table class="doc-table">
             <thead>
-                <td>
-                    {{ doc.final_filename_base or 'Untitled Document' }}
-                    <input type="hidden" name="final_filenames" value="{{ doc.final_filename_base or '' }}">
-                    <input type="hidden" name="document_ids" value="{{ doc.id }}">
-                </td>
+                <tr>
+                    <th>Document Name</th>
+                    <th>Final Filename</th>
+                    <th>Page Count</th>
                 </tr>
             </thead>
             <tbody>
@@ -45,7 +44,16 @@
                     <td>{{ doc.document_name }}</td>
                     <td>
                         <input type="hidden" name="document_ids" value="{{ doc.id }}">
-                        <input type="text" name="final_filenames" class="filename-input" value="{{ doc.suggested_filename }}">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="text" name="final_filenames" class="filename-input" value="{{ doc.suggested_filename }}" id="filename-input-{{ doc.id }}">
+                            <button type="button" class="btn btn-ai suggest-btn" data-doc-id="{{ doc.id }}" title="Suggest filename">🤖</button>
+                            <button type="button" class="btn btn-cancel revert-btn" data-doc-id="{{ doc.id }}" style="display:none;" title="Revert filename">⟲</button>
+                        </div>
+<style>
+    .btn { display: inline-block; padding: 6px 14px; text-decoration: none; color: white; border-radius: 5px; border: none; font-size: 1em; cursor: pointer; }
+    .btn-ai { background-color: #17a2b8; }
+    .btn-cancel { background-color: #6c757d; }
+</style>
                     </td>
                     <td>{{ doc.page_count }}</td>
                 </tr>
@@ -65,16 +73,52 @@
 
 <script>
     function handleExportSubmit(form) {
-        // First, show a confirmation dialog to the user
         if (confirm('Are you sure you want to export all documents for this batch? This action is final.')) {
             const button = form.querySelector('#export-button');
-            // Disable the button to prevent multiple submissions
             button.disabled = true;
-            // Change the button text to provide feedback
             button.textContent = 'Exporting... Please Wait...';
-            return true; // Proceed with form submission
+            return true;
         }
-        return false; // Cancel form submission if user clicks "Cancel"
+        return false;
     }
+
+    // --- SUGGEST/REVERT BUTTON LOGIC ---
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('.suggest-btn').forEach(function(btn) {
+            btn.addEventListener('click', async function() {
+                const docId = btn.getAttribute('data-doc-id');
+                const input = document.getElementById('filename-input-' + docId);
+                const revertBtn = document.querySelector('.revert-btn[data-doc-id="' + docId + '"]');
+                const original = input.value;
+                btn.disabled = true;
+                btn.textContent = '...';
+                try {
+                    const resp = await fetch(`/api/suggest_name/${docId}`, { method: 'POST' });
+                    const data = await resp.json();
+                    if (data.success && data.suggested_name) {
+                        input.value = data.suggested_name;
+                        revertBtn.style.display = '';
+                        revertBtn.setAttribute('data-original', original);
+                    } else {
+                        alert('AI suggestion failed: ' + (data.error || 'Unknown error'));
+                    }
+                } catch (e) {
+                    alert('Error contacting AI suggestion API.');
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = '🤖';
+                }
+            });
+        });
+        document.querySelectorAll('.revert-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                const docId = btn.getAttribute('data-doc-id');
+                const input = document.getElementById('filename-input-' + docId);
+                const original = btn.getAttribute('data-original');
+                if (original) input.value = original;
+                btn.style.display = 'none';
+            });
+        });
+    });
 </script>
 {% endblock %}

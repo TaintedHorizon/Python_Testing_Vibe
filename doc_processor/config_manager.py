@@ -11,6 +11,8 @@ import logging
 
 @dataclass
 class AppConfig:
+    # --- Archive Retention ---
+    ARCHIVE_RETENTION_DAYS: int = 30
     """Application configuration with validation and type safety."""
     # --- Core Application Configuration ---
     DATABASE_PATH: str = "documents.db"
@@ -74,6 +76,7 @@ class AppConfig:
 
         # Construct and validate configuration
         try:
+            archive_retention_days = int(os.getenv("ARCHIVE_RETENTION_DAYS", "30"))
             config = cls(
                 # Core Application Configuration
                 DATABASE_PATH=get_env("DATABASE_PATH", cls.DATABASE_PATH),
@@ -81,6 +84,7 @@ class AppConfig:
                 PROCESSED_DIR=validate_directory(get_env("PROCESSED_DIR", cls.PROCESSED_DIR), "PROCESSED"),
                 ARCHIVE_DIR=validate_directory(get_env("ARCHIVE_DIR", cls.ARCHIVE_DIR), "ARCHIVE"),
                 FILING_CABINET_DIR=validate_directory(get_env("FILING_CABINET_DIR", cls.FILING_CABINET_DIR), "FILING_CABINET"),
+                ARCHIVE_RETENTION_DAYS=archive_retention_days,
                 
                 # AI Service Configuration
                 OLLAMA_HOST=get_optional_env("OLLAMA_HOST"),

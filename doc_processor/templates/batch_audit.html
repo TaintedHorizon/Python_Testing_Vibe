@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}Batch Audit Trail{% endblock %}
+{% block content %}
+<h2>Batch Audit Trail: Batch {{ batch.id }}</h2>
+<div style="margin-bottom:20px;">
+    <strong>Status:</strong> {{ batch.status }}<br>
+    <strong>Created:</strong> {{ batch.created_at }}<br>
+    <strong>Pages:</strong> {{ page_count }}<br>
+    <strong>Documents:</strong> {{ document_count }}
+</div>
+<h3>Interaction Log</h3>
+<table style="width:100%;border-collapse:collapse;">
+    <tr style="background:#f2f2f2;">
+        <th>Timestamp</th>
+        <th>User</th>
+        <th>Event Type</th>
+        <th>Step</th>
+        <th>Content</th>
+        <th>Notes</th>
+    </tr>
+    {% for log in interaction_logs %}
+    <tr>
+        <td>{{ log['timestamp'] }}</td>
+        <td>{{ log['user_id'] or '' }}</td>
+        <td>{{ log['event_type'] }}</td>
+        <td>{{ log['step'] or '' }}</td>
+        <td>{{ log['content'] }}</td>
+        <td>{{ log['notes'] or '' }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% if not interaction_logs %}
+    <div style="color:#888;margin-top:20px;">No interaction logs found for this batch.</div>
+{% endif %}
+<div style="text-align:center; margin-top:40px;">
+    <a href="{{ url_for('mission_control_page') }}" class="btn btn-secondary" style="background-color:#6c757d;color:white;padding:12px 32px;font-size:1.2em;border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.08);text-decoration:none;">Back to Mission Control</a>
+</div>
+{% endblock %}

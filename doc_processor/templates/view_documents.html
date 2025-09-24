@@ -59,7 +59,8 @@
                 {% for doc in documents %}
                     <div class="doc-list-item{% if loop.first %} selected{% endif %}" data-doc-idx="{{ loop.index0 }}">
                         {% if doc.pages and doc.pages[0].image %}
-                            <img class="doc-thumb" src="{{ url_for('serve_processed_file', filepath=doc.pages[0].image) }}" alt="Doc Thumbnail">
+                            <img class="doc-thumb" src="{{ url_for('serve_processed_file', filepath=doc.pages[0].image) }}" alt="Doc Thumbnail" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                            <div class="doc-thumb" style="display:none;align-items:center;justify-content:center;color:#aaa;">No Image</div>
                         {% else %}
                             <div class="doc-thumb" style="display:flex;align-items:center;justify-content:center;color:#aaa;">No Image</div>
                         {% endif %}
@@ -95,7 +96,8 @@
             for (const page of doc.pages) {
                 html += `<div class='doc-preview-page'>`;
                 if (page.image) {
-                    html += `<img class='doc-preview-img' src='${window.location.origin + "{{ url_for('serve_processed_file', filepath='') }}"}${page.image}' alt='Page ${page.page_num}'>`;
+                    html += `<img class='doc-preview-img' src='${window.location.origin + "{{ url_for('serve_processed_file', filepath='') }}"}${page.image}' alt='Page ${page.page_num}' onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">`;
+                    html += `<div class='doc-preview-img' style='display:none;align-items:center;justify-content:center;color:#aaa;'>No Image</div>`;
                 } else {
                     html += `<div class='doc-preview-img' style='display:flex;align-items:center;justify-content:center;color:#aaa;'>No Image</div>`;
                 }

@@ -49,6 +49,7 @@
             <th>Start Time</th>
             <th>Status</th>
             <th>Actions</th>
+            <th>Audit</th>
         </tr>
     </thead>
     <tbody>
@@ -94,6 +95,9 @@
                         <button type="submit" class="action-btn btn-reset">Reset Batch</button>
                     </form>
                 {% endif %}
+            </td>
+            <td>
+                <a href="{{ batch.audit_url }}" class="action-btn" style="background-color:#343a40;">Audit</a>
             </td>
         </tr>
         {% else %}

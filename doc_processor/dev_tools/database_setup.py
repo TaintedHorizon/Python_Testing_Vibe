@@ -113,7 +113,10 @@ def create_database():
             """
         CREATE TABLE IF NOT EXISTS categories (
             id INTEGER PRIMARY KEY AUTOINCREMENT, -- A unique identifier for each category.
-            name TEXT NOT NULL UNIQUE -- The name of the category (e.g., "Financial Document"). The UNIQUE constraint prevents duplicate category names.
+            name TEXT NOT NULL UNIQUE, -- The name of the category (e.g., "Financial Document"). The UNIQUE constraint prevents duplicate category names.
+            is_active BOOLEAN NOT NULL DEFAULT 1, -- True if category is active and shown in dropdowns, False if removed.
+            previous_name TEXT, -- Stores old name if category is renamed.
+            notes TEXT -- Optional notes for admin/LLM training.
         );
         """
         )
@@ -139,6 +142,23 @@ def create_database():
         """
         )
         print("Table 'interaction_log' created or already exists.")
+
+        # --- Create 'category_change_log' table ---
+        cursor.execute(
+            """
+        CREATE TABLE IF NOT EXISTS category_change_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id INTEGER,
+            action TEXT NOT NULL, -- add, rename, soft_delete, restore
+            old_name TEXT,
+            new_name TEXT,
+            notes TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (category_id) REFERENCES categories (id)
+        );
+        """
+        )
+        print("Table 'category_change_log' created or already exists.")
 
         # --- Seed Initial Categories ---
         # This section populates the 'categories' table with a default set of
