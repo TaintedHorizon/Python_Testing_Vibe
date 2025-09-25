@@ -272,7 +272,7 @@ class DocumentTypeDetector:
                 database.log_interaction(
                     batch_id=None,
                     document_id=None,
-                    user_id=database.get_current_user_id(),
+                    user_id="system",  # Use system directly since get_current_user_id is in processing.py
                     event_type="document_detection_decision",
                     step="intake_analysis",
                     content=str(detection_data),
