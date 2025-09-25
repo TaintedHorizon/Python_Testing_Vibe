@@ -58,9 +58,9 @@ and a content block that child templates will override.
 
 <!-- The main navigation bar. It is consistent across all pages. -->
 <div class="navbar">
-    <!-- The link always points back to the main dashboard (Mission Control). -->
-    <a href="{{ url_for('mission_control_page') }}" class="{% if request.endpoint == 'mission_control_page' %}active{% endif %}">Batch Control</a>
+    <!-- Primary workflow entry point - analyze intake first -->
     <a href="{{ url_for('analyze_intake_page') }}" class="{% if request.endpoint == 'analyze_intake_page' %}active{% endif %}">📋 Analyze Intake</a>
+    <a href="{{ url_for('mission_control_page') }}" class="{% if request.endpoint == 'mission_control_page' %}active{% endif %}">Batch Control</a>
     <a href="{{ url_for('categories_page') }}" class="{% if request.endpoint == 'categories_page' %}active{% endif %}">Categories</a>
 </div>
 

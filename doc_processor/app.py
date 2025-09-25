@@ -423,10 +423,10 @@ app.secret_key = os.urandom(24)
 def index():
     """
     The root URL of the application.
-    Its only job is to redirect the user to the main "Mission Control" page,
-    which serves as the application's home screen.
+    Redirects to the primary workflow entry point - Analyze Intake.
+    This allows users to preview and choose processing strategy before starting.
     """
-    return redirect(url_for("mission_control_page"))
+    return redirect(url_for("analyze_intake_page"))
 
 
 @app.route("/analyze_intake")
