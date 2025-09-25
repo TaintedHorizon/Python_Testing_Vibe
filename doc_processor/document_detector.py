@@ -193,7 +193,7 @@ class DocumentTypeDetector:
             
             llm_analysis = None
             
-            # Always use LLM analysis for training data collection (RAG training)
+            # Always use LLM analysis for training data collection (RAG training)  
             score_difference = abs(single_doc_score - batch_doc_score)
             is_ambiguous = (
                 score_difference <= 2 or  # Close scores
@@ -222,25 +222,25 @@ class DocumentTypeDetector:
                     llm_confidence = llm_analysis.get('confidence', 50) / 100.0  # Convert to 0-1
                     llm_reasoning = llm_analysis.get('reasoning', 'LLM analysis')
                     
-                    # Combine heuristic and LLM analysis based on case type
-                    if is_ambiguous and llm_confidence >= 0.6:  # Trust LLM for ambiguous cases
+                    # NEW APPROACH: Prioritize LLM when it's confident (>= 70% confidence)
+                    if llm_confidence >= 0.7:
                         strategy = llm_strategy
-                        confidence = (confidence + llm_confidence) / 2  # Average confidences
-                        reasoning.append(f"LLM analysis (confidence: {llm_confidence:.2f}): {llm_reasoning[:100]}...")
-                        reasoning.append(f"Final decision: {strategy} based on LLM analysis")
-                    elif is_ambiguous:
-                        # Ambiguous case but LLM not confident, stick with heuristics
-                        reasoning.append(f"LLM uncertain (confidence: {llm_confidence:.2f}): {llm_reasoning[:100]}...")
-                        reasoning.append("Sticking with heuristic analysis due to low LLM confidence")
+                        confidence = llm_confidence  # Use LLM confidence as primary
+                        reasoning.append(f"🤖 LLM DECISION (confidence: {llm_confidence:.0%}): {llm_reasoning[:150]}...")
+                        reasoning.append(f"Final classification: {strategy} - LLM analysis preferred over heuristics")
+                    elif llm_confidence >= 0.5:
+                        # Moderate LLM confidence - use it but note the uncertainty
+                        strategy = llm_strategy
+                        confidence = (confidence + llm_confidence) / 2  # Blend with heuristic confidence
+                        reasoning.append(f"🤖 LLM MODERATE (confidence: {llm_confidence:.0%}): {llm_reasoning[:100]}...")
+                        reasoning.append(f"Using LLM suggestion '{strategy}' with blended confidence")
                     else:
-                        # Clear case - use heuristics as primary, LLM as supplementary data
-                        reasoning.append(f"LLM supplementary analysis (confidence: {llm_confidence:.2f}): {llm_reasoning[:100]}...")
-                        if llm_strategy != strategy:
-                            reasoning.append(f"Note: LLM suggests '{llm_strategy}' while heuristics suggest '{strategy}'")
-                        else:
-                            reasoning.append(f"LLM agrees with heuristic classification: {strategy}")
+                        # Low LLM confidence - fall back to heuristics but log the disagreement
+                        reasoning.append(f"LLM uncertain (confidence: {llm_confidence:.0%}): {llm_reasoning[:100]}...")
+                        reasoning.append("Using heuristic analysis due to low LLM confidence")
+                        # strategy will be set by heuristics below
             
-            # Apply final decision logic if not already set by LLM
+            # Apply heuristic decision logic only if LLM didn't make a confident decision
             if 'strategy' not in locals() or not strategy:
                 # Conservative threshold: require 70% confidence AND score advantage for single doc
                 if single_doc_score >= batch_doc_score + 2 and confidence >= 0.7:
