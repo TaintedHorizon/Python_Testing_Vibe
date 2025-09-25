@@ -439,11 +439,99 @@ def analyze_intake_page():
                          analyses=None,  # Will be loaded via AJAX
                          intake_dir=app_config.INTAKE_DIR)
 
+@app.route("/api/analyze_intake_progress")
+def analyze_intake_progress():
+    """
+    Server-Sent Events endpoint for real-time analysis progress.
+    Streams progress updates as each PDF is analyzed.
+    """
+    import json
+    
+    def generate_progress():
+        try:
+            from .document_detector import get_detector
+            import os
+            
+            detector = get_detector()
+            intake_dir = app_config.INTAKE_DIR
+            
+            # Get list of PDF files
+            if not os.path.exists(intake_dir):
+                yield f"data: {json.dumps({'error': f'Intake directory does not exist: {intake_dir}'})}\n\n"
+                return
+                
+            pdf_files = [
+                os.path.join(intake_dir, f) 
+                for f in os.listdir(intake_dir) 
+                if f.lower().endswith('.pdf')
+            ]
+            
+            total_files = len(pdf_files)
+            
+            if total_files == 0:
+                yield f"data: {json.dumps({'complete': True, 'analyses': [], 'total': 0, 'single_count': 0, 'batch_count': 0})}\n\n"
+                return
+            
+            # Send initial progress
+            yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'current_file': None, 'message': f'Found {total_files} PDF files to analyze...'})}\n\n"
+            
+            analyses = []
+            single_count = 0
+            batch_count = 0
+            
+            for i, pdf_file in enumerate(pdf_files):
+                filename = os.path.basename(pdf_file)
+                
+                # Send progress update for current file
+                yield f"data: {json.dumps({'progress': i, 'total': total_files, 'current_file': filename, 'message': f'Analyzing {filename}...'})}\n\n"
+                
+                # Analyze the file
+                analysis = detector.analyze_pdf(pdf_file)
+                
+                # Prepare analysis data
+                analysis_data = {
+                    'filename': filename,
+                    'file_size_mb': analysis.file_size_mb,
+                    'page_count': analysis.page_count,
+                    'processing_strategy': analysis.processing_strategy,
+                    'confidence': analysis.confidence,
+                    'reasoning': analysis.reasoning,
+                    'filename_hints': analysis.filename_hints,
+                    'content_sample': analysis.content_sample
+                }
+                
+                # Add LLM analysis data if available
+                if hasattr(analysis, 'llm_analysis') and analysis.llm_analysis:
+                    analysis_data['llm_analysis'] = analysis.llm_analysis
+                    
+                analyses.append(analysis_data)
+                
+                if analysis.processing_strategy == "single_document":
+                    single_count += 1
+                else:
+                    batch_count += 1
+                
+                # Send progress update after analysis
+                progress_msg = f'Completed {filename}'
+                if hasattr(analysis, 'llm_analysis') and analysis.llm_analysis:
+                    progress_msg += ' (AI analyzed)'
+                    
+                yield f"data: {json.dumps({'progress': i + 1, 'total': total_files, 'current_file': None, 'message': progress_msg})}\n\n"
+            
+            # Send final results
+            yield f"data: {json.dumps({'complete': True, 'analyses': analyses, 'total': total_files, 'single_count': single_count, 'batch_count': batch_count})}\n\n"
+            
+        except Exception as e:
+            logging.error(f"Error in progress analysis: {e}")
+            yield f"data: {json.dumps({'error': f'Analysis error: {str(e)}'})}\n\n"
+    
+    return app.response_class(generate_progress(), mimetype='text/event-stream')
+
 @app.route("/api/analyze_intake")
 def analyze_intake_api():
     """
     API endpoint to perform the actual document analysis.
-    Returns JSON results for AJAX loading.
+    Returns JSON results for AJAX loading. (Kept for compatibility)
     """
     try:
         detector = get_detector()
