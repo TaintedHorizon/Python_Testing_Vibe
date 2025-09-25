@@ -104,14 +104,19 @@ class DocumentTypeDetector:
                 single_doc_score += 3
                 reasoning.append("Very low page count suggests single document")
             elif page_count <= self.SINGLE_DOC_MAX_PAGES:
-                single_doc_score += 2
-                reasoning.append("Moderate page count compatible with single document")
+                # Only add points if we have filename hints, otherwise be conservative
+                if self._analyze_filename(filename) == "single":
+                    single_doc_score += 2
+                    reasoning.append("Moderate page count + filename hints suggest single document")
+                else:
+                    batch_doc_score += 1
+                    reasoning.append("Moderate page count without clear filename hints, defaulting to batch")
             elif page_count >= self.BATCH_MIN_PAGES:
                 batch_doc_score += 4
                 reasoning.append("High page count strongly suggests batch scan")
             else:
-                batch_doc_score += 1
-                reasoning.append("Page count in ambiguous range, defaulting to batch")
+                batch_doc_score += 2  # Increased from 1 to be more conservative
+                reasoning.append("Page count in ambiguous range, defaulting to batch for safety")
             
             # 2. File size analysis
             if file_size_mb > self.LARGE_FILE_MB:
