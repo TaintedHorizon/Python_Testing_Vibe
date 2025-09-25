@@ -750,3 +750,146 @@ def update_document_final_filename(document_id, filename_base):
     finally:
         if conn:
             conn.close()
+
+def log_detection_ground_truth(filename, predicted_strategy, actual_strategy, confidence, user_feedback=None):
+    """
+    Log ground truth data when user corrects or validates detection decisions.
+    This creates training data for improving LLM detection accuracy.
+    
+    Args:
+        filename (str): Name of the file that was classified
+        predicted_strategy (str): What the system predicted ('single_document' or 'batch_scan') 
+        actual_strategy (str): What it actually was according to user
+        confidence (float): System's confidence in the prediction (0.0 to 1.0)
+        user_feedback (str, optional): User's comments about the decision
+    """
+    try:
+        ground_truth_data = {
+            "filename": filename,
+            "predicted_strategy": predicted_strategy,
+            "actual_strategy": actual_strategy,
+            "confidence": confidence,
+            "correct_prediction": predicted_strategy == actual_strategy,
+            "user_feedback": user_feedback
+        }
+        
+        log_interaction(
+            batch_id=None,
+            document_id=None,
+            user_id="system",  # Use system since get_current_user_id not available here
+            event_type="detection_ground_truth",
+            step="user_validation", 
+            content=str(ground_truth_data),
+            notes=f"Ground truth: {actual_strategy} (predicted: {predicted_strategy}, correct: {predicted_strategy == actual_strategy})"
+        )
+    except Exception as e:
+        print(f"Error logging ground truth data: {e}")
+
+def get_detection_training_data(limit=100):
+    """
+    Retrieve recent detection decisions and ground truth data for LLM training.
+    
+    Args:
+        limit (int): Maximum number of records to return
+        
+    Returns:
+        dict: Training data with detection decisions and ground truth validations
+    """
+    conn = get_db_connection()
+    try:
+        # Get recent detection decisions
+        detection_decisions = conn.execute(
+            """
+            SELECT * FROM interaction_log 
+            WHERE event_type IN ('document_detection_decision', 'llm_detection_analysis') 
+            ORDER BY timestamp DESC 
+            LIMIT ?
+            """,
+            (limit,)
+        ).fetchall()
+        
+        # Get ground truth validations
+        ground_truth = conn.execute(
+            """
+            SELECT * FROM interaction_log 
+            WHERE event_type = 'detection_ground_truth' 
+            ORDER BY timestamp DESC 
+            LIMIT ?
+            """,
+            (limit,)
+        ).fetchall()
+        
+        return {
+            "detection_decisions": [dict(row) for row in detection_decisions],
+            "ground_truth": [dict(row) for row in ground_truth],
+            "total_decisions": len(detection_decisions),
+            "total_validations": len(ground_truth)
+        }
+        
+    except sqlite3.Error as e:
+        print(f"Database error while fetching training data: {e}")
+        return {"detection_decisions": [], "ground_truth": [], "total_decisions": 0, "total_validations": 0}
+    finally:
+        if conn:
+            conn.close()
+
+def get_detection_performance_analytics():
+    """
+    Get analytics on detection system performance for monitoring and improvement.
+    
+    Returns:
+        dict: Performance metrics including accuracy, LLM usage, confidence analysis
+    """
+    conn = get_db_connection()
+    try:
+        # Get accuracy metrics from ground truth data
+        accuracy_data = conn.execute("""
+            SELECT 
+                COUNT(*) as total_validations,
+                SUM(CASE WHEN content LIKE '%correct_prediction": True%' THEN 1 ELSE 0 END) as correct_predictions,
+                AVG(CASE WHEN content LIKE '%confidence%' THEN 
+                    CAST(SUBSTR(content, INSTR(content, 'confidence": ') + 13, 4) AS FLOAT) 
+                    ELSE NULL END) as avg_confidence
+            FROM interaction_log 
+            WHERE event_type = 'detection_ground_truth'
+        """).fetchone()
+        
+        # Get LLM usage statistics
+        llm_usage = conn.execute("""
+            SELECT 
+                COUNT(*) as total_decisions,
+                SUM(CASE WHEN content LIKE '%llm_used": true%' OR content LIKE '%llm_used": True%' THEN 1 ELSE 0 END) as llm_used_count,
+                COUNT(*) - SUM(CASE WHEN content LIKE '%llm_used": true%' OR content LIKE '%llm_used": True%' THEN 1 ELSE 0 END) as heuristic_only_count
+            FROM interaction_log 
+            WHERE event_type = 'document_detection_decision'
+        """).fetchone()
+        
+        # Get recent detection decisions for trend analysis
+        recent_decisions = conn.execute("""
+            SELECT timestamp, content FROM interaction_log 
+            WHERE event_type = 'document_detection_decision'
+            ORDER BY timestamp DESC LIMIT 50
+        """).fetchall()
+        
+        return {
+            "accuracy": {
+                "total_validations": accuracy_data[0] if accuracy_data[0] else 0,
+                "correct_predictions": accuracy_data[1] if accuracy_data[1] else 0,
+                "accuracy_rate": (accuracy_data[1] / accuracy_data[0]) if accuracy_data[0] and accuracy_data[0] > 0 else 0,
+                "avg_confidence": accuracy_data[2] if accuracy_data[2] else 0
+            },
+            "llm_usage": {
+                "total_decisions": llm_usage[0] if llm_usage[0] else 0,
+                "llm_used_count": llm_usage[1] if llm_usage[1] else 0,
+                "heuristic_only_count": llm_usage[2] if llm_usage[2] else 0,
+                "llm_usage_rate": (llm_usage[1] / llm_usage[0]) if llm_usage[0] and llm_usage[0] > 0 else 0
+            },
+            "recent_decisions": [dict(row) for row in recent_decisions]
+        }
+        
+    except sqlite3.Error as e:
+        print(f"Database error while fetching performance analytics: {e}")
+        return {"accuracy": {}, "llm_usage": {}, "recent_decisions": []}
+    finally:
+        if conn:
+            conn.close()

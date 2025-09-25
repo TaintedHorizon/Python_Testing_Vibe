@@ -239,7 +239,7 @@ class DocumentTypeDetector:
                     strategy = "batch_scan" 
                     reasoning.append(f"Defaulting to batch scan (score: {single_doc_score} vs {batch_doc_score})")
             
-            return DocumentAnalysis(
+            result = DocumentAnalysis(
                 file_path=file_path,
                 file_size_mb=file_size_mb,
                 page_count=page_count,
@@ -250,6 +250,38 @@ class DocumentTypeDetector:
                 content_sample=content_sample[:200] if content_sample else None,
                 llm_analysis=llm_analysis
             )
+            
+            # Log detection decision for training data collection
+            try:
+                # Import here to avoid circular imports
+                from . import database
+                
+                detection_data = {
+                    "filename": os.path.basename(file_path),
+                    "file_size_mb": file_size_mb,
+                    "page_count": page_count,
+                    "heuristic_scores": {"single": single_doc_score, "batch": batch_doc_score},
+                    "filename_hints": filename_hint,
+                    "final_strategy": strategy,
+                    "final_confidence": confidence,
+                    "llm_used": llm_analysis is not None,
+                    "llm_analysis": llm_analysis,
+                    "reasoning": reasoning
+                }
+                
+                database.log_interaction(
+                    batch_id=None,
+                    document_id=None,
+                    user_id=database.get_current_user_id(),
+                    event_type="document_detection_decision",
+                    step="intake_analysis",
+                    content=str(detection_data),
+                    notes=f"Detection: {strategy} (confidence: {confidence:.2f}, LLM: {'Yes' if llm_analysis else 'No'})"
+                )
+            except Exception as log_error:
+                self.logger.warning(f"Failed to log detection decision: {log_error}")
+            
+            return result
             
         except Exception as e:
             self.logger.error(f"Error analyzing {file_path}: {e}")

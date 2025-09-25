@@ -645,13 +645,48 @@ Be specific about what patterns you observe that led to your conclusion."""
             logging.info(f"LLM classification for {filename}: {classification} "
                         f"(confidence: {confidence}%) - {reasoning[:100]}...")
             
+            # Log successful LLM analysis for training data collection
+            log_interaction(
+                batch_id=None,
+                document_id=None, 
+                user_id=get_current_user_id(),
+                event_type="llm_detection_analysis",
+                step="document_classification", 
+                content=f"{{\"filename\": \"{filename}\", \"page_count\": {page_count}, \"file_size_mb\": {file_size_mb}, \"prompt\": \"{prompt[:200]}...\", \"response\": \"{response[:200]}...\", \"parsed_result\": {result}}}",
+                notes=f"LLM document type analysis - {classification} ({confidence}%)"
+            )
+            
             return result
         else:
             logging.warning(f"Could not parse LLM response for {filename}: {response[:200]}...")
+            
+            # Log failed parsing for debugging
+            log_interaction(
+                batch_id=None,
+                document_id=None,
+                user_id=get_current_user_id(), 
+                event_type="llm_detection_parse_error",
+                step="document_classification",
+                content=f"{{\"filename\": \"{filename}\", \"prompt\": \"{prompt[:200]}...\", \"response\": \"{response[:200]}...\", \"error\": \"Could not parse classification\"}}",
+                notes="LLM response parsing failed"
+            )
+            
             return None
             
     except Exception as e:
         logging.error(f"Error getting LLM document type analysis for {filename}: {e}")
+        
+        # Log LLM analysis errors
+        log_interaction(
+            batch_id=None,
+            document_id=None,
+            user_id=get_current_user_id(),
+            event_type="llm_detection_error", 
+            step="document_classification",
+            content=f"{{\"filename\": \"{filename}\", \"error\": \"{str(e)}\", \"prompt\": \"{prompt[:200] if 'prompt' in locals() else 'N/A'}...\"}}",
+            notes=f"LLM detection analysis failed: {e}"
+        )
+        
         return None
 
 
