@@ -7,11 +7,49 @@
 <div class="container">
     <h1>📋 Document Processing Strategy Analysis</h1>
     
-    <div class="alert alert-info">
-        <strong>Smart Processing:</strong> The system has analyzed your intake files and suggests the optimal processing strategy for each document. Review the recommendations below before proceeding.
+    <!-- Loading State -->
+    <div id="loading-state" class="alert alert-primary text-center" style="display: none;">
+        <div class="spinner-border text-primary mb-3" role="status">
+            <span class="sr-only">Loading...</span>
+        </div>
+        <h4>🤖 Analyzing Your Documents...</h4>
+        <p class="mb-0">Please wait while we examine your intake files and determine optimal processing strategies.</p>
+        <small class="text-muted">This may take a few moments for large files or when consulting the AI...</small>
+    </div>
+    
+    <!-- Results State -->
+    <div id="results-state" style="display: none;">
+        <div class="alert alert-info">
+            <strong>Smart Processing:</strong> The system has analyzed your intake files and suggests the optimal processing strategy for each document. Review the recommendations below before proceeding.
+        </div>
+
+        <!-- Results will be populated here by JavaScript -->
+        <div id="analysis-results"></div>
+    </div>
+    
+    <!-- No Files State -->
+    <div id="no-files-state" style="display: none;">
+        <div class="alert alert-warning text-center">
+            <h4>📁 No PDF Files Found</h4>
+            <p>No PDF files were found in the intake directory.</p>
+            <p><code>{{ intake_dir }}</code></p>
+            <p>Please add some PDF files and try again.</p>
+            <a href="{{ url_for('mission_control_page') }}" class="btn btn-secondary">← Back to Batch Control</a>
+        </div>
+    </div>
+    
+    <!-- Error State -->
+    <div id="error-state" style="display: none;">
+        <div class="alert alert-danger">
+            <h4>❌ Analysis Error</h4>
+            <p>An error occurred while analyzing your documents:</p>
+            <p id="error-message"></p>
+            <button onclick="startAnalysis()" class="btn btn-primary">🔄 Retry Analysis</button>
+            <a href="{{ url_for('mission_control_page') }}" class="btn btn-secondary ml-2">← Back to Batch Control</a>
+        </div>
     </div>
 
-    {% if analyses %}
+    {% if False %} <!-- Hide the static template content -->
     <!-- Summary Statistics -->
     <div class="row mb-4">
         <div class="col-md-4">
@@ -246,6 +284,7 @@
             </div>
         </div>
     </div>
+    </div> <!-- Close results-state -->
 </div>
 
 <style>
@@ -258,5 +297,230 @@
 .badge {
     font-size: 0.75em;
 }
+.spinner-border {
+    width: 3rem;
+    height: 3rem;
+}
 </style>
+
+<script>
+// Start analysis automatically when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    startAnalysis();
+});
+
+function startAnalysis() {
+    // Show loading state
+    document.getElementById('loading-state').style.display = 'block';
+    document.getElementById('results-state').style.display = 'none';
+    document.getElementById('no-files-state').style.display = 'none';
+    document.getElementById('error-state').style.display = 'none';
+    
+    // Fetch analysis results
+    fetch('/api/analyze_intake')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('loading-state').style.display = 'none';
+            
+            if (data.success) {
+                if (data.analyses.length === 0) {
+                    document.getElementById('no-files-state').style.display = 'block';
+                } else {
+                    document.getElementById('results-state').style.display = 'block';
+                    populateResults(data);
+                }
+            } else {
+                document.getElementById('error-state').style.display = 'block';
+                document.getElementById('error-message').textContent = data.error;
+            }
+        })
+        .catch(error => {
+            document.getElementById('loading-state').style.display = 'none';
+            document.getElementById('error-state').style.display = 'block';
+            document.getElementById('error-message').textContent = 'Network error: ' + error.message;
+        });
+}
+
+function populateResults(data) {
+    const resultsDiv = document.getElementById('analysis-results');
+    
+    // Create summary statistics
+    const summaryHtml = `
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card bg-success text-white">
+                    <div class="card-body text-center">
+                        <h3>${data.single_count}</h3>
+                        <p>Single Documents<br><small>Fast processing, direct to finalization</small></p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-primary text-white">
+                    <div class="card-body text-center">
+                        <h3>${data.batch_count}</h3>
+                        <p>Batch Scans<br><small>Page-by-page verification workflow</small></p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-info text-white">
+                    <div class="card-body text-center">
+                        <h3>${data.total_count}</h3>
+                        <p>Total Files<br><small>Ready for processing</small></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Create analysis table
+    let tableHtml = `
+        <div class="card">
+            <div class="card-header">
+                <h5>📄 File Analysis Details</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Filename</th>
+                                <th>Size</th>
+                                <th>Pages</th>
+                                <th>Processing Strategy</th>
+                                <th>Confidence</th>
+                                <th>Reasoning</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+    `;
+    
+    data.analyses.forEach(analysis => {
+        const confidencePercent = Math.round(analysis.confidence * 100);
+        const progressColor = confidencePercent >= 70 ? 'bg-success' : (confidencePercent >= 50 ? 'bg-warning' : 'bg-secondary');
+        
+        let strategyBadge = analysis.processing_strategy === 'single_document' 
+            ? '<span class="badge badge-success">🚀 Single Document</span><br><small class="text-muted">Direct processing</small>'
+            : '<span class="badge badge-primary">📋 Batch Scan</span><br><small class="text-muted">Page verification</small>';
+            
+        let filenameHints = '';
+        if (analysis.filename_hints === 'single') {
+            filenameHints = '<span class="badge badge-success">📄 Document</span>';
+        } else if (analysis.filename_hints === 'batch') {
+            filenameHints = '<span class="badge badge-primary">📚 Batch</span>';
+        }
+        
+        let reasoningHtml = '<ul class="list-unstyled mb-0" style="font-size: 0.85em;">';
+        analysis.reasoning.slice(0, 3).forEach(reason => {
+            reasoningHtml += `<li>• ${reason}</li>`;
+        });
+        if (analysis.reasoning.length > 3) {
+            reasoningHtml += `<li><small class="text-muted">... and ${analysis.reasoning.length - 3} more</small></li>`;
+        }
+        reasoningHtml += '</ul>';
+        
+        // Add LLM analysis if available
+        if (analysis.llm_analysis) {
+            reasoningHtml += `
+                <div class="mt-2 p-2 bg-light rounded" style="font-size: 0.8em;">
+                    <strong>🤖 LLM Analysis:</strong>
+                    <br><span class="text-primary">${analysis.llm_analysis.classification.replace('_', ' ')}</span> 
+                    (${analysis.llm_analysis.confidence}% confidence)
+                    <br><small class="text-muted">${analysis.llm_analysis.reasoning.substring(0, 80)}${analysis.llm_analysis.reasoning.length > 80 ? '...' : ''}</small>
+                </div>
+            `;
+        }
+        
+        tableHtml += `
+            <tr>
+                <td>
+                    <strong>${analysis.filename}</strong>
+                    ${filenameHints}
+                </td>
+                <td>${analysis.file_size_mb.toFixed(1)} MB</td>
+                <td>${analysis.page_count}</td>
+                <td>${strategyBadge}</td>
+                <td>
+                    <div class="progress" style="width: 80px;">
+                        <div class="progress-bar ${progressColor}" style="width: ${confidencePercent}%"></div>
+                    </div>
+                    <small>${confidencePercent}%</small>
+                </td>
+                <td>${reasoningHtml}</td>
+            </tr>
+        `;
+    });
+    
+    tableHtml += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Add action buttons
+    const buttonsHtml = `
+        <div class="row mt-4">
+            <div class="col-md-4">
+                <div class="card border-success">
+                    <div class="card-body text-center">
+                        <h5>🎯 Smart Processing</h5>
+                        <p class="text-muted"><strong>Recommended:</strong> Use AI recommendations for optimal processing.</p>
+                        <form action="/process_batch_smart" method="post">
+                            <button type="submit" class="btn btn-success btn-lg btn-block">🚀 Smart Processing</button>
+                        </form>
+                        <small class="text-muted mt-2 d-block">Best balance of speed and safety</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-info">
+                    <div class="card-body text-center">
+                        <h5>🏃‍♂️ Speed Mode</h5>
+                        <p class="text-muted">Process all files as single documents for maximum speed.</p>
+                        <form action="/process_batch_all_single" method="post">
+                            <button type="submit" class="btn btn-info btn-lg btn-block">⚡ All as Single Documents</button>
+                        </form>
+                        <small class="text-muted mt-2 d-block">Fastest processing, skip verification</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-warning">
+                    <div class="card-body text-center">
+                        <h5>🛡️ Safety Mode</h5>
+                        <p class="text-muted">Process all files as batch scans for maximum control.</p>
+                        <form action="/process_batch_force_traditional" method="post">
+                            <button type="submit" class="btn btn-warning btn-lg btn-block">📋 All as Batch Scans</button>
+                        </form>
+                        <small class="text-muted mt-2 d-block">Traditional workflow with verification</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    resultsDiv.innerHTML = summaryHtml + tableHtml + buttonsHtml;
+    
+    // Add event listeners to processing buttons
+    const processingButtons = document.querySelectorAll('#analysis-results form button[type="submit"]');
+    processingButtons.forEach(button => {
+        button.addEventListener('click', function(e) {
+            // Show loading state
+            document.getElementById('loading-state').style.display = 'block';
+            document.getElementById('results-state').style.display = 'none';
+            
+            // Update loading message for processing
+            document.querySelector('#loading-state h4').textContent = '⚙️ Processing Your Documents...';
+            document.querySelector('#loading-state p').textContent = 'Please wait while we process your files using the selected strategy.';
+            
+            // Disable the button to prevent double-clicks
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Processing...';
+        });
+    });
+}
+</script>
 {% endblock %}

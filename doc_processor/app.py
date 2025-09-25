@@ -432,17 +432,31 @@ def index():
 @app.route("/analyze_intake")
 def analyze_intake_page():
     """
-    Show intake analysis with processing strategy recommendations.
-    This replaces the direct batch processing with a preview step.
+    Show intake analysis page. Analysis results are loaded via AJAX 
+    to provide loading feedback to the user.
+    """
+    return render_template('intake_analysis.html', 
+                         analyses=None,  # Will be loaded via AJAX
+                         intake_dir=app_config.INTAKE_DIR)
+
+@app.route("/api/analyze_intake")
+def analyze_intake_api():
+    """
+    API endpoint to perform the actual document analysis.
+    Returns JSON results for AJAX loading.
     """
     try:
         detector = get_detector()
         analyses = detector.analyze_intake_directory(app_config.INTAKE_DIR)
         
         if not analyses:
-            return render_template('intake_analysis.html', 
-                                 analyses=[], 
-                                 intake_dir=app_config.INTAKE_DIR)
+            return jsonify({
+                'success': True,
+                'analyses': [],
+                'single_count': 0,
+                'batch_count': 0,
+                'total_count': 0
+            })
         
         # Prepare data for template
         template_analyses = []
@@ -450,7 +464,7 @@ def analyze_intake_page():
         batch_count = 0
         
         for analysis in analyses:
-            template_analyses.append({
+            analysis_data = {
                 'filename': os.path.basename(analysis.file_path),
                 'file_size_mb': analysis.file_size_mb,
                 'page_count': analysis.page_count,
@@ -459,26 +473,34 @@ def analyze_intake_page():
                 'reasoning': analysis.reasoning,
                 'filename_hints': analysis.filename_hints,
                 'content_sample': analysis.content_sample
-            })
+            }
+            
+            # Add LLM analysis data if available
+            if hasattr(analysis, 'llm_analysis') and analysis.llm_analysis:
+                analysis_data['llm_analysis'] = analysis.llm_analysis
+                
+            template_analyses.append(analysis_data)
             
             if analysis.processing_strategy == "single_document":
                 single_count += 1
             else:
                 batch_count += 1
         
-        return render_template('intake_analysis.html',
-                             analyses=template_analyses,
-                             single_count=single_count,
-                             batch_count=batch_count,
-                             total_count=len(analyses),
-                             intake_dir=app_config.INTAKE_DIR)
+        return jsonify({
+            'success': True,
+            'analyses': template_analyses,
+            'single_count': single_count,
+            'batch_count': batch_count,
+            'total_count': len(analyses)
+        })
                              
     except Exception as e:
         logging.error(f"Error analyzing intake: {e}")
-        return render_template('intake_analysis.html', 
-                             analyses=[],
-                             error=f"Error analyzing files: {e}",
-                             intake_dir=app_config.INTAKE_DIR)
+        return jsonify({
+            'success': False,
+            'error': f"Error analyzing files: {e}",
+            'analyses': []
+        })
 
 
 @app.route("/process_batch_smart", methods=["POST"])
