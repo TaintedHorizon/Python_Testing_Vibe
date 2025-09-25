@@ -587,33 +587,36 @@ Provide your analysis now:"""
         if not response:
             return None
             
-        # Parse the LLM response
+        # Parse the LLM response (handle both plain and markdown formats)
         classification = None
         confidence = 0
         reasoning = None
         lines = response.strip().split('\n')
+        
+        # Log raw response at DEBUG level to keep it in logs but not spam console
+        logging.debug(f"Raw LLM response for {filename}: {response}")
+        
         for line in lines:
             line = line.strip()
-            if line.startswith('CLASSIFICATION:'):
-                classification_text = line.split(':', 1)[1].strip().upper()
+            # Handle both plain format (CLASSIFICATION:) and markdown format (**CLASSIFICATION:**)
+            if line.startswith('CLASSIFICATION:') or line.startswith('**CLASSIFICATION:**'):
+                classification_text = line.split(':', 1)[1].strip().replace('*', '').upper()
                 if 'SINGLE_DOCUMENT' in classification_text or 'SINGLE' in classification_text:
                     classification = 'single_document'
                 elif 'BATCH_SCAN' in classification_text or 'BATCH' in classification_text:
                     classification = 'batch_scan'
-            elif line.startswith('CONFIDENCE:'):
+            elif line.startswith('CONFIDENCE:') or line.startswith('**CONFIDENCE:**'):
                 try:
-                    confidence = int(''.join(filter(str.isdigit, line.split(':', 1)[1])))
+                    conf_text = line.split(':', 1)[1].strip().replace('*', '')
+                    confidence = int(''.join(filter(str.isdigit, conf_text)))
                     confidence = max(0, min(100, confidence))  # Clamp to 0-100
                 except (ValueError, IndexError):
                     confidence = 50  # Default moderate confidence
-            elif line.startswith('REASONING:'):
-                reasoning = line.split(':', 1)[1].strip()
-            elif reasoning is not None and line and not line.startswith(('CLASSIFICATION:', 'CONFIDENCE:')):
+            elif line.startswith('REASONING:') or line.startswith('**REASONING:**'):
+                reasoning = line.split(':', 1)[1].strip().replace('*', '')
+            elif reasoning is not None and line and not line.startswith(('CLASSIFICATION:', 'CONFIDENCE:', '**CLASSIFICATION:**', '**CONFIDENCE:**')):
                 # Continue multi-line reasoning
                 reasoning += " " + line
-
-        # Always log the raw LLM response for debugging
-        logging.info(f"Raw LLM response for {filename}: {response}")
 
         if classification:
             # Improve fallback: if reasoning is empty, show a more helpful message
@@ -625,8 +628,7 @@ Provide your analysis now:"""
                 'reasoning': reasoning,
                 'llm_used': True
             }
-            logging.info(f"LLM classification for {filename}: {classification} "
-                        f"(confidence: {confidence}%) - {reasoning[:200]}...")
+            logging.info(f"Document analysis for {filename} - Type: {classification}, Confidence: {confidence}%")
             # Log successful LLM analysis for training data collection
             log_interaction(
                 batch_id=None,
