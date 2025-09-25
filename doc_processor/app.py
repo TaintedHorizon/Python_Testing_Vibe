@@ -501,6 +501,58 @@ def process_batch_smart():
                              message=f"Processing error: {e}")
 
 
+@app.route("/process_batch_all_single", methods=["POST"])
+def process_batch_all_single():
+    """
+    Process all files as single documents (speed mode).
+    """
+    try:
+        from .processing import process_single_document
+        
+        # Get all PDF files
+        pdf_files = []
+        if os.path.exists(app_config.INTAKE_DIR):
+            pdf_files = [
+                os.path.join(app_config.INTAKE_DIR, f)
+                for f in os.listdir(app_config.INTAKE_DIR)
+                if f.lower().endswith('.pdf')
+            ]
+        
+        if not pdf_files:
+            return render_template("index.html", 
+                                 message="No PDF files found in intake directory.")
+        
+        cleanup_old_archives()
+        
+        # Process each file as a single document
+        processed_count = 0
+        failed_files = []
+        
+        for file_path in pdf_files:
+            filename = os.path.basename(file_path)
+            logging.info(f"Processing {filename} as single document (speed mode)")
+            
+            doc_id = process_single_document(file_path, "single_document")
+            if doc_id:
+                processed_count += 1
+                logging.info(f"✓ Speed processed: {filename} (ID: {doc_id})")
+            else:
+                failed_files.append(filename)
+                logging.error(f"✗ Failed to process: {filename}")
+        
+        # Summary message
+        if failed_files:
+            message = f"Processed {processed_count}/{len(pdf_files)} files. Failed: {', '.join(failed_files)}"
+            return render_template("index.html", message=message)
+        else:
+            return redirect(url_for("mission_control_page"))
+                                 
+    except Exception as e:
+        logging.error(f"Error in single document processing: {e}")
+        return render_template("index.html", 
+                             message=f"Speed processing error: {e}")
+
+
 @app.route("/process_batch_force_traditional", methods=["POST"])
 def process_batch_force_traditional():
     """

@@ -140,29 +140,45 @@
 
     <!-- Action Buttons -->
     <div class="row mt-4">
-        <div class="col-md-6">
-            <div class="card border-warning">
+        <div class="col-md-4">
+            <div class="card border-success">
                 <div class="card-body text-center">
-                    <h5>⚠️ Safety First Approach</h5>
-                    <p class="text-muted">Process all files as batch scans for maximum safety and control.</p>
-                    <form action="{{ url_for('process_batch_force_traditional') }}" method="post">
-                        <button type="submit" class="btn btn-warning btn-lg">
-                            📋 Process All as Batch Scans
+                    <h5>🎯 Smart Processing</h5>
+                    <p class="text-muted"><strong>Recommended:</strong> Use AI recommendations for optimal processing.</p>
+                    <form action="{{ url_for('process_batch_smart') }}" method="post">
+                        <button type="submit" class="btn btn-success btn-lg btn-block">
+                            🚀 Smart Processing
                         </button>
                     </form>
+                    <small class="text-muted mt-2 d-block">Best balance of speed and safety</small>
                 </div>
             </div>
         </div>
-        <div class="col-md-6">
-            <div class="card border-success">
+        <div class="col-md-4">
+            <div class="card border-info">
                 <div class="card-body text-center">
-                    <h5>🚀 Smart Processing</h5>
-                    <p class="text-muted">Use the recommended strategy for each file.</p>
-                    <form action="{{ url_for('process_batch_smart') }}" method="post">
-                        <button type="submit" class="btn btn-success btn-lg">
-                            🎯 Process with Recommendations
+                    <h5>🏃‍♂️ Speed Mode</h5>
+                    <p class="text-muted">Process all files as single documents for maximum speed.</p>
+                    <form action="{{ url_for('process_batch_all_single') }}" method="post">
+                        <button type="submit" class="btn btn-info btn-lg btn-block">
+                            ⚡ All as Single Documents
                         </button>
                     </form>
+                    <small class="text-muted mt-2 d-block">Fastest processing, skip verification</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-warning">
+                <div class="card-body text-center">
+                    <h5>�️ Safety Mode</h5>
+                    <p class="text-muted">Process all files as batch scans for maximum control.</p>
+                    <form action="{{ url_for('process_batch_force_traditional') }}" method="post">
+                        <button type="submit" class="btn btn-warning btn-lg btn-block">
+                            📋 All as Batch Scans
+                        </button>
+                    </form>
+                    <small class="text-muted mt-2 d-block">Traditional workflow with verification</small>
                 </div>
             </div>
         </div>
@@ -175,7 +191,7 @@
         <p>No PDF files were found in the intake directory.</p>
         <p><code>{{ intake_dir }}</code></p>
         <p>Please add some PDF files and try again.</p>
-        <a href="{{ url_for('mission_control_page') }}" class="btn btn-secondary">← Back to Mission Control</a>
+        <a href="{{ url_for('mission_control_page') }}" class="btn btn-secondary">← Back to Batch Control</a>
     </div>
     {% endif %}
 
@@ -186,27 +202,39 @@
         </div>
         <div class="card-body">
             <div class="row">
-                <div class="col-md-6">
-                    <h6>🚀 Single Document Processing</h6>
+                <div class="col-md-4">
+                    <h6>🎯 Smart Processing</h6>
                     <ul>
-                        <li><strong>Best for:</strong> Individual files like invoices, contracts, reports</li>
-                        <li><strong>Benefits:</strong> Faster processing, direct to finalization</li>
-                        <li><strong>Process:</strong> OCR → AI categorization → Export</li>
-                        <li><strong>Time:</strong> ~30 seconds per document</li>
+                        <li><strong>Uses AI recommendations</strong></li>
+                        <li><strong>Best balance</strong> of speed and safety</li>
+                        <li><strong>Single docs:</strong> Fast track (~30s each)</li>
+                        <li><strong>Batch scans:</strong> Full verification</li>
+                        <li><strong>Recommended</strong> for most users</li>
                     </ul>
                 </div>
-                <div class="col-md-6">
-                    <h6>📋 Batch Scan Processing</h6>
+                <div class="col-md-4">
+                    <h6>⚡ All as Single Documents</h6>
                     <ul>
-                        <li><strong>Best for:</strong> Multi-document scans, complex layouts</li>
-                        <li><strong>Benefits:</strong> Full human verification and control</li>
-                        <li><strong>Process:</strong> OCR → Verify → Group → Order → Export</li>
-                        <li><strong>Time:</strong> ~2-5 minutes per document (with verification)</li>
+                        <li><strong>Speed mode:</strong> Fastest processing</li>
+                        <li><strong>All files:</strong> Direct to export</li>
+                        <li><strong>Time:</strong> ~30 seconds per document</li>
+                        <li><strong>Best for:</strong> Trusted individual files</li>
+                        <li><strong>Risk:</strong> No verification step</li>
+                    </ul>
+                </div>
+                <div class="col-md-4">
+                    <h6>�️ All as Batch Scans</h6>
+                    <ul>
+                        <li><strong>Safety mode:</strong> Maximum control</li>
+                        <li><strong>All files:</strong> Full verification workflow</li>
+                        <li><strong>Time:</strong> ~2-5 minutes per document</li>
+                        <li><strong>Best for:</strong> Unknown or complex files</li>
+                        <li><strong>Benefit:</strong> Human verification of everything</li>
                     </ul>
                 </div>
             </div>
-            <div class="alert alert-light mt-3">
-                <strong>💡 Recommendation:</strong> For your 278 PDFs, the smart processing approach can save significant time by automatically handling obvious single documents while ensuring complex files get proper verification.
+            <div class="alert alert-success mt-3">
+                <strong>🎯 For 278 PDFs:</strong> Smart Processing is recommended - it will automatically fast-track obvious single documents while ensuring complex files get proper human verification. This typically saves 50-70% processing time.
             </div>
         </div>
     </div>
