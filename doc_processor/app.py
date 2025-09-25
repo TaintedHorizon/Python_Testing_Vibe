@@ -400,14 +400,14 @@ def revisit_ordering_action(batch_id):
 @app.route("/finish_ordering/<int:batch_id>", methods=["POST"])
 def finish_ordering_action(batch_id):
     """
-    Marks ordering as complete for the batch and returns to Mission Control.
+    Marks ordering as complete for the batch and returns to Batch Control.
     """
     conn = get_db_connection()
     conn.execute("UPDATE batches SET status = 'ordering_complete' WHERE id = ?", (batch_id,))
     conn.commit()
     conn.close()
     print(f"[ORDERING] Batch {batch_id} marked as ordering_complete.")
-    return redirect(url_for("mission_control_page"))
+    return redirect(url_for("batch_control_page"))
 
 # Set a secret key for session management. This is crucial for security and for
 # features like flashed messages that persist across requests.
@@ -469,10 +469,11 @@ def analyze_intake_progress():
             total_files = len(pdf_files)
             
             if total_files == 0:
-                yield f"data: {json.dumps({'complete': True, 'analyses': [], 'total': 0, 'single_count': 0, 'batch_count': 0})}\n\n"
+                yield f"data: {json.dumps({'complete': True, 'analyses': [], 'total': 0, 'single_count': 0, 'batch_count': 0, 'success': True})}\n\n"
                 return
             
             # Send initial progress
+            logging.info(f"Starting SSE analysis for {total_files} PDF files")
             yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'current_file': None, 'message': f'Found {total_files} PDF files to analyze...'})}\n\n"
             
             analyses = []
@@ -519,13 +520,17 @@ def analyze_intake_progress():
                 yield f"data: {json.dumps({'progress': i + 1, 'total': total_files, 'current_file': None, 'message': progress_msg})}\n\n"
             
             # Send final results
-            yield f"data: {json.dumps({'complete': True, 'analyses': analyses, 'total': total_files, 'single_count': single_count, 'batch_count': batch_count})}\n\n"
+            yield f"data: {json.dumps({'complete': True, 'analyses': analyses, 'total': total_files, 'single_count': single_count, 'batch_count': batch_count, 'success': True})}\n\n"
             
         except Exception as e:
             logging.error(f"Error in progress analysis: {e}")
             yield f"data: {json.dumps({'error': f'Analysis error: {str(e)}'})}\n\n"
     
-    return app.response_class(generate_progress(), mimetype='text/event-stream')
+    response = app.response_class(generate_progress(), mimetype='text/event-stream')
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['Connection'] = 'keep-alive'
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    return response
 
 @app.route("/api/analyze_intake")
 def analyze_intake_api():
@@ -604,7 +609,7 @@ def process_batch_smart():
         cleanup_old_archives()
         success = process_batch()
         if success:
-            return redirect(url_for("mission_control_page"))
+            return redirect(url_for("batch_control_page"))
         else:
             return render_template("index.html", 
                                  message="Processing failed. Check logs for details.")
@@ -658,7 +663,7 @@ def process_batch_all_single():
             message = f"Processed {processed_count}/{len(pdf_files)} files. Failed: {', '.join(failed_files)}"
             return render_template("index.html", message=message)
         else:
-            return redirect(url_for("mission_control_page"))
+            return redirect(url_for("batch_control_page"))
                                  
     except Exception as e:
         logging.error(f"Error in single document processing: {e}")
@@ -688,7 +693,7 @@ def process_batch_force_traditional():
         cleanup_old_archives()
         success = _process_batch_traditional(pdf_files)
         if success:
-            return redirect(url_for("mission_control_page"))
+            return redirect(url_for("batch_control_page"))
         else:
             return render_template("index.html", 
                                  message="Traditional processing failed. Check logs for details.")
@@ -708,8 +713,8 @@ def handle_batch_processing():
     return redirect(url_for("analyze_intake_page"))
 
 
-@app.route("/mission_control")
-def mission_control_page():
+@app.route("/batch_control")
+def batch_control_page():
     """
     Displays the main dashboard, showing a list of all processed batches.
     For each batch, it fetches and displays key statistics like the number of
@@ -741,10 +746,10 @@ def mission_control_page():
     # Add audit trail links for each batch
     for batch in all_batches:
         batch["audit_url"] = url_for("batch_audit_view", batch_id=batch["id"])
-    return render_template("mission_control.html", batches=all_batches)
+    return render_template("batch_control.html", batches=all_batches)
 
 
-# --- DIRECT ACTION ROUTES (Accessed from Mission Control) ---
+# --- DIRECT ACTION ROUTES (Accessed from Batch Control) ---
 # These routes correspond to the primary actions a user can take on a batch
 # from the main dashboard.
 
@@ -767,10 +772,10 @@ def verify_batch_page(batch_id):
     pages = get_pages_for_batch(batch_id)
     if not pages:
         # If a batch has no pages, there's nothing to verify. Redirect back
-        # to Mission Control with a message.
+        # to Batch Control with a message.
         return redirect(
             url_for(
-                "mission_control_page", message=f"No pages found for Batch #{batch_id}."
+                "batch_control_page", message=f"No pages found for Batch #{batch_id}."
             )
         )
 
@@ -829,7 +834,7 @@ def review_batch_page(batch_id):
     if not flagged_pages:
         # If there are no flagged pages, there's nothing to review. The user
         # is sent back to the main dashboard.
-        return redirect(url_for("mission_control_page"))
+        return redirect(url_for("batch_control_page"))
 
     batch = get_batch_by_id(batch_id)
 
@@ -872,7 +877,7 @@ def revisit_batch_page(batch_id):
     if not pages:
         return redirect(
             url_for(
-                "mission_control_page", message=f"No pages found for Batch #{batch_id}."
+                "batch_control_page", message=f"No pages found for Batch #{batch_id}."
             )
         )
 
@@ -923,7 +928,7 @@ def view_batch_page(batch_id):
     if not pages:
         return redirect(
             url_for(
-                "mission_control_page", message=f"No pages found for Batch #{batch_id}."
+                "batch_control_page", message=f"No pages found for Batch #{batch_id}."
             )
         )
 
@@ -1045,7 +1050,7 @@ def order_batch_page(batch_id):
         print(
             f"Batch {batch_id} finalized automatically as it only contains single-page documents."
         )
-        return redirect(url_for("mission_control_page"))
+        return redirect(url_for("batch_control_page"))
 
     # Render the page that lists documents needing an explicit page order.
     return render_template(
@@ -1137,7 +1142,7 @@ def finalize_batch_action(batch_id):
     )
     conn.commit()
     conn.close()
-    return redirect(url_for("mission_control_page"))
+    return redirect(url_for("batch_control_page"))
 
 
 @app.route("/api/suggest_order/<int:document_id>", methods=["POST"])
@@ -1247,7 +1252,7 @@ def reset_batch_action(batch_id):
     reset_batch_to_start(batch_id)
     print(f"[ROUTE] /reset_batch/{batch_id} completed reset_batch_to_start.")
     # After the reset, send the user back to the main dashboard.
-    return redirect(url_for("mission_control_page"))
+    return redirect(url_for("batch_control_page"))
 
 
 @app.route("/update_page", methods=["POST"])
@@ -1363,7 +1368,7 @@ def update_page():
             finally:
                 if conn:
                     conn.close()
-            return redirect(url_for("mission_control_page"))
+            return redirect(url_for("batch_control_page"))
     except Exception as e:
         logging.error(f"Error processing page update: {e}")
         abort(500, "Failed to process page update")
@@ -1552,7 +1557,7 @@ def export_batch_action(batch_id):
     conn.close()
 
     # The user is returned to the main dashboard.
-    return redirect(url_for("mission_control_page"))
+    return redirect(url_for("batch_control_page"))
 
 
 # --- VIEW EXPORTED DOCUMENTS ROUTES ---

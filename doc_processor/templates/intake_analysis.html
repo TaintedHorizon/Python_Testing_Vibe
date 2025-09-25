@@ -7,19 +7,24 @@
 <div class="container">
     <h1>📋 Document Processing Strategy Analysis</h1>
     
+    <!-- Start Analysis Button -->
+    <div class="alert alert-info text-center">
+        <button id="start-analysis-btn" onclick="startAnalysis()" class="btn btn-primary">🔍 Start Analysis</button>
+        <p class="mt-2">Click to analyze your intake files and determine optimal processing strategies for each document.</p>
+    </div>
+
     <!-- Loading State -->
     <div id="loading-state" class="alert alert-primary text-center" style="display: none;">
         <div class="spinner-border text-primary mb-3" role="status">
-            <span class="sr-only">Loading...</span>
         </div>
         <h4>🤖 Analyzing Your Documents...</h4>
         <p class="mb-3">Please wait while we examine your intake files and determine optimal processing strategies.</p>
         
         <!-- Progress Bar -->
-        <div class="progress mb-3" style="height: 25px; max-width: 400px; margin: 0 auto;">
+        <div class="progress mb-3" style="height: 30px; max-width: 500px; margin: 0 auto;">
             <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
                  role="progressbar" 
-                 style="width: 0%;"
+                 style="width: 0%; white-space: nowrap; font-weight: 500; font-size: 14px; line-height: 30px;"
                  aria-valuenow="0" 
                  aria-valuemin="0" 
                  aria-valuemax="100">
@@ -58,17 +63,12 @@
     </div>
     
     <!-- Error State -->
-    <div id="error-state" style="display: none;">
-        <div class="alert alert-danger">
-            <h4>❌ Analysis Error</h4>
-            <p>An error occurred while analyzing your documents:</p>
+        <div id="error-state" style="display: none;" class="text-center">
+            <h4>❌ Analysis Failed</h4>
             <p id="error-message"></p>
             <button onclick="startAnalysis()" class="btn btn-primary">🔄 Retry Analysis</button>
-            <a href="{{ url_for('mission_control_page') }}" class="btn btn-secondary ml-2">← Back to Batch Control</a>
-        </div>
-    </div>
-
-    {% if False %} <!-- Hide the static template content -->
+            <a href="{{ url_for('batch_control_page') }}" class="btn btn-secondary ml-2">← Back to Batch Control</a>
+        </div>    {% if False %} <!-- Hide the static template content -->
     <!-- Summary Statistics -->
     <div class="row mb-4">
         <div class="col-md-4">
@@ -249,16 +249,7 @@
         </div>
     </div>
 
-    {% else %}
-    <!-- No Files Found -->
-    <div class="alert alert-warning text-center">
-        <h4>📁 No PDF Files Found</h4>
-        <p>No PDF files were found in the intake directory.</p>
-        <p><code>{{ intake_dir }}</code></p>
-        <p>Please add some PDF files and try again.</p>
-        <a href="{{ url_for('mission_control_page') }}" class="btn btn-secondary">← Back to Batch Control</a>
-    </div>
-    {% endif %}
+
 
     <!-- Help Section -->
     <div class="card mt-4 border-info">
@@ -303,14 +294,14 @@
             </div>
         </div>
     </div>
+    {% endif %}
     </div> <!-- Close results-state -->
-</div>
+</div> <!-- Close container -->
 
 <!-- Navigation Section (Always visible at bottom) -->
-<div class="mt-5 pt-4 border-top">
+<div class="navigation-footer mt-5 pt-4 border-top">
     <div class="text-center">
-        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary mr-2">🏠 Home</a>
-        <a href="{{ url_for('mission_control_page') }}" class="btn btn-secondary">← Back to Batch Control</a>
+        <a href="{{ url_for('batch_control_page') }}" class="action-btn btn-revisit btn-center">🏠 Batch Control</a>
     </div>
 </div>
 
@@ -328,31 +319,84 @@
     width: 3rem;
     height: 3rem;
 }
+
+/* Action button styles matching the project */
+.action-btn { 
+    display: inline-block; 
+    padding: 12px 20px; 
+    text-decoration: none; 
+    color: white; 
+    border-radius: 5px; 
+    font-size: 1em; 
+    margin-right: 5px; 
+    margin-bottom: 5px; 
+    border: none; 
+    cursor: pointer; 
+    font-weight: 500;
+    transition: background-color 0.2s, transform 0.1s;
+}
+.action-btn:hover {
+    text-decoration: none;
+    color: white;
+    transform: translateY(-1px);
+}
+.btn-revisit { 
+    background-color: #6c757d; 
+}
+.btn-revisit:hover { 
+    background-color: #5a6268; 
+}
+
+/* Navigation section styling */
+.navigation-footer {
+    width: 100%;
+    margin-top: 3rem !important;
+    padding-top: 2rem !important;
+    border-top: 2px solid #dee2e6 !important;
+    text-align: center !important;
+}
+
+.btn-center {
+    display: inline-block !important;
+    margin: 0 auto !important;
+    text-align: center !important;
+}
 </style>
 
 <script>
 // Start analysis automatically when page loads
 document.addEventListener('DOMContentLoaded', function() {
+    // Temporarily disable caching to debug the issue
     // Check if we have cached results from this session
-    const cachedResults = sessionStorage.getItem('intake_analysis_results');
-    if (cachedResults) {
-        try {
-            const data = JSON.parse(cachedResults);
-            console.log('Using cached analysis results:', data);
-            document.getElementById('results-state').style.display = 'block';
-            populateResults(data);
-            return; // Don't start new analysis
-        } catch (e) {
-            console.error('Failed to parse cached results:', e);
-            sessionStorage.removeItem('intake_analysis_results');
-        }
-    }
+    // const cachedResults = sessionStorage.getItem('intake_analysis_results');
+    // if (cachedResults) {
+    //     try {
+    //         const data = JSON.parse(cachedResults);
+    //         console.log('Using cached analysis results:', data);
+    //         document.getElementById('results-state').style.display = 'block';
+    //         populateResults(data);
+    //         return; // Don't start new analysis
+    //     } catch (e) {
+    //         console.error('Failed to parse cached results:', e);
+    //         sessionStorage.removeItem('intake_analysis_results');
+    //     }
+    // }
     
     // No cached results, start fresh analysis
-    startAnalysis();
+    // Manually trigger analysis with button for debugging
+    console.log('Page loaded, waiting for manual trigger');
 });
 
 function startAnalysis() {
+    // Disable and update button state - handle both initial and retry buttons
+    const startBtns = document.querySelectorAll('[onclick="startAnalysis()"]');
+    startBtns.forEach(btn => {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-secondary');
+    });
+    
     // Show loading state with progress bar
     document.getElementById('loading-state').style.display = 'block';
     document.getElementById('results-state').style.display = 'none';
@@ -369,6 +413,7 @@ function startAnalysis() {
             
             if (data.error) {
                 eventSource.close();
+                resetStartButton();
                 document.getElementById('loading-state').style.display = 'none';
                 document.getElementById('error-state').style.display = 'block';
                 document.getElementById('error-message').textContent = data.error;
@@ -379,6 +424,7 @@ function startAnalysis() {
                 // Analysis complete
                 console.log('Analysis complete:', data);
                 eventSource.close();
+                resetStartButton();
                 document.getElementById('loading-state').style.display = 'none';
                 
                 if (data.analyses.length === 0) {
@@ -411,15 +457,31 @@ function startAnalysis() {
     eventSource.onerror = function(error) {
         console.error('EventSource error:', error);
         eventSource.close();
+        resetStartButton();
         document.getElementById('loading-state').style.display = 'none';
         document.getElementById('error-state').style.display = 'block';
         document.getElementById('error-message').textContent = 'Connection lost during analysis.';
     };
 }
 
+function resetStartButton() {
+    const startBtns = document.querySelectorAll('[onclick="startAnalysis()"]');
+    startBtns.forEach(btn => {
+        btn.disabled = false;
+        // Reset to original text based on context
+        if (btn.closest('#error-state')) {
+            btn.innerHTML = '� Retry Analysis';
+        } else {
+            btn.innerHTML = '🔍 Start Analysis';
+        }
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-primary');
+    });
+}
+
 function updateLoadingProgress(data) {
     const progressPercent = data.total > 0 ? Math.round((data.progress / data.total) * 100) : 0;
-    const progressText = data.total > 0 ? `${data.progress} of ${data.total}` : '0 of 0';
+    const progressText = data.total > 0 ? `${data.progress} of ${data.total} PDFs` : '0 of 0 PDFs';
     
     // Update progress bar
     const progressBar = document.querySelector('#loading-state .progress-bar');
@@ -439,6 +501,42 @@ function updateLoadingProgress(data) {
     }
     
     console.log(`Progress: ${progressText} PDFs (${progressPercent}%)`);
+}
+
+function startAnalysisOld() {
+    // Show loading state
+    document.getElementById('loading-state').style.display = 'block';
+    document.getElementById('results-state').style.display = 'none';
+    document.getElementById('no-files-state').style.display = 'none';
+    document.getElementById('error-state').style.display = 'none';
+    
+    // Use the old API endpoint temporarily
+    fetch('/api/analyze_intake')
+        .then(response => {
+            console.log('API Response status:', response.status);
+            return response.json();
+        })
+        .then(data => {
+            console.log('API Response data:', data);
+            document.getElementById('loading-state').style.display = 'none';
+            
+            if (data.success) {
+                if (data.analyses.length === 0) {
+                    document.getElementById('no-files-state').style.display = 'block';
+                } else {
+                    document.getElementById('results-state').style.display = 'block';
+                    populateResults(data);
+                }
+            } else {
+                document.getElementById('error-state').style.display = 'block';
+                document.getElementById('error-message').textContent = data.error;
+            }
+        })
+        .catch(error => {
+            document.getElementById('loading-state').style.display = 'none';
+            document.getElementById('error-state').style.display = 'block';
+            document.getElementById('error-message').textContent = 'Network error: ' + error.message;
+        });
 }
 
 function recheckForPDFs() {

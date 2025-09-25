@@ -39,7 +39,7 @@
         <a href="{{ url_for('revisit_batch_page', batch_id=batch_id, page=current_page_num + 1) }}">Next Page &raquo;</a>
     {% else %}
         <!-- On the last page, the "Next" button becomes a "Finish" button -->
-        <a href="{{ url_for('mission_control_page') }}" style="background-color: #17a2b8;">Finish Revisiting</a>
+        <a href="{{ url_for('batch_control_page') }}" style="background-color: #17a2b8;">Finish Revisiting</a>
     {% endif %}
 </div>
 

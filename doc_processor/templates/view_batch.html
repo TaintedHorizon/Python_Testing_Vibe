@@ -20,7 +20,7 @@
 </style>
 
 <h1>Viewing Completed Batch #{{ batch_id }} <span style="font-size: 0.6em; color: #666;">(Status: {{ batch.status }})</span></h1>
-<p>This is a read-only view of the pages in this completed batch. If changes are needed, you must use the "Reset Batch" button on the Mission Control page.</p>
+<p>This is a read-only view of the pages in this completed batch. If changes are needed, you must use the "Reset Batch" button on the Batch Control page.</p>
 
 <div class="pagination">
     {% if current_page_num > 1 %}
@@ -32,7 +32,7 @@
     {% if current_page_num < total_pages %}
         <a href="{{ url_for('view_batch_page', batch_id=batch_id, page=current_page_num + 1) }}">Next Page &raquo;</a>
     {% else %}
-        <a href="{{ url_for('mission_control_page') }}" style="background-color: #17a2b8;">Finish Viewing</a>
+        <a href="{{ url_for('batch_control_page') }}" style="background-color: #17a2b8;">Finish Viewing</a>
     {% endif %}
 </div>
 

@@ -21,9 +21,9 @@ def test_intake():
     return render_template('intake_analysis.html', 
                           intake_dir='/mnt/scans_intake')
 
-@app.route('/mission_control_page')
-def mission_control_page():
-    return '<h1>Mission Control (Mock)</h1><a href="/test_intake">Back to Intake Analysis</a>'
+@app.route('/batch_control_page')
+def batch_control_page():
+    return '<h1>Batch Control (Mock)</h1><a href="/test_intake">Back to Intake Analysis</a>'
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)

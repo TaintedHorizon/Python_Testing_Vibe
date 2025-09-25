@@ -12,7 +12,7 @@ This repository contains a robust, RAG-ready document processing pipeline with f
 - **Category governance:** Add, rename (with historical trace), soft delete/restore, annotate, and optionally backfill old page categories on rename.
 - **RAG-ready:** All OCR text, AI outputs, human decisions, and taxonomy evolution are stored for future retrieval-augmented workflows.
 - **Export:** Each document is exported as a non-searchable PDF, a searchable PDF (with OCR layer), and a Markdown log (per-document + batch context).
-- **Modern Flask web UI** for mission control, verification, review, grouping, ordering, finalization, auditing, and category management.
+- **Modern Flask web UI** for batch control, verification, review, grouping, ordering, finalization, auditing, and category management.
 - **Rotation-safe OCR:** Re-run OCR with an in-memory rotation (non-destructive) while persisting a logical `rotation_angle` for display.
 - **Structured logging:** One-time JSON startup database metadata log; structured JSON content for category & rotation events.
 
@@ -51,7 +51,7 @@ This repository contains a robust, RAG-ready document processing pipeline with f
    ```
 2. Access the UI at `http://localhost:5000`
 3. Place test PDFs in your configured INTAKE_DIR
-4. Follow the Mission Control workflow for processing, verification, grouping, ordering, and export
+4. Follow the Batch Control workflow for processing, verification, grouping, ordering, and export
 
 ### Category Management
 Access `/categories` (navbar link). Features include:

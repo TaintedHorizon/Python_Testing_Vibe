@@ -48,7 +48,7 @@ python doc_processor/database_setup.py
 1. Start Flask server: `python doc_processor/app.py`
 2. Access UI at `http://localhost:5000`
 3. Place test PDFs in configured INTAKE_DIR
-4. Follow Mission Control workflow for processing
+4. Follow Batch Control workflow for processing
 
 ## Project-Specific Conventions
 

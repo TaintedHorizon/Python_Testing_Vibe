@@ -282,7 +282,7 @@ def get_batch_by_id(batch_id):
 def count_flagged_pages_for_batch(batch_id):
     """
     Efficiently counts the number of pages marked as 'flagged' within a batch.
-    Used for display on the Mission Control dashboard.
+    Used for display on the Batch Control dashboard.
 
     Args:
         batch_id (int): The unique identifier for the batch.

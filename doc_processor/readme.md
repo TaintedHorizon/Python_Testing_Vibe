@@ -39,7 +39,7 @@ This project has recently completed Module 5, which finalizes the document proce
 *   **Automated Ingestion**: Automatically processes all PDFs from a designated intake folder.
 *   **OCR and Pre-processing**: Converts PDFs to images, detects and corrects page orientation, and extracts text using EasyOCR and Tesseract OCR.
 *   **AI-Powered Classification**: Uses a local Large Language Model (via Ollama) to provide an initial "best guess" category for each page.
-*   **Guided Web Interface**: A step-by-step workflow presented in a central "Mission Control" dashboard that guides the user through each stage.
+*   **Guided Web Interface**: A step-by-step workflow presented in a central "Batch Control" dashboard that guides the user through each stage.
 *   **Verification & Correction**: A rapid, page-by-page UI to approve or correct AI-suggested categories.
 *   **Flagging & Review**: A safety net to flag problematic pages for a dedicated review process, where OCR can be re-run with manual rotation.
 *   **Interactive Document Grouping**: A user-friendly interface to assemble individual verified pages into logical, multi-page documents.
@@ -89,7 +89,7 @@ doc_processor/
 ├── templates/          # HTML templates for Flask UI
 │   ├── base.html
 │   ├── group.html
-│   ├── mission_control.html
+│   ├── batch_control.html
 │   ├── order_batch.html
 │   ├── order_document.html
 │   ├── review.html
@@ -256,14 +256,43 @@ ARCHIVE_DIR=/path/to/your/archive_folder
 DATABASE_PATH=/path/to/your/database/documents.db
 FILING_CABINET_DIR=/path/to/your/filing_cabinet
 
-# --- Ollama AI Configuration ---
+# --- Ollama LLM Configuration ---
 OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama3
+OLLAMA_MODEL=llama3.1:8b
+OLLAMA_CONTEXT_WINDOW=8192
+
+# --- Task-Specific Context Windows ---
+# These control AI context window sizes for different tasks
+# Smaller contexts = faster inference, larger contexts = better quality
+OLLAMA_CTX_CLASSIFICATION=2048    # Document category classification
+OLLAMA_CTX_DETECTION=2048         # Single vs batch document detection
+OLLAMA_CTX_CATEGORY=2048          # Page category assignment
+OLLAMA_CTX_ORDERING=2048          # Page ordering within documents
+OLLAMA_CTX_TITLE_GENERATION=4096  # Document title generation (needs more context)
 
 # --- Debugging ---
 # Set to "true" to skip the slow OCR process for faster UI testing.
 DEBUG_SKIP_OCR=false
 ```
+
+### 🎛️ **AI Context Window Tuning**
+
+The system uses different context window sizes for different AI tasks to optimize performance and quality. The system automatically logs context usage for each task:
+
+```bash
+[LLM DETECTION] Context: 750~tokens/2048 (36.6% usage)
+[LLM TITLE_GENERATION] Context: 1800~tokens/4096 (43.9% usage)
+```
+
+**Tuning Guidelines:**
+- **High usage (>80%)**: Consider increasing the context window
+- **Low usage (<30%)**: Consider decreasing for better performance
+- **Context overflow**: Increase immediately to prevent quality degradation
+
+**Common Adjustments:**
+- Increase `OLLAMA_CTX_TITLE_GENERATION` to 6144+ for complex documents
+- Decrease `OLLAMA_CTX_CLASSIFICATION` to 1024 for simple categorization
+- Monitor logs and adjust based on actual usage patterns
 
 **4. Initialize the Database:**
 
@@ -291,14 +320,14 @@ python -m doc_processor.app
 
 **2. Access the Application:**
 
-Open your web browser and go to `http://<your_vm_ip>:5000`. This will take you to the "Mission Control" page.
+Open your web browser and go to `http://<your_vm_ip>:5000`. This will take you to the "Batch Control" page.
 
 **3. Workflow Guide:**
 
 For detailed usage instructions and troubleshooting, see `docs/USAGE.md`. The basic workflow is:
 
 1.  **Place Files**: Add new PDF documents into the folder you specified as your `INTAKE_DIR`.
-2.  **Start Batch**: On the Mission Control page, click the "Start New Batch" button. The system will process all files from the intake folder.
+2.  **Start Batch**: On the Batch Control page, click the "Start New Batch" button. The system will process all files from the intake folder.
 3.  **Verify**: A new batch will appear. Click the "Verify" button. Go through each page, approving the AI's category or selecting a new one. You can add a new custom category at any time; it will be saved globally and appear in all future dropdowns. Use the "Flag for Review" button if a page has issues (e.g., poor OCR, upside down).
 4.  **Review (If Needed)**: If you flagged any pages, a "Review" button will appear. Use this page to fix rotations, re-run OCR, or delete bad pages. All categories (default and custom) are always available in the dropdown.
 5.  **Group**: Once verification is complete, click the "Group" button. On this screen, select pages from the same category and give them a document name (e.g., "January 2024 Bank Statement").

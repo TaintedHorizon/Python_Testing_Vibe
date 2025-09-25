@@ -25,6 +25,15 @@ class AppConfig:
     OLLAMA_HOST: Optional[str] = None
     OLLAMA_MODEL: Optional[str] = None
     OLLAMA_CONTEXT_WINDOW: Optional[int] = 8192
+    OLLAMA_NUM_GPU: Optional[int] = None
+    OLLAMA_TIMEOUT: int = 45
+    
+    # --- Task-Specific Context Windows ---
+    OLLAMA_CTX_CLASSIFICATION: int = 2048
+    OLLAMA_CTX_DETECTION: int = 2048
+    OLLAMA_CTX_CATEGORY: int = 2048
+    OLLAMA_CTX_ORDERING: int = 2048
+    OLLAMA_CTX_TITLE_GENERATION: int = 4096
 
     # --- Debugging and Feature Flags ---
     DEBUG_SKIP_OCR: bool = False
@@ -77,6 +86,9 @@ class AppConfig:
         # Construct and validate configuration
         try:
             archive_retention_days = int(os.getenv("ARCHIVE_RETENTION_DAYS", "30"))
+            ollama_num_gpu = os.getenv("OLLAMA_NUM_GPU")
+            ollama_num_gpu = int(ollama_num_gpu) if ollama_num_gpu is not None and ollama_num_gpu != "" else None
+            ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "45"))
             config = cls(
                 # Core Application Configuration
                 DATABASE_PATH=get_env("DATABASE_PATH", cls.DATABASE_PATH),
@@ -90,6 +102,15 @@ class AppConfig:
                 OLLAMA_HOST=get_optional_env("OLLAMA_HOST"),
                 OLLAMA_MODEL=get_optional_env("OLLAMA_MODEL"),
                 OLLAMA_CONTEXT_WINDOW=int(get_env("OLLAMA_CONTEXT_WINDOW", str(cls.OLLAMA_CONTEXT_WINDOW))),
+                OLLAMA_NUM_GPU=ollama_num_gpu,
+                OLLAMA_TIMEOUT=ollama_timeout,
+                
+                # Task-Specific Context Windows
+                OLLAMA_CTX_CLASSIFICATION=int(get_env("OLLAMA_CTX_CLASSIFICATION", str(cls.OLLAMA_CTX_CLASSIFICATION))),
+                OLLAMA_CTX_DETECTION=int(get_env("OLLAMA_CTX_DETECTION", str(cls.OLLAMA_CTX_DETECTION))),
+                OLLAMA_CTX_CATEGORY=int(get_env("OLLAMA_CTX_CATEGORY", str(cls.OLLAMA_CTX_CATEGORY))),
+                OLLAMA_CTX_ORDERING=int(get_env("OLLAMA_CTX_ORDERING", str(cls.OLLAMA_CTX_ORDERING))),
+                OLLAMA_CTX_TITLE_GENERATION=int(get_env("OLLAMA_CTX_TITLE_GENERATION", str(cls.OLLAMA_CTX_TITLE_GENERATION))),
                 
                 # Debugging and Feature Flags
                 DEBUG_SKIP_OCR=get_env("DEBUG_SKIP_OCR", str(cls.DEBUG_SKIP_OCR)).lower() in ("true", "1", "t"),

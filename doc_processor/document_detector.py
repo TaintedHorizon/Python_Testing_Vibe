@@ -193,7 +193,7 @@ class DocumentTypeDetector:
             
             llm_analysis = None
             
-            # Check if this is an ambiguous case that could benefit from LLM analysis
+            # Always use LLM analysis for training data collection (RAG training)
             score_difference = abs(single_doc_score - batch_doc_score)
             is_ambiguous = (
                 score_difference <= 2 or  # Close scores
@@ -201,12 +201,16 @@ class DocumentTypeDetector:
                 (5 <= page_count <= 20)   # Ambiguous page count range
             )
             
-            # Use LLM for ambiguous cases if available
-            if (is_ambiguous and self.use_llm_for_ambiguous and 
+            # Always use LLM if available to collect comprehensive training data
+            if (self.use_llm_for_ambiguous and 
                 self._get_ai_analysis and content_sample.strip()):
                 
-                self.logger.info(f"Ambiguous case detected for {os.path.basename(file_path)}, consulting LLM...")
-                reasoning.append("Ambiguous heuristics - consulting LLM for deeper analysis")
+                if is_ambiguous:
+                    self.logger.info(f"Ambiguous case detected for {os.path.basename(file_path)}, consulting LLM...")
+                    reasoning.append("Ambiguous heuristics - consulting LLM for deeper analysis")
+                else:
+                    self.logger.info(f"Analyzing {os.path.basename(file_path)} with LLM for training data collection...")
+                    reasoning.append("LLM analysis for comprehensive training data collection")
                 
                 llm_analysis = self._get_ai_analysis(
                     file_path, content_sample, os.path.basename(file_path), 
@@ -218,16 +222,23 @@ class DocumentTypeDetector:
                     llm_confidence = llm_analysis.get('confidence', 50) / 100.0  # Convert to 0-1
                     llm_reasoning = llm_analysis.get('reasoning', 'LLM analysis')
                     
-                    # Combine heuristic and LLM analysis
-                    if llm_confidence >= 0.6:  # Trust LLM if reasonably confident
+                    # Combine heuristic and LLM analysis based on case type
+                    if is_ambiguous and llm_confidence >= 0.6:  # Trust LLM for ambiguous cases
                         strategy = llm_strategy
                         confidence = (confidence + llm_confidence) / 2  # Average confidences
                         reasoning.append(f"LLM analysis (confidence: {llm_confidence:.2f}): {llm_reasoning[:100]}...")
                         reasoning.append(f"Final decision: {strategy} based on LLM analysis")
-                    else:
-                        # LLM not confident, stick with heuristics but note the analysis
+                    elif is_ambiguous:
+                        # Ambiguous case but LLM not confident, stick with heuristics
                         reasoning.append(f"LLM uncertain (confidence: {llm_confidence:.2f}): {llm_reasoning[:100]}...")
                         reasoning.append("Sticking with heuristic analysis due to low LLM confidence")
+                    else:
+                        # Clear case - use heuristics as primary, LLM as supplementary data
+                        reasoning.append(f"LLM supplementary analysis (confidence: {llm_confidence:.2f}): {llm_reasoning[:100]}...")
+                        if llm_strategy != strategy:
+                            reasoning.append(f"Note: LLM suggests '{llm_strategy}' while heuristics suggest '{strategy}'")
+                        else:
+                            reasoning.append(f"LLM agrees with heuristic classification: {strategy}")
             
             # Apply final decision logic if not already set by LLM
             if 'strategy' not in locals() or not strategy:

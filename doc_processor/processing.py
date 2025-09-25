@@ -148,59 +148,6 @@ def database_connection():
             conn.close()
 
 
-# --- AI HELPER FUNCTION ---
-def _query_ollama(prompt: str, timeout: int = 60) -> Optional[str]:
-    """
-    Sends a prompt to the configured Ollama API endpoint and returns the response.
-
-    This centralized function handles all communication with the AI model. It
-    checks for necessary configuration, formats the request, sends it, and
-    performs basic error handling.
-
-    Args:
-        prompt (str): The full prompt to send to the AI model.
-        timeout (int): The timeout for the request in seconds.
-
-    Returns:
-        Optional[str]: The text content of the AI's response, or None if an
-                       error occurred or the required configuration is missing.
-    """
-    if not app_config.OLLAMA_HOST or not app_config.OLLAMA_MODEL:
-        logging.error("[AI ERROR] OLLAMA_HOST or OLLAMA_MODEL is not set.")
-        return None
-    # Log the AI prompt
-    log_interaction(
-        batch_id=None,  # Fill in batch_id if available in calling context
-        document_id=None,  # Fill in document_id if available in calling context
-        user_id=get_current_user_id(),
-        event_type="ai_prompt",
-        step=None,
-        content=prompt,
-        notes="Ollama prompt sent"
-    )
-    try:
-        response = requests.post(
-            f"{app_config.OLLAMA_HOST}/api/generate",
-            json={"model": app_config.OLLAMA_MODEL, "prompt": prompt, "stream": False},
-            timeout=timeout,
-        )
-        response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
-        ai_response = response.json().get("response", "").strip()
-        # Log the AI response
-        log_interaction(
-            batch_id=None,  # Fill in batch_id if available in calling context
-            document_id=None,  # Fill in document_id if available in calling context
-            user_id=get_current_user_id(),
-            event_type="ai_response",
-            step=None,
-            content=ai_response,
-            notes="Ollama response received"
-        )
-        return ai_response
-    except requests.exceptions.RequestException as e:
-        logging.error(f"[AI ERROR] Could not connect to Ollama: {e}")
-        return None
-
 
 # --- FILENAME SANITIZATION ---
 def _validate_file_type(file_path: str) -> bool:
@@ -390,7 +337,7 @@ TEXT TO ANALYZE:
 {page_text[:4000]}
 ---
 """
-    category = _query_ollama(prompt)
+    category = _query_ollama(prompt, context_window=app_config.OLLAMA_CTX_CLASSIFICATION, task_name="classification")
 
     if category is None:
         return "AI_Error"  # Indicates a connection or API error
@@ -526,7 +473,7 @@ Consider:
 Respond with ONLY the category name that best fits this document."""
 
     try:
-        response = _query_ollama(prompt, timeout=30)
+        response = _query_ollama(prompt, timeout=app_config.OLLAMA_TIMEOUT, context_window=app_config.OLLAMA_CTX_CATEGORY, task_name="category")
         if response:
             # Extract category from response
             response_clean = response.strip().lower()
@@ -548,72 +495,10 @@ Respond with ONLY the category name that best fits this document."""
 
 def get_ai_document_type_analysis(file_path: str, content_sample: str, filename: str, 
                                  page_count: int, file_size_mb: float) -> Optional[Dict]:
-    """
-    Use LLM to analyze document type (single document vs batch scan).
-    
-    This function asks the LLM to examine document structure, layout patterns,
-    and content to determine if it's a single cohesive document or a batch scan
-    of multiple documents.
-    
-    Args:
-        file_path: Path to the PDF file
-        content_sample: First ~500-1000 characters of document text
-        filename: Name of the file (without path)
-        page_count: Number of pages in the document
-        file_size_mb: File size in megabytes
-    
-    Returns:
-        Dict with keys: 'classification' ('single_document'|'batch_scan'), 
-                       'confidence' (0-100), 'reasoning' (str explanation)
-        Or None if LLM is unavailable or analysis fails
-    """
-    if not content_sample.strip():
-        return None
-    
-    # Truncate content if too long for LLM context
-    max_chars = 2000  # Conservative limit to leave room for prompt
-    if len(content_sample) > max_chars:
-        content_sample = content_sample[:max_chars] + "\n[... content truncated ...]"
-    
-    prompt = f"""You are analyzing a PDF file to determine if it contains a single document or multiple documents scanned together.
-
-FILE DETAILS:
-- Filename: {filename}
-- Page Count: {page_count}
-- File Size: {file_size_mb:.1f} MB
-
-DOCUMENT CONTENT SAMPLE (first portion):
-{content_sample}
-
-ANALYSIS TASK:
-Examine the content structure, layout patterns, and text to classify this PDF as either:
-1. SINGLE_DOCUMENT: One cohesive document (invoice, contract, report, letter, etc.)
-2. BATCH_SCAN: Multiple separate documents scanned together into one PDF
-
-CLASSIFICATION CRITERIA:
-- Single documents have consistent formatting, continuous content flow, unified purpose
-- Batch scans often show format changes, topic shifts, multiple document headers/footers, scan artifacts
-- Consider if the content reads as one document vs. multiple unrelated documents
-
-Your response must be in this EXACT format:
-CLASSIFICATION: [SINGLE_DOCUMENT or BATCH_SCAN]
-CONFIDENCE: [number from 0-100]
-REASONING: [detailed explanation of your analysis]
-
-Be specific about what patterns you observe that led to your conclusion."""
-
-    try:
-        response = _query_ollama(prompt, timeout=45)  # Longer timeout for analysis
-        
-        if not response:
-            return None
-        
-        # Parse LLM response
-        lines = response.strip().split('\n')
         classification = None
         confidence = 0
-        reasoning = ""
-        
+        reasoning = None
+        lines = response.strip().split('\n')
         for line in lines:
             line = line.strip()
             if line.startswith('CLASSIFICATION:'):
@@ -630,21 +515,25 @@ Be specific about what patterns you observe that led to your conclusion."""
                     confidence = 50  # Default moderate confidence
             elif line.startswith('REASONING:'):
                 reasoning = line.split(':', 1)[1].strip()
-            elif reasoning and line and not line.startswith(('CLASSIFICATION:', 'CONFIDENCE:')):
+            elif reasoning is not None and line and not line.startswith(('CLASSIFICATION:', 'CONFIDENCE:')):
                 # Continue multi-line reasoning
                 reasoning += " " + line
-        
+
+        # Always log the raw LLM response for debugging
+        logging.info(f"Raw LLM response for {filename}: {response}")
+
         if classification:
+            # Improve fallback: if reasoning is empty, show a more helpful message
+            if not reasoning:
+                reasoning = "No explanation provided by LLM. Please check prompt or model configuration."
             result = {
                 'classification': classification,
                 'confidence': confidence,
-                'reasoning': reasoning or "LLM analysis completed",
+                'reasoning': reasoning,
                 'llm_used': True
             }
-            
             logging.info(f"LLM classification for {filename}: {classification} "
-                        f"(confidence: {confidence}%) - {reasoning[:100]}...")
-            
+                        f"(confidence: {confidence}%) - {reasoning[:200]}...")
             # Log successful LLM analysis for training data collection
             log_interaction(
                 batch_id=None,
@@ -655,11 +544,9 @@ Be specific about what patterns you observe that led to your conclusion."""
                 content=f"{{\"filename\": \"{filename}\", \"page_count\": {page_count}, \"file_size_mb\": {file_size_mb}, \"prompt\": \"{prompt[:200]}...\", \"response\": \"{response[:200]}...\", \"parsed_result\": {result}}}",
                 notes=f"LLM document type analysis - {classification} ({confidence}%)"
             )
-            
             return result
         else:
             logging.warning(f"Could not parse LLM response for {filename}: {response[:200]}...")
-            
             # Log failed parsing for debugging
             log_interaction(
                 batch_id=None,
@@ -670,24 +557,7 @@ Be specific about what patterns you observe that led to your conclusion."""
                 content=f"{{\"filename\": \"{filename}\", \"prompt\": \"{prompt[:200]}...\", \"response\": \"{response[:200]}...\", \"error\": \"Could not parse classification\"}}",
                 notes="LLM response parsing failed"
             )
-            
-            return None
-            
-    except Exception as e:
-        logging.error(f"Error getting LLM document type analysis for {filename}: {e}")
-        
-        # Log LLM analysis errors
-        log_interaction(
-            batch_id=None,
-            document_id=None,
-            user_id=get_current_user_id(),
-            event_type="llm_detection_error", 
-            step="document_classification",
-            content=f"{{\"filename\": \"{filename}\", \"error\": \"{str(e)}\", \"prompt\": \"{prompt[:200] if 'prompt' in locals() else 'N/A'}...\"}}",
-            notes=f"LLM detection analysis failed: {e}"
-        )
-        
-        return None
+
 
 
 def process_batch() -> bool:
@@ -993,13 +863,11 @@ What is the printed page number?
 Your response MUST be an integer (e.g., \"1\", \"2\", \"3\") or the word \"none\" if no page number is found.
 Do not provide any other text or explanation.
 
----
 PAGE TEXT:
 {page_text[:3000]}
----
 END PAGE TEXT:
 """
-    result = _query_ollama(prompt, timeout=30)
+    result = _query_ollama(prompt, timeout=30, context_window=app_config.OLLAMA_CTX_ORDERING, task_name="ordering")
     if result is None:
         return None  # AI connection error
 
@@ -1063,24 +931,17 @@ def get_ai_suggested_filename(document_text: str, category: str) -> str:
 You are a file naming expert. Your ONLY task is to create a filename-safe title from the document text provided.
 
 RULES:
-- The title MUST be 4-6 words long.
-- Use hyphens (-) instead of spaces.
-- DO NOT include file extensions.
-- DO NOT include the date.
-- DO NOT add ANY introductory text, explanation, or any words other than the title itself.
 
 GOOD EXAMPLE: Brian-McCaleb-Tire-Service-Invoice
 BAD EXAMPLE: Based on the text, a good title would be: Brian-McCaleb-Tire-Service-Invoice
 
 Your ENTIRE response MUST be ONLY the filename title.
 
----
 DOCUMENT TEXT (Category: '{category}'):
 {document_text[:6000]}
----
 END DOCUMENT TEXT:
 """
-    ai_title = _query_ollama(prompt, timeout=90)
+    ai_title = _query_ollama(prompt, timeout=90, context_window=app_config.OLLAMA_CTX_TITLE_GENERATION, task_name="title_generation")
     # Log AI filename suggestion
     log_interaction(
         batch_id=None,  # Fill in if available
