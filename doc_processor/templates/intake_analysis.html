@@ -280,7 +280,7 @@
                 </div>
             </div>
             <div class="alert alert-success mt-3">
-                <strong>🎯 For 278 PDFs:</strong> Smart Processing is recommended - it will automatically fast-track obvious single documents while ensuring complex files get proper human verification. This typically saves 50-70% processing time.
+                <strong>🎯 Recommendation:</strong> Smart Processing is recommended - it will automatically fast-track obvious single documents while ensuring complex files get proper human verification. This typically saves 50-70% processing time.
             </div>
         </div>
     </div>
@@ -318,8 +318,12 @@ function startAnalysis() {
     
     // Fetch analysis results
     fetch('/api/analyze_intake')
-        .then(response => response.json())
+        .then(response => {
+            console.log('API Response status:', response.status);
+            return response.json();
+        })
         .then(data => {
+            console.log('API Response data:', data);
             document.getElementById('loading-state').style.display = 'none';
             
             if (data.success) {
@@ -422,14 +426,21 @@ function populateResults(data) {
         
         // Add LLM analysis if available
         if (analysis.llm_analysis) {
+            console.log('LLM Analysis for', analysis.filename, ':', analysis.llm_analysis);
+            const llmClassification = analysis.llm_analysis.classification ? analysis.llm_analysis.classification.replace('_', ' ') : 'Unknown';
+            const llmConfidence = analysis.llm_analysis.confidence || 0;
+            const llmReasoning = analysis.llm_analysis.reasoning || 'No reasoning provided';
+            
             reasoningHtml += `
                 <div class="mt-2 p-2 bg-light rounded" style="font-size: 0.8em;">
                     <strong>🤖 LLM Analysis:</strong>
-                    <br><span class="text-primary">${analysis.llm_analysis.classification.replace('_', ' ')}</span> 
-                    (${analysis.llm_analysis.confidence}% confidence)
-                    <br><small class="text-muted">${analysis.llm_analysis.reasoning.substring(0, 80)}${analysis.llm_analysis.reasoning.length > 80 ? '...' : ''}</small>
+                    <br><span class="text-primary">${llmClassification}</span> 
+                    (${llmConfidence}% confidence)
+                    <br><small class="text-muted">${llmReasoning.substring(0, 80)}${llmReasoning.length > 80 ? '...' : ''}</small>
                 </div>
             `;
+        } else {
+            console.log('No LLM analysis for', analysis.filename);
         }
         
         tableHtml += `

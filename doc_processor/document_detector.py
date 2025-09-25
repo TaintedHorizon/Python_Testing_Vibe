@@ -254,7 +254,7 @@ class DocumentTypeDetector:
             # Log detection decision for training data collection
             try:
                 # Import here to avoid circular imports
-                from . import database
+                from .database import log_interaction
                 
                 detection_data = {
                     "filename": os.path.basename(file_path),
@@ -269,10 +269,10 @@ class DocumentTypeDetector:
                     "reasoning": reasoning
                 }
                 
-                database.log_interaction(
+                log_interaction(
                     batch_id=None,
                     document_id=None,
-                    user_id="system",  # Use system directly since get_current_user_id is in processing.py
+                    user_id="system",
                     event_type="document_detection_decision",
                     step="intake_analysis",
                     content=str(detection_data),

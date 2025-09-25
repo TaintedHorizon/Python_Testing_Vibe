@@ -478,6 +478,9 @@ def analyze_intake_api():
             # Add LLM analysis data if available
             if hasattr(analysis, 'llm_analysis') and analysis.llm_analysis:
                 analysis_data['llm_analysis'] = analysis.llm_analysis
+                logging.info(f"Including LLM analysis for {analysis_data['filename']}: {analysis.llm_analysis}")
+            else:
+                logging.info(f"No LLM analysis for {analysis_data['filename']} (hasattr: {hasattr(analysis, 'llm_analysis')}, value: {getattr(analysis, 'llm_analysis', 'N/A')})")
                 
             template_analyses.append(analysis_data)
             
