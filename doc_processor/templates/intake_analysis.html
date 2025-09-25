@@ -66,8 +66,7 @@
         <div id="error-state" style="display: none;" class="text-center">
             <h4>❌ Analysis Failed</h4>
             <p id="error-message"></p>
-            <button onclick="startAnalysis()" class="btn btn-primary">🔄 Retry Analysis</button>
-            <a href="{{ url_for('batch_control_page') }}" class="btn btn-secondary ml-2">← Back to Batch Control</a>
+            <!-- The main Start Analysis button at the top becomes '🔄 Retry Analysis' when this is visible. -->
         </div>    {% if False %} <!-- Hide the static template content -->
     <!-- Summary Statistics -->
     <div class="row mb-4">
@@ -469,11 +468,9 @@ function resetStartButton() {
     startBtns.forEach(btn => {
         btn.disabled = false;
         // Reset to original text based on context
-        if (btn.closest('#error-state')) {
-            btn.innerHTML = '� Retry Analysis';
-        } else {
-            btn.innerHTML = '🔍 Start Analysis';
-        }
+        const errorVisible = document.getElementById('error-state') && 
+                             getComputedStyle(document.getElementById('error-state')).display !== 'none';
+        btn.innerHTML = errorVisible ? '🔄 Retry Analysis' : '🔍 Start Analysis';
         btn.classList.remove('btn-secondary');
         btn.classList.add('btn-primary');
     });
