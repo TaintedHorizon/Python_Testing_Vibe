@@ -1,0 +1,274 @@
+{% extends 'base.html' %}
+
+{% block title %}Smart Processing{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>🚀 Smart Processing</h1>
+    
+    <!-- Processing State -->
+    <div id="processing-state" class="alert alert-primary text-center">
+        <div class="spinner-border text-primary mb-3" role="status">
+        </div>
+        <h4>⚙️ Processing Your Documents...</h4>
+        <p id="processing-message" class="mb-3">Initializing smart processing...</p>
+        
+        <!-- Progress Bar -->
+        <div class="progress mb-3" style="height: 30px; max-width: 600px; margin: 0 auto;">
+            <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+                 role="progressbar" 
+                 style="width: 0%; white-space: nowrap; font-weight: 500; font-size: 14px; line-height: 30px;"
+                 aria-valuenow="0" 
+                 aria-valuemin="0" 
+                 aria-valuemax="100">
+                0 of 0 files
+            </div>
+        </div>
+        
+        <div id="processing-details" class="text-left" style="max-width: 600px; margin: 0 auto;">
+            <small class="text-muted">Processing files using AI-optimized strategies...</small>
+        </div>
+    </div>
+    
+    <!-- Success State -->
+    <div id="success-state" style="display: none;" class="alert alert-success text-center">
+        <h4>✅ Processing Complete!</h4>
+        <p id="success-message">Your documents have been processed successfully.</p>
+        <a href="/batch_control" class="btn btn-success btn-lg">📋 View Results</a>
+    </div>
+    
+    <!-- Error State -->
+    <div id="error-state" style="display: none;" class="alert alert-danger text-center">
+        <h4>❌ Processing Failed</h4>
+        <p id="error-message"></p>
+        <div class="mt-3">
+            <a href="/analyze_intake" class="btn btn-primary">🔄 Try Again</a>
+            <a href="/batch_control" class="btn btn-secondary ml-2">← Back to Batch Control</a>
+        </div>
+    </div>
+    
+    <!-- Navigation (Hidden during processing) -->
+    <div id="navigation-section" class="navigation-footer mt-5 pt-4 border-top" style="display: none;">
+        <div class="text-center">
+            <a href="/batch_control" class="action-btn btn-revisit btn-center">🏠 Batch Control</a>
+        </div>
+    </div>
+</div>
+
+<style>
+.progress {
+    height: 30px;
+}
+
+.spinner-border {
+    width: 3rem;
+    height: 3rem;
+}
+
+/* Action button styles matching the project */
+.action-btn { 
+    display: inline-block; 
+    padding: 12px 20px; 
+    text-decoration: none; 
+    color: white; 
+    border-radius: 5px; 
+    font-size: 1em; 
+    margin-right: 5px; 
+    margin-bottom: 5px; 
+    border: none; 
+    cursor: pointer; 
+    font-weight: 500;
+    transition: background-color 0.2s, transform 0.1s;
+}
+
+.action-btn:hover {
+    text-decoration: none;
+    color: white;
+    transform: translateY(-1px);
+}
+
+.btn-revisit { 
+    background-color: #6c757d; 
+}
+
+.btn-revisit:hover { 
+    background-color: #5a6268; 
+}
+
+/* Navigation section styling */
+.navigation-footer {
+    width: 100%;
+    margin-top: 3rem !important;
+    padding-top: 2rem !important;
+    border-top: 2px solid #dee2e6 !important;
+    text-align: center !important;
+}
+
+.btn-center {
+    display: inline-block !important;
+    margin: 0 auto !important;
+    text-align: center !important;
+}
+
+/* Processing details */
+#processing-details {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 15px;
+    text-align: left;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.processing-log {
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+    color: #495057;
+    margin: 2px 0;
+}
+
+.processing-log.success {
+    color: #28a745;
+}
+
+.processing-log.error {
+    color: #dc3545;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    startSmartProcessing();
+});
+
+function startSmartProcessing() {
+    console.log('Starting smart processing with progress tracking...');
+    
+    // Use Server-Sent Events for real-time progress
+    const eventSource = new EventSource('/api/smart_processing_progress');
+    
+    eventSource.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            console.log('Processing update:', data);
+            
+            if (data.error) {
+                eventSource.close();
+                showError(data.error);
+                return;
+            }
+            
+            if (data.complete) {
+                eventSource.close();
+                if (data.success) {
+                    showSuccess(data.message);
+                    // Auto-redirect after success
+                    if (data.redirect) {
+                        setTimeout(() => {
+                            window.location.href = data.redirect;
+                        }, 2000);
+                    }
+                } else {
+                    showError(data.error || 'Processing failed');
+                }
+                return;
+            }
+            
+            // Update progress
+            updateProgress(data);
+            
+        } catch (parseError) {
+            console.error('Error parsing processing update:', parseError, event.data);
+        }
+    };
+    
+    eventSource.onerror = function(error) {
+        console.error('EventSource error:', error);
+        eventSource.close();
+        showError('Connection lost during processing. Please check the server.');
+    };
+}
+
+function updateProgress(data) {
+    const progressPercent = data.total > 0 ? Math.round((data.progress / data.total) * 100) : 0;
+    const progressText = data.total > 0 ? `${data.progress} of ${data.total} files` : '0 of 0 files';
+    
+    // Update progress bar
+    const progressBar = document.getElementById('progress-bar');
+    if (progressBar) {
+        progressBar.style.width = progressPercent + '%';
+        progressBar.textContent = progressText;
+        progressBar.setAttribute('aria-valuenow', progressPercent);
+    }
+    
+    // Update message
+    const messageEl = document.getElementById('processing-message');
+    if (messageEl && data.message) {
+        messageEl.textContent = data.message;
+    }
+    
+    // Add processing log entry
+    if (data.message && data.current_file !== undefined) {
+        addProcessingLog(data.message, data.current_file);
+    }
+    
+    console.log(`Progress: ${progressText} (${progressPercent}%)`);
+}
+
+function addProcessingLog(message, currentFile) {
+    const detailsDiv = document.getElementById('processing-details');
+    if (!detailsDiv) return;
+    
+    // Create log entry
+    const logEntry = document.createElement('div');
+    logEntry.className = 'processing-log';
+    
+    // Add timestamp
+    const timestamp = new Date().toLocaleTimeString();
+    logEntry.textContent = `[${timestamp}] ${message}`;
+    
+    // Add success/error styling
+    if (message.includes('✓') || message.includes('Completed')) {
+        logEntry.classList.add('success');
+    } else if (message.includes('✗') || message.includes('Failed')) {
+        logEntry.classList.add('error');
+    }
+    
+    detailsDiv.appendChild(logEntry);
+    
+    // Auto-scroll to bottom
+    detailsDiv.scrollTop = detailsDiv.scrollHeight;
+    
+    // Limit log entries to prevent memory issues
+    const entries = detailsDiv.querySelectorAll('.processing-log');
+    if (entries.length > 50) {
+        entries[0].remove();
+    }
+}
+
+function showSuccess(message) {
+    document.getElementById('processing-state').style.display = 'none';
+    document.getElementById('error-state').style.display = 'none';
+    document.getElementById('success-state').style.display = 'block';
+    document.getElementById('navigation-section').style.display = 'block';
+    
+    const successMessage = document.getElementById('success-message');
+    if (successMessage) {
+        successMessage.textContent = message || 'Processing completed successfully!';
+    }
+}
+
+function showError(errorMessage) {
+    document.getElementById('processing-state').style.display = 'none';
+    document.getElementById('success-state').style.display = 'none';
+    document.getElementById('error-state').style.display = 'block';
+    document.getElementById('navigation-section').style.display = 'block';
+    
+    const errorMsg = document.getElementById('error-message');
+    if (errorMsg) {
+        errorMsg.textContent = errorMessage || 'An unknown error occurred.';
+    }
+}
+</script>
+{% endblock %}

@@ -748,19 +748,81 @@ function populateResults(data) {
             // Clear cached results since user is starting processing
             sessionStorage.removeItem('intake_analysis_results');
             
-            // Show loading state
-            document.getElementById('loading-state').style.display = 'block';
-            document.getElementById('results-state').style.display = 'none';
+            // Disable ALL processing buttons to prevent multiple simultaneous operations
+            disableAllProcessingButtons();
             
-            // Update loading message for processing
-            document.querySelector('#loading-state h4').textContent = '⚙️ Processing Your Documents...';
-            document.querySelector('#loading-state p').textContent = 'Please wait while we process your files using the selected strategy.';
-            
-            // Disable the button to prevent double-clicks
-            this.disabled = true;
-            this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Processing...';
+            // Show processing feedback based on button type
+            const buttonText = this.textContent.trim();
+            if (buttonText.includes('Smart Processing')) {
+                // Smart processing will redirect to its own progress page
+                this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Starting Smart Processing...';
+            } else {
+                // Other modes show loading state on current page
+                document.getElementById('loading-state').style.display = 'block';
+                document.getElementById('results-state').style.display = 'none';
+                
+                // Update loading message for processing
+                document.querySelector('#loading-state h4').textContent = '⚙️ Processing Your Documents...';
+                document.querySelector('#loading-state p').textContent = 'Please wait while we process your files using the selected strategy.';
+                
+                this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Processing...';
+            }
         });
     });
+    
+    // Also disable Start Analysis button during processing
+    const startAnalysisButtons = document.querySelectorAll('[onclick="startAnalysis()"]');
+    startAnalysisButtons.forEach(btn => {
+        const originalClick = btn.onclick;
+        btn.onclick = function(e) {
+            if (this.disabled || isProcessingActive()) {
+                e.preventDefault();
+                return false;
+            }
+            if (originalClick) {
+                originalClick.call(this, e);
+            }
+        };
+    });
+}
+
+function disableAllProcessingButtons() {
+    // Disable all processing buttons
+    const allProcessingButtons = document.querySelectorAll('#analysis-results form button[type="submit"], [onclick="startAnalysis()"]');
+    allProcessingButtons.forEach(btn => {
+        btn.disabled = true;
+        if (!btn.innerHTML.includes('spinner-border')) {
+            btn.classList.add('btn-secondary');
+            btn.classList.remove('btn-primary', 'btn-success', 'btn-info', 'btn-warning');
+        }
+    });
+}
+
+function enableAllProcessingButtons() {
+    // Re-enable all processing buttons (in case of errors)
+    const allProcessingButtons = document.querySelectorAll('#analysis-results form button[type="submit"], [onclick="startAnalysis()"]');
+    allProcessingButtons.forEach(btn => {
+        btn.disabled = false;
+        btn.classList.remove('btn-secondary');
+        // Restore original button classes based on context
+        if (btn.innerHTML.includes('Smart Processing')) {
+            btn.classList.add('btn-success');
+        } else if (btn.innerHTML.includes('Speed Mode')) {
+            btn.classList.add('btn-info');
+        } else if (btn.innerHTML.includes('Safety Mode')) {
+            btn.classList.add('btn-warning');
+        } else {
+            btn.classList.add('btn-primary');
+        }
+    });
+}
+
+function isProcessingActive() {
+    // Check if any processing is currently active
+    const processingButtons = document.querySelectorAll('#analysis-results form button[type="submit"]');
+    return Array.from(processingButtons).some(btn => 
+        btn.disabled && btn.innerHTML.includes('spinner-border')
+    );
 }
 
 function toggleLlmDetails(analysisId) {
