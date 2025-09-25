@@ -66,14 +66,29 @@ class DocumentTypeDetector:
     def __init__(self, use_llm_for_ambiguous=True):
         self.logger = logging.getLogger(__name__)
         self.use_llm_for_ambiguous = use_llm_for_ambiguous
-        # Import here to avoid circular imports
+        self._get_ai_analysis = None
+        
+        # Lazy import to avoid circular imports
+        if use_llm_for_ambiguous:
+            self._import_llm_function()
+    
+    def _import_llm_function(self):
+        """Lazy import of LLM function to avoid circular imports."""
         try:
-            from .processing import get_ai_document_type_analysis
-            self._get_ai_analysis = get_ai_document_type_analysis
+            # Try relative import first
+            from . import processing
+            self._get_ai_analysis = processing.get_ai_document_type_analysis
+            self.logger.info("LLM analysis function loaded successfully")
         except ImportError:
-            self.logger.warning("Could not import LLM analysis function - LLM detection disabled")
-            self.use_llm_for_ambiguous = False
-            self._get_ai_analysis = None
+            try:
+                # Try direct import as fallback
+                import processing
+                self._get_ai_analysis = processing.get_ai_document_type_analysis
+                self.logger.info("LLM analysis function loaded successfully (fallback)")
+            except Exception as e:
+                self.logger.warning(f"Could not import LLM analysis function: {e} - LLM detection disabled")
+                self.use_llm_for_ambiguous = False
+                self._get_ai_analysis = None
     
     def analyze_pdf(self, file_path: str) -> DocumentAnalysis:
         """
@@ -101,7 +116,24 @@ class DocumentTypeDetector:
                 content_sample = ""
                 if page_count > 0:
                     first_page = doc[0]
-                    content_sample = first_page.get_text()[:500]  # First 500 chars
+                    # Use PyMuPDF text extraction - try multiple methods for compatibility
+                    try:
+                        # Modern PyMuPDF API
+                        if hasattr(first_page, 'get_text'):
+                            content_sample = first_page.get_text()[:500]
+                        # Legacy PyMuPDF API
+                        elif hasattr(first_page, 'getText'):
+                            content_sample = first_page.getText()[:500]
+                        # Alternative method using textpage
+                        elif hasattr(first_page, 'get_textpage'):
+                            textpage = first_page.get_textpage()
+                            content_sample = textpage.extractText()[:500] if textpage else ""
+                        else:
+                            self.logger.warning("No text extraction method available in PyMuPDF")
+                            content_sample = ""
+                    except Exception as text_error:
+                        self.logger.warning(f"Text extraction failed: {text_error}")
+                        content_sample = ""
             
             reasoning.append(f"File size: {file_size_mb:.1f}MB, Pages: {page_count}")
             
