@@ -148,6 +148,53 @@ def database_connection():
             conn.close()
 
 
+# --- LLM QUERY FUNCTION ---
+def _query_ollama(prompt: str, timeout: int = 45, context_window: int = 4096, task_name: str = "general") -> Optional[str]:
+    """
+    Queries the Ollama LLM with the given prompt.
+    
+    Args:
+        prompt: The prompt to send to the LLM
+        timeout: Timeout in seconds for the request
+        context_window: Context window size for the model
+        task_name: Name of the task for logging purposes
+        
+    Returns:
+        The LLM response as a string, or None if there was an error
+    """
+    if not app_config.OLLAMA_HOST or not app_config.OLLAMA_MODEL:
+        logging.warning("Ollama not configured - OLLAMA_HOST or OLLAMA_MODEL missing")
+        return None
+        
+    try:
+        import ollama
+        
+        # Create Ollama client
+        client = ollama.Client(host=app_config.OLLAMA_HOST)
+        
+        # Prepare the request
+        messages = [{'role': 'user', 'content': prompt}]
+        options = {'num_ctx': context_window}
+        
+        # Make the request
+        logging.debug(f"Sending {task_name} request to Ollama model {app_config.OLLAMA_MODEL}")
+        response = client.chat(
+            model=app_config.OLLAMA_MODEL,
+            messages=messages,
+            options=options
+        )
+        
+        result = response['message']['content'].strip()
+        logging.debug(f"Ollama {task_name} response received: {len(result)} characters")
+        return result
+        
+    except ImportError:
+        logging.error("ollama package not installed - run: pip install ollama")
+        return None
+    except Exception as e:
+        logging.error(f"Error querying Ollama for {task_name}: {e}")
+        return None
+
 
 # --- FILENAME SANITIZATION ---
 def _validate_file_type(file_path: str) -> bool:
@@ -495,6 +542,52 @@ Respond with ONLY the category name that best fits this document."""
 
 def get_ai_document_type_analysis(file_path: str, content_sample: str, filename: str, 
                                  page_count: int, file_size_mb: float) -> Optional[Dict]:
+    """
+    Uses LLM to analyze document type based on content and metadata.
+    
+    Args:
+        file_path: Full path to the PDF file
+        content_sample: Sample text from the document
+        filename: Base filename for analysis
+        page_count: Number of pages in document
+        file_size_mb: File size in megabytes
+        
+    Returns:
+        Dict with classification, confidence, reasoning, and llm_used flag
+    """
+    try:
+        # Create structured prompt for LLM analysis
+        prompt = f"""You are a document analysis expert. Analyze this document and determine if it should be processed as a SINGLE_DOCUMENT or BATCH_SCAN.
+
+FILE DETAILS:
+- Filename: {filename}
+- Page Count: {page_count}
+- File Size: {file_size_mb:.1f} MB
+
+DOCUMENT CONTENT SAMPLE:
+{content_sample[:2000]}
+
+ANALYSIS TASK:
+Classify as SINGLE_DOCUMENT or BATCH_SCAN based on:
+- Content structure and formatting consistency
+- Document flow and topic coherence
+- Presence of multiple document headers/footers
+- Format changes and scan artifacts
+
+RESPONSE FORMAT:
+CLASSIFICATION: [SINGLE_DOCUMENT or BATCH_SCAN]
+CONFIDENCE: [0-100]
+REASONING: [Detailed explanation of your analysis]
+
+Provide your analysis now:"""
+
+        # Query the LLM
+        response = _query_ollama(prompt, timeout=app_config.OLLAMA_TIMEOUT, context_window=app_config.OLLAMA_CTX_CATEGORY, task_name="document_type_analysis")
+        
+        if not response:
+            return None
+            
+        # Parse the LLM response
         classification = None
         confidence = 0
         reasoning = None
@@ -557,7 +650,22 @@ def get_ai_document_type_analysis(file_path: str, content_sample: str, filename:
                 content=f"{{\"filename\": \"{filename}\", \"prompt\": \"{prompt[:200]}...\", \"response\": \"{response[:200]}...\", \"error\": \"Could not parse classification\"}}",
                 notes="LLM response parsing failed"
             )
-
+            
+            return None
+            
+    except Exception as e:
+        logging.error(f"Error getting LLM document type analysis for {filename}: {e}")
+        # Log LLM analysis errors
+        log_interaction(
+            batch_id=None,
+            document_id=None,
+            user_id=get_current_user_id(),
+            event_type="llm_detection_error", 
+            step="document_classification",
+            content=f"{{\"filename\": \"{filename}\", \"error\": \"{str(e)}\", \"prompt\": \"{prompt[:200] if 'prompt' in locals() else 'N/A'}...\"}}",
+            notes=f"LLM detection analysis failed: {e}"
+        )
+        return None
 
 
 def process_batch() -> bool:
