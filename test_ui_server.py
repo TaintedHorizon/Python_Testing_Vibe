@@ -6,7 +6,7 @@ This bypasses the import issues in the main app for quick UI testing.
 
 from flask import Flask, render_template
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='doc_processor/templates')
 
 @app.route('/')
 def index():
