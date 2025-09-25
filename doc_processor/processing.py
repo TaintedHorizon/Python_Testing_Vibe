@@ -44,6 +44,7 @@ from .config_manager import app_config
 from .exceptions import FileProcessingError, OCRError, AIServiceError
 from .security import validate_path, sanitize_filename
 from .database import get_all_categories, log_interaction
+from .document_detector import get_detector, DocumentAnalysis
 
 # --- INTERNAL HELPERS (typing / compatibility) ---
 def _doc_new_page(doc: Any, *, width: float, height: float):
@@ -402,14 +403,234 @@ TEXT TO ANALYZE:
     return category
 
 
+def process_single_document(file_path: str, suggested_strategy: str = "single_document") -> Optional[int]:
+    """
+    Process a single PDF document without page decomposition.
+    
+    This bypasses the traditional batch workflow for documents identified
+    as single units. The document is processed as one entity with OCR
+    and AI classification applied to the full content.
+    
+    Args:
+        file_path: Path to the PDF file
+        suggested_strategy: Processing strategy hint from detection
+    
+    Returns:
+        Document ID if successful, None if failed
+    """
+    logging.info(f"--- PROCESSING SINGLE DOCUMENT: {file_path} ---")
+    
+    try:
+        filename = os.path.basename(file_path)
+        sanitized_name = _sanitize_filename(filename)
+        
+        with database_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Create a single-document batch
+            cursor.execute(
+                "INSERT INTO batches (status) VALUES (?)",
+                ("complete",)  # Single docs go straight to complete
+            )
+            batch_id = cursor.lastrowid
+            conn.commit()
+            
+            logging.info(f"Created single-document batch: {batch_id}")
+            
+            # Extract full text content from PDF for AI classification
+            full_text = ""
+            page_count = 0
+            
+            with fitz.open(file_path) as doc:
+                page_count = len(doc)
+                
+                # Extract text from all pages
+                for page_num in range(page_count):
+                    page = doc[page_num]
+                    page_text = page.get_text()
+                    full_text += f"\n--- Page {page_num + 1} ---\n{page_text}"
+            
+            logging.info(f"Extracted text from {page_count} pages")
+            
+            # Get AI classification for the full document
+            ai_category = get_ai_classification_single_document(full_text, filename)
+            
+            # Create document record with single-document strategy
+            cursor.execute(
+                """INSERT INTO documents 
+                   (batch_id, document_name, status, file_type, processing_strategy, original_file_path)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (batch_id, sanitized_name, "pending_finalization", "pdf", suggested_strategy, file_path)
+            )
+            document_id = cursor.lastrowid
+            conn.commit()
+            
+            logging.info(f"Created document record: {document_id}")
+            
+            # Store the document content and classification without pages table
+            # This is a simplified storage approach for single documents
+            
+            # Move original to archive
+            archive_path = os.path.join(app_config.ARCHIVE_DIR, filename)
+            os.makedirs(app_config.ARCHIVE_DIR, exist_ok=True)
+            shutil.move(file_path, archive_path)
+            logging.info(f"Archived original to: {archive_path}")
+            
+            # Log the processing action
+            log_interaction(
+                batch_id=batch_id,
+                document_id=document_id,
+                user_id=get_current_user_id(),
+                event_type="single_document_processed",
+                step="intake",
+                content={"strategy": suggested_strategy, "pages": page_count, "ai_category": ai_category},
+                notes=f"Single document processed: {filename}"
+            )
+            
+            return document_id
+            
+    except Exception as e:
+        logging.error(f"Error processing single document {file_path}: {e}")
+        return None
+
+
+def get_ai_classification_single_document(content: str, filename: str) -> Optional[str]:
+    """
+    Get AI classification for a complete single document.
+    Uses enhanced prompt designed for full document analysis.
+    """
+    if not content.strip():
+        return None
+    
+    # Truncate content if too long to fit in context window
+    max_chars = 4000  # Leave room for prompt text
+    if len(content) > max_chars:
+        content = content[:max_chars] + "\n[... content truncated ...]"
+    
+    prompt = f"""You are analyzing a complete PDF document for categorization.
+
+FILENAME: {filename}
+
+FULL DOCUMENT CONTENT:
+{content}
+
+Based on the complete document content and filename, suggest the most appropriate category from this list:
+{', '.join(get_all_categories())}
+
+Consider:
+1. The document type (invoice, contract, report, letter, etc.)
+2. The subject matter and industry
+3. The document's primary purpose
+4. Any dates or organizational context
+
+Respond with ONLY the category name that best fits this document."""
+
+    try:
+        response = _query_ollama(prompt, timeout=30)
+        if response:
+            # Extract category from response
+            response_clean = response.strip().lower()
+            available_categories = [cat.lower() for cat in get_all_categories()]
+            
+            # Find matching category
+            for category in available_categories:
+                if category in response_clean:
+                    return category.title()
+            
+            # If no exact match, return the response for manual review
+            return response.strip()
+            
+    except Exception as e:
+        logging.error(f"Error getting AI classification: {e}")
+    
+    return None
+
+
 def process_batch() -> bool:
     """
-    The main function for processing a new batch of documents from the intake directory.
+    Enhanced batch processing with intelligent document type detection.
+    
+    This function now analyzes intake files first and routes them to appropriate
+    processing strategies:
+    1. Single documents bypass page decomposition for efficiency
+    2. Batch scans use traditional page-by-page workflow
+    3. Mixed intakes are handled according to per-file detection
     
     Returns:
         bool: True if batch processing was successful, False otherwise
     """
-    logging.info("--- Starting New Batch ---")
+    logging.info("--- Starting Enhanced Batch Processing ---")
+    
+    # Step 1: Analyze all PDF files and determine processing strategies
+    try:
+        detector = get_detector()
+        analyses = detector.analyze_intake_directory(app_config.INTAKE_DIR)
+        
+        if not analyses:
+            logging.info("No PDF files found in intake directory.")
+            return True
+        
+        # Log detection results for transparency
+        logging.info(f"--- DOCUMENT ANALYSIS RESULTS ---")
+        single_docs = [a for a in analyses if a.processing_strategy == "single_document"]
+        batch_scans = [a for a in analyses if a.processing_strategy == "batch_scan"]
+        
+        logging.info(f"Files to process as single documents: {len(single_docs)}")
+        logging.info(f"Files to process as batch scans: {len(batch_scans)}")
+        
+        for analysis in analyses:
+            logging.info(f"  {os.path.basename(analysis.file_path)}: {analysis.processing_strategy} "
+                        f"({analysis.page_count} pages, confidence: {analysis.confidence:.2f})")
+        
+        # Step 2: Process single documents individually (bypass traditional workflow)
+        single_doc_ids = []
+        for analysis in single_docs:
+            logging.info(f"Processing as single document: {os.path.basename(analysis.file_path)}")
+            doc_id = process_single_document(analysis.file_path, analysis.processing_strategy)
+            if doc_id:
+                single_doc_ids.append(doc_id)
+                logging.info(f"✓ Single document processed: ID {doc_id}")
+            else:
+                logging.error(f"✗ Failed to process single document: {analysis.file_path}")
+        
+        # Step 3: If there are batch scans, process them with traditional workflow
+        batch_success = True
+        if batch_scans:
+            logging.info(f"Processing {len(batch_scans)} files as traditional batch scan...")
+            batch_success = _process_batch_traditional([a.file_path for a in batch_scans])
+        
+        # Summary
+        total_files = len(analyses)
+        processed_single = len(single_doc_ids)
+        processed_batch = len(batch_scans) if batch_success else 0
+        
+        logging.info(f"--- PROCESSING SUMMARY ---")
+        logging.info(f"Total files: {total_files}")
+        logging.info(f"Single documents processed: {processed_single}")
+        logging.info(f"Batch scan files processed: {processed_batch}")
+        logging.info(f"Success rate: {(processed_single + processed_batch) / total_files * 100:.1f}%")
+        
+        return (processed_single + processed_batch) == total_files
+        
+    except Exception as e:
+        logging.error(f"Error in enhanced batch processing: {e}")
+        return False
+
+
+def _process_batch_traditional(pdf_files_paths: List[str]) -> bool:
+    """
+    Traditional batch processing workflow for files identified as batch scans.
+    
+    This maintains the original page-by-page processing logic but only processes
+    the specified files rather than scanning the entire intake directory.
+    
+    Args:
+        pdf_files_paths: List of absolute paths to PDF files to process as batch scan
+    
+    Returns:
+        bool: True if batch processing was successful, False otherwise
+    """
+    logging.info("--- Starting Traditional Batch Processing ---")
     batch_id = -1
     
     # Validate configuration
@@ -425,7 +646,6 @@ def process_batch() -> bool:
             logging.error(f"{dir_name} environment variable is not set.")
             return False
             
-        # Convert to absolute path and validate
         abs_path = os.path.abspath(dir_path)
         try:
             os.makedirs(abs_path, exist_ok=True)
@@ -439,40 +659,38 @@ def process_batch() -> bool:
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            # Create a new batch record and get its ID
+            # Create a new batch record for batch scan processing
             cursor.execute(
                 "INSERT INTO batches (status) VALUES (?)",
                 (app_config.STATUS_PENDING_VERIFICATION,)
             )
             batch_id = cursor.lastrowid
             conn.commit()
-            logging.info(f"Created new batch with ID: {batch_id}")
-            # Log batch status transition to pending_verification (after commit)
+            logging.info(f"Created new batch scan batch with ID: {batch_id}")
+            
             log_interaction(
                 batch_id=batch_id,
                 document_id=None,
                 user_id=get_current_user_id(),
                 event_type="status_change",
                 step="pending_verification",
-                content=f"Batch {batch_id} created and set to pending_verification.",
+                content=f"Batch scan batch {batch_id} created.",
                 notes=None
             )
+            
             os.makedirs(app_config.ARCHIVE_DIR, exist_ok=True)
             batch_image_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
             os.makedirs(batch_image_dir, exist_ok=True)
 
-            # Process each PDF file in the intake directory
-            pdf_files = [
-                f for f in os.listdir(app_config.INTAKE_DIR) if f.lower().endswith(".pdf")
-            ]
-            for filename in pdf_files:
-                source_pdf_path = os.path.join(app_config.INTAKE_DIR, filename)
-                logging.info(f"\nProcessing file: {filename}")
+            # Process only the specified PDF files (batch scan strategy)
+            for file_path in pdf_files_paths:
+                filename = os.path.basename(file_path)
+                logging.info(f"Processing batch scan file: {filename}")
                 sanitized_filename = _sanitize_filename(filename)
 
-                # Convert PDF to a list of PNG images
+                # Convert PDF to individual page images (traditional workflow)
                 images = convert_from_path(
-                    source_pdf_path,
+                    file_path,
                     dpi=300,
                     output_folder=batch_image_dir,
                     fmt="png",
@@ -481,47 +699,41 @@ def process_batch() -> bool:
                 )
                 image_files = sorted([img.filename for img in images])
 
-                # Process each generated image
+                # Process each page individually with OCR
                 for i, image_path in enumerate(image_files):
-                    if batch_id is not None:  # Type check for batch_id
+                    if batch_id is not None:
                         _process_single_page_from_file(
                             cursor=cursor,
-                            image_path=str(image_path),  # Ensure string type
+                            image_path=str(image_path),
                             batch_id=batch_id,
                             source_filename=filename,
                             page_num=i + 1
                         )
+                
                 conn.commit()  # Commit after each PDF is fully processed
-                logging.info(
-                    f"  - Successfully processed and saved {len(images)} pages."
-                )
-                # Log after commit (if needed)
-                # Move the original PDF to the archive directory
+                logging.info(f"✓ Processed {len(images)} pages from {filename}")
+                
+                # Archive the original file
                 try:
-                    shutil.move(
-                        source_pdf_path, os.path.join(app_config.ARCHIVE_DIR, filename)
-                    )
-                    logging.info("  - Archived original file.")
+                    archive_path = os.path.join(app_config.ARCHIVE_DIR, filename)
+                    shutil.move(file_path, archive_path)
+                    logging.info(f"✓ Archived to {archive_path}")
                 except OSError as move_e:
-                    logging.error(f"  - Failed to archive original file: {move_e}")
+                    logging.error(f"✗ Failed to archive {filename}: {move_e}")
 
-            # --- AI First Guess Classification ---
-            logging.info("\n--- Starting AI 'First Guess' Classification ---")
+            # AI Classification for all pages in the batch
+            logging.info("--- AI Classification for Batch Scan Pages ---")
             cursor.execute(
                 "SELECT id, ocr_text FROM pages WHERE batch_id = ?", (batch_id,)
             )
             pages_to_classify = cursor.fetchall()
+            
             for page in pages_to_classify:
-                logging.info(f"  - Classifying Page ID: {page['id']}")
                 ai_category = get_ai_classification(page["ocr_text"])
                 cursor.execute(
                     "UPDATE pages SET ai_suggested_category = ? WHERE id = ?",
                     (ai_category, page["id"]),
                 )
-            conn.commit()
-            # Log AI classification events after commit
-            for page in pages_to_classify:
-                ai_category = get_ai_classification(page["ocr_text"])
                 log_interaction(
                     batch_id=batch_id,
                     document_id=None,
@@ -531,15 +743,13 @@ def process_batch() -> bool:
                     content=f"AI classified page {page['id']} as '{ai_category}'",
                     notes=None
                 )
-
-        logging.info("\n--- Batch Processing Complete ---")
-        return True
+            
+            conn.commit()
+            logging.info(f"✓ Traditional batch processing complete for batch {batch_id}")
+            return True
 
     except Exception as e:
-        logging.critical(
-            f"[CRITICAL ERROR] An error occurred during batch processing: {e}"
-        )
-        # If a batch was created, mark it as failed
+        logging.critical(f"Error in traditional batch processing: {e}")
         if batch_id != -1:
             try:
                 with database_connection() as conn:
@@ -548,15 +758,8 @@ def process_batch() -> bool:
                         (app_config.STATUS_FAILED, batch_id),
                     )
                     conn.commit()
-                # Log batch status transition
-                log_interaction(
-                    batch_id=batch_id,
-                    document_id=None,
-                    user_id=get_current_user_id(),
-                    event_type="status_change",
-                    step="batch_failed",
-                    content=f"Batch {batch_id} marked as failed due to error: {e}",
-                    notes=None
+            except:
+                pass  # Don't fail on cleanup failure
                 )
             except Exception as update_e:
                 logging.error(

@@ -60,6 +60,7 @@ and a content block that child templates will override.
 <div class="navbar">
     <!-- The link always points back to the main dashboard (Mission Control). -->
     <a href="{{ url_for('mission_control_page') }}" class="{% if request.endpoint == 'mission_control_page' %}active{% endif %}">Mission Control</a>
+    <a href="{{ url_for('analyze_intake_page') }}" class="{% if request.endpoint == 'analyze_intake_page' %}active{% endif %}">📋 Analyze Intake</a>
     <a href="{{ url_for('categories_page') }}" class="{% if request.endpoint == 'categories_page' %}active{% endif %}">Categories</a>
 </div>
 

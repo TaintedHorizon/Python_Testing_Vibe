@@ -134,12 +134,14 @@ from doc_processor.config_manager import app_config, DEFAULT_CATEGORIES
 # Core business logic and database functions
 from .processing import (
     process_batch,
+    _process_batch_traditional,
     rerun_ocr_on_page,
     get_ai_suggested_order,
     get_ai_suggested_filename,
     export_document,
     cleanup_batch_files,
 )
+from .document_detector import get_detector
 from doc_processor.database import (
     get_pages_for_batch,
     update_page_data,
@@ -427,22 +429,118 @@ def index():
     return redirect(url_for("mission_control_page"))
 
 
+@app.route("/analyze_intake")
+def analyze_intake_page():
+    """
+    Show intake analysis with processing strategy recommendations.
+    This replaces the direct batch processing with a preview step.
+    """
+    try:
+        detector = get_detector()
+        analyses = detector.analyze_intake_directory(app_config.INTAKE_DIR)
+        
+        if not analyses:
+            return render_template('intake_analysis.html', 
+                                 analyses=[], 
+                                 intake_dir=app_config.INTAKE_DIR)
+        
+        # Prepare data for template
+        template_analyses = []
+        single_count = 0
+        batch_count = 0
+        
+        for analysis in analyses:
+            template_analyses.append({
+                'filename': os.path.basename(analysis.file_path),
+                'file_size_mb': analysis.file_size_mb,
+                'page_count': analysis.page_count,
+                'processing_strategy': analysis.processing_strategy,
+                'confidence': analysis.confidence,
+                'reasoning': analysis.reasoning,
+                'filename_hints': analysis.filename_hints,
+                'content_sample': analysis.content_sample
+            })
+            
+            if analysis.processing_strategy == "single_document":
+                single_count += 1
+            else:
+                batch_count += 1
+        
+        return render_template('intake_analysis.html',
+                             analyses=template_analyses,
+                             single_count=single_count,
+                             batch_count=batch_count,
+                             total_count=len(analyses),
+                             intake_dir=app_config.INTAKE_DIR)
+                             
+    except Exception as e:
+        logging.error(f"Error analyzing intake: {e}")
+        return render_template('intake_analysis.html', 
+                             analyses=[],
+                             error=f"Error analyzing files: {e}",
+                             intake_dir=app_config.INTAKE_DIR)
+
+
+@app.route("/process_batch_smart", methods=["POST"])
+def process_batch_smart():
+    """
+    Process batch using smart detection (recommended approach).
+    This uses the enhanced process_batch function.
+    """
+    try:
+        cleanup_old_archives()
+        success = process_batch()
+        if success:
+            return redirect(url_for("mission_control_page"))
+        else:
+            return render_template("index.html", 
+                                 message="Processing failed. Check logs for details.")
+    except Exception as e:
+        logging.error(f"Error in smart batch processing: {e}")
+        return render_template("index.html", 
+                             message=f"Processing error: {e}")
+
+
+@app.route("/process_batch_force_traditional", methods=["POST"])
+def process_batch_force_traditional():
+    """
+    Process all files using traditional batch scan workflow (safety first).
+    """
+    try:
+        # Get all PDF files and process them as batch scans
+        pdf_files = []
+        if os.path.exists(app_config.INTAKE_DIR):
+            pdf_files = [
+                os.path.join(app_config.INTAKE_DIR, f)
+                for f in os.listdir(app_config.INTAKE_DIR)
+                if f.lower().endswith('.pdf')
+            ]
+        
+        if not pdf_files:
+            return render_template("index.html", 
+                                 message="No PDF files found in intake directory.")
+        
+        cleanup_old_archives()
+        success = _process_batch_traditional(pdf_files)
+        if success:
+            return redirect(url_for("mission_control_page"))
+        else:
+            return render_template("index.html", 
+                                 message="Traditional processing failed. Check logs for details.")
+                                 
+    except Exception as e:
+        logging.error(f"Error in traditional batch processing: {e}")
+        return render_template("index.html", 
+                             message=f"Processing error: {e}")
+
+
 @app.route("/process_new_batch", methods=["POST"])
 def handle_batch_processing():
     """
-    Handles the POST request to start processing a new batch of documents.
-    This is triggered by a button on the Mission Control page. It calls the
-    main processing function from `processing.py` and then redirects the user
-    back to Mission Control to see the newly created batch.
+    Redirect to intake analysis (new enhanced workflow).
+    This maintains compatibility with existing UI while adding the preview step.
     """
-    # The core logic for OCR, image conversion, and AI analysis is encapsulated
-    # in the `process_batch` function to keep the Flask app focused on handling
-    # web requests and orchestrating the workflow.
-    cleanup_old_archives()
-    process_batch()
-    # After processing, a redirect forces a page refresh, so the user sees
-    # the new batch in the list on the Mission Control page.
-    return redirect(url_for("mission_control_page"))
+    return redirect(url_for("analyze_intake_page"))
 
 
 @app.route("/mission_control")

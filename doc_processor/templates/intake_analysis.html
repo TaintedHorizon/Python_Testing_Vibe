@@ -1,0 +1,226 @@
+<!-- Intake Analysis Preview Template -->
+{% extends 'base.html' %}
+
+{% block title %}Intake Analysis{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>📋 Document Processing Strategy Analysis</h1>
+    
+    <div class="alert alert-info">
+        <strong>Smart Processing:</strong> The system has analyzed your intake files and suggests the optimal processing strategy for each document. Review the recommendations below before proceeding.
+    </div>
+
+    {% if analyses %}
+    <!-- Summary Statistics -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card bg-success text-white">
+                <div class="card-body text-center">
+                    <h3>{{ single_count }}</h3>
+                    <p>Single Documents<br><small>Fast processing, direct to finalization</small></p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-primary text-white">
+                <div class="card-body text-center">
+                    <h3>{{ batch_count }}</h3>
+                    <p>Batch Scans<br><small>Page-by-page verification workflow</small></p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-info text-white">
+                <div class="card-body text-center">
+                    <h3>{{ total_count }}</h3>
+                    <p>Total Files<br><small>Ready for processing</small></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detailed Analysis Table -->
+    <div class="card">
+        <div class="card-header">
+            <h5>📄 File Analysis Details</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Filename</th>
+                            <th>Size</th>
+                            <th>Pages</th>
+                            <th>Processing Strategy</th>
+                            <th>Confidence</th>
+                            <th>Reasoning</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for analysis in analyses %}
+                        <tr>
+                            <td>
+                                <strong>{{ analysis.filename }}</strong>
+                                {% if analysis.filename_hints == "single" %}
+                                <span class="badge badge-success">📄 Document</span>
+                                {% elif analysis.filename_hints == "batch" %}
+                                <span class="badge badge-primary">📚 Batch</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ "%.1f"|format(analysis.file_size_mb) }} MB</td>
+                            <td>{{ analysis.page_count }}</td>
+                            <td>
+                                {% if analysis.processing_strategy == "single_document" %}
+                                <span class="badge badge-success">🚀 Single Document</span>
+                                <br><small class="text-muted">Direct processing</small>
+                                {% else %}
+                                <span class="badge badge-primary">📋 Batch Scan</span>
+                                <br><small class="text-muted">Page verification</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="progress" style="width: 80px;">
+                                    {% set confidence_percent = (analysis.confidence * 100)|int %}
+                                    <div class="progress-bar 
+                                        {% if confidence_percent >= 70 %}bg-success
+                                        {% elif confidence_percent >= 50 %}bg-warning
+                                        {% else %}bg-secondary{% endif %}" 
+                                        style="width: {{ confidence_percent }}%">
+                                    </div>
+                                </div>
+                                <small>{{ "%.0f"|format(analysis.confidence * 100) }}%</small>
+                            </td>
+                            <td>
+                                <ul class="list-unstyled mb-0" style="font-size: 0.85em;">
+                                    {% for reason in analysis.reasoning[:3] %}
+                                    <li>• {{ reason }}</li>
+                                    {% endfor %}
+                                    {% if analysis.reasoning|length > 3 %}
+                                    <li><small class="text-muted">... and {{ analysis.reasoning|length - 3 }} more</small></li>
+                                    {% endif %}
+                                </ul>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Content Samples (if available) -->
+    {% set sample_analyses = analyses[:3] %}
+    {% if sample_analyses %}
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5>📝 Content Samples</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                {% for analysis in sample_analyses %}
+                {% if analysis.content_sample %}
+                <div class="col-md-4 mb-3">
+                    <div class="card border-secondary">
+                        <div class="card-header bg-light">
+                            <small><strong>{{ analysis.filename }}</strong></small>
+                        </div>
+                        <div class="card-body" style="max-height: 150px; overflow-y: auto;">
+                            <small class="text-monospace">{{ analysis.content_sample }}</small>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Action Buttons -->
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card border-warning">
+                <div class="card-body text-center">
+                    <h5>⚠️ Safety First Approach</h5>
+                    <p class="text-muted">Process all files as batch scans for maximum safety and control.</p>
+                    <form action="{{ url_for('process_batch_force_traditional') }}" method="post">
+                        <button type="submit" class="btn btn-warning btn-lg">
+                            📋 Process All as Batch Scans
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card border-success">
+                <div class="card-body text-center">
+                    <h5>🚀 Smart Processing</h5>
+                    <p class="text-muted">Use the recommended strategy for each file.</p>
+                    <form action="{{ url_for('process_batch_smart') }}" method="post">
+                        <button type="submit" class="btn btn-success btn-lg">
+                            🎯 Process with Recommendations
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% else %}
+    <!-- No Files Found -->
+    <div class="alert alert-warning text-center">
+        <h4>📁 No PDF Files Found</h4>
+        <p>No PDF files were found in the intake directory.</p>
+        <p><code>{{ intake_dir }}</code></p>
+        <p>Please add some PDF files and try again.</p>
+        <a href="{{ url_for('mission_control_page') }}" class="btn btn-secondary">← Back to Mission Control</a>
+    </div>
+    {% endif %}
+
+    <!-- Help Section -->
+    <div class="card mt-4 border-info">
+        <div class="card-header bg-info text-white">
+            <h5>💡 Processing Strategy Guide</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6>🚀 Single Document Processing</h6>
+                    <ul>
+                        <li><strong>Best for:</strong> Individual files like invoices, contracts, reports</li>
+                        <li><strong>Benefits:</strong> Faster processing, direct to finalization</li>
+                        <li><strong>Process:</strong> OCR → AI categorization → Export</li>
+                        <li><strong>Time:</strong> ~30 seconds per document</li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <h6>📋 Batch Scan Processing</h6>
+                    <ul>
+                        <li><strong>Best for:</strong> Multi-document scans, complex layouts</li>
+                        <li><strong>Benefits:</strong> Full human verification and control</li>
+                        <li><strong>Process:</strong> OCR → Verify → Group → Order → Export</li>
+                        <li><strong>Time:</strong> ~2-5 minutes per document (with verification)</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="alert alert-light mt-3">
+                <strong>💡 Recommendation:</strong> For your 278 PDFs, the smart processing approach can save significant time by automatically handling obvious single documents while ensuring complex files get proper verification.
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.progress {
+    height: 10px;
+}
+.card {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.badge {
+    font-size: 0.75em;
+}
+</style>
+{% endblock %}
