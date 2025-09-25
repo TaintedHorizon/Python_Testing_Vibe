@@ -101,6 +101,14 @@
                                     <li><small class="text-muted">... and {{ analysis.reasoning|length - 3 }} more</small></li>
                                     {% endif %}
                                 </ul>
+                                {% if analysis.llm_analysis %}
+                                <div class="mt-2 p-2 bg-light rounded" style="font-size: 0.8em;">
+                                    <strong>🤖 LLM Analysis:</strong>
+                                    <br><span class="text-primary">{{ analysis.llm_analysis.classification|title }}</span> 
+                                    ({{ analysis.llm_analysis.confidence }}% confidence)
+                                    <br><small class="text-muted">{{ analysis.llm_analysis.reasoning[:80] }}{% if analysis.llm_analysis.reasoning|length > 80 %}...{% endif %}</small>
+                                </div>
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}

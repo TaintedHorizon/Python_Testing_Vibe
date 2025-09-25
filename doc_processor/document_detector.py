@@ -25,6 +25,7 @@ class DocumentAnalysis:
     reasoning: List[str]  # Human-readable reasons for the decision
     filename_hints: Optional[str] = None
     content_sample: Optional[str] = None
+    llm_analysis: Optional[Dict] = None  # LLM analysis results when used
 
 class DocumentTypeDetector:
     """
@@ -62,8 +63,17 @@ class DocumentTypeDetector:
         r'archive.*\d{4}',        # archive_2024_q1.pdf
     ]
     
-    def __init__(self):
+    def __init__(self, use_llm_for_ambiguous=True):
         self.logger = logging.getLogger(__name__)
+        self.use_llm_for_ambiguous = use_llm_for_ambiguous
+        # Import here to avoid circular imports
+        try:
+            from .processing import get_ai_document_type_analysis
+            self._get_ai_analysis = get_ai_document_type_analysis
+        except ImportError:
+            self.logger.warning("Could not import LLM analysis function - LLM detection disabled")
+            self.use_llm_for_ambiguous = False
+            self._get_ai_analysis = None
     
     def analyze_pdf(self, file_path: str) -> DocumentAnalysis:
         """
@@ -144,18 +154,58 @@ class DocumentTypeDetector:
                 batch_doc_score += 2
                 reasoning.append("Content structure suggests batch scan")
             
-            # Decision logic - require high confidence for single document
+            # Decision logic with LLM enhancement for ambiguous cases
             total_score = single_doc_score + batch_doc_score
             if total_score > 0:
                 confidence = max(single_doc_score, batch_doc_score) / total_score
             
-            # Conservative threshold: require 70% confidence AND score advantage for single doc
-            if single_doc_score >= batch_doc_score + 2 and confidence >= 0.7:
-                strategy = "single_document"
-                reasoning.append(f"HIGH CONFIDENCE single document (score: {single_doc_score} vs {batch_doc_score})")
-            else:
-                strategy = "batch_scan" 
-                reasoning.append(f"Defaulting to batch scan (score: {single_doc_score} vs {batch_doc_score})")
+            llm_analysis = None
+            
+            # Check if this is an ambiguous case that could benefit from LLM analysis
+            score_difference = abs(single_doc_score - batch_doc_score)
+            is_ambiguous = (
+                score_difference <= 2 or  # Close scores
+                confidence < 0.7 or       # Low confidence
+                (5 <= page_count <= 20)   # Ambiguous page count range
+            )
+            
+            # Use LLM for ambiguous cases if available
+            if (is_ambiguous and self.use_llm_for_ambiguous and 
+                self._get_ai_analysis and content_sample.strip()):
+                
+                self.logger.info(f"Ambiguous case detected for {os.path.basename(file_path)}, consulting LLM...")
+                reasoning.append("Ambiguous heuristics - consulting LLM for deeper analysis")
+                
+                llm_analysis = self._get_ai_analysis(
+                    file_path, content_sample, os.path.basename(file_path), 
+                    page_count, file_size_mb
+                )
+                
+                if llm_analysis:
+                    llm_strategy = llm_analysis.get('classification')
+                    llm_confidence = llm_analysis.get('confidence', 50) / 100.0  # Convert to 0-1
+                    llm_reasoning = llm_analysis.get('reasoning', 'LLM analysis')
+                    
+                    # Combine heuristic and LLM analysis
+                    if llm_confidence >= 0.6:  # Trust LLM if reasonably confident
+                        strategy = llm_strategy
+                        confidence = (confidence + llm_confidence) / 2  # Average confidences
+                        reasoning.append(f"LLM analysis (confidence: {llm_confidence:.2f}): {llm_reasoning[:100]}...")
+                        reasoning.append(f"Final decision: {strategy} based on LLM analysis")
+                    else:
+                        # LLM not confident, stick with heuristics but note the analysis
+                        reasoning.append(f"LLM uncertain (confidence: {llm_confidence:.2f}): {llm_reasoning[:100]}...")
+                        reasoning.append("Sticking with heuristic analysis due to low LLM confidence")
+            
+            # Apply final decision logic if not already set by LLM
+            if 'strategy' not in locals() or not strategy:
+                # Conservative threshold: require 70% confidence AND score advantage for single doc
+                if single_doc_score >= batch_doc_score + 2 and confidence >= 0.7:
+                    strategy = "single_document"
+                    reasoning.append(f"HIGH CONFIDENCE single document (score: {single_doc_score} vs {batch_doc_score})")
+                else:
+                    strategy = "batch_scan" 
+                    reasoning.append(f"Defaulting to batch scan (score: {single_doc_score} vs {batch_doc_score})")
             
             return DocumentAnalysis(
                 file_path=file_path,
@@ -165,7 +215,8 @@ class DocumentTypeDetector:
                 confidence=confidence,
                 reasoning=reasoning,
                 filename_hints=filename_hint,
-                content_sample=content_sample[:200] if content_sample else None
+                content_sample=content_sample[:200] if content_sample else None,
+                llm_analysis=llm_analysis
             )
             
         except Exception as e:
@@ -265,6 +316,11 @@ class DocumentTypeDetector:
         
         return analyses
 
-def get_detector() -> DocumentTypeDetector:
-    """Factory function to get document type detector instance."""
-    return DocumentTypeDetector()
+def get_detector(use_llm_for_ambiguous: bool = True) -> DocumentTypeDetector:
+    """
+    Factory function to get document type detector instance.
+    
+    Args:
+        use_llm_for_ambiguous: Whether to use LLM analysis for ambiguous cases
+    """
+    return DocumentTypeDetector(use_llm_for_ambiguous=use_llm_for_ambiguous)

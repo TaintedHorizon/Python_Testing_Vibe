@@ -546,6 +546,115 @@ Respond with ONLY the category name that best fits this document."""
     return None
 
 
+def get_ai_document_type_analysis(file_path: str, content_sample: str, filename: str, 
+                                 page_count: int, file_size_mb: float) -> Optional[Dict]:
+    """
+    Use LLM to analyze document type (single document vs batch scan).
+    
+    This function asks the LLM to examine document structure, layout patterns,
+    and content to determine if it's a single cohesive document or a batch scan
+    of multiple documents.
+    
+    Args:
+        file_path: Path to the PDF file
+        content_sample: First ~500-1000 characters of document text
+        filename: Name of the file (without path)
+        page_count: Number of pages in the document
+        file_size_mb: File size in megabytes
+    
+    Returns:
+        Dict with keys: 'classification' ('single_document'|'batch_scan'), 
+                       'confidence' (0-100), 'reasoning' (str explanation)
+        Or None if LLM is unavailable or analysis fails
+    """
+    if not content_sample.strip():
+        return None
+    
+    # Truncate content if too long for LLM context
+    max_chars = 2000  # Conservative limit to leave room for prompt
+    if len(content_sample) > max_chars:
+        content_sample = content_sample[:max_chars] + "\n[... content truncated ...]"
+    
+    prompt = f"""You are analyzing a PDF file to determine if it contains a single document or multiple documents scanned together.
+
+FILE DETAILS:
+- Filename: {filename}
+- Page Count: {page_count}
+- File Size: {file_size_mb:.1f} MB
+
+DOCUMENT CONTENT SAMPLE (first portion):
+{content_sample}
+
+ANALYSIS TASK:
+Examine the content structure, layout patterns, and text to classify this PDF as either:
+1. SINGLE_DOCUMENT: One cohesive document (invoice, contract, report, letter, etc.)
+2. BATCH_SCAN: Multiple separate documents scanned together into one PDF
+
+CLASSIFICATION CRITERIA:
+- Single documents have consistent formatting, continuous content flow, unified purpose
+- Batch scans often show format changes, topic shifts, multiple document headers/footers, scan artifacts
+- Consider if the content reads as one document vs. multiple unrelated documents
+
+Your response must be in this EXACT format:
+CLASSIFICATION: [SINGLE_DOCUMENT or BATCH_SCAN]
+CONFIDENCE: [number from 0-100]
+REASONING: [detailed explanation of your analysis]
+
+Be specific about what patterns you observe that led to your conclusion."""
+
+    try:
+        response = _query_ollama(prompt, timeout=45)  # Longer timeout for analysis
+        
+        if not response:
+            return None
+        
+        # Parse LLM response
+        lines = response.strip().split('\n')
+        classification = None
+        confidence = 0
+        reasoning = ""
+        
+        for line in lines:
+            line = line.strip()
+            if line.startswith('CLASSIFICATION:'):
+                classification_text = line.split(':', 1)[1].strip().upper()
+                if 'SINGLE_DOCUMENT' in classification_text or 'SINGLE' in classification_text:
+                    classification = 'single_document'
+                elif 'BATCH_SCAN' in classification_text or 'BATCH' in classification_text:
+                    classification = 'batch_scan'
+            elif line.startswith('CONFIDENCE:'):
+                try:
+                    confidence = int(''.join(filter(str.isdigit, line.split(':', 1)[1])))
+                    confidence = max(0, min(100, confidence))  # Clamp to 0-100
+                except (ValueError, IndexError):
+                    confidence = 50  # Default moderate confidence
+            elif line.startswith('REASONING:'):
+                reasoning = line.split(':', 1)[1].strip()
+            elif reasoning and line and not line.startswith(('CLASSIFICATION:', 'CONFIDENCE:')):
+                # Continue multi-line reasoning
+                reasoning += " " + line
+        
+        if classification:
+            result = {
+                'classification': classification,
+                'confidence': confidence,
+                'reasoning': reasoning or "LLM analysis completed",
+                'llm_used': True
+            }
+            
+            logging.info(f"LLM classification for {filename}: {classification} "
+                        f"(confidence: {confidence}%) - {reasoning[:100]}...")
+            
+            return result
+        else:
+            logging.warning(f"Could not parse LLM response for {filename}: {response[:200]}...")
+            return None
+            
+    except Exception as e:
+        logging.error(f"Error getting LLM document type analysis for {filename}: {e}")
+        return None
+
+
 def process_batch() -> bool:
     """
     Enhanced batch processing with intelligent document type detection.
@@ -758,13 +867,8 @@ def _process_batch_traditional(pdf_files_paths: List[str]) -> bool:
                         (app_config.STATUS_FAILED, batch_id),
                     )
                     conn.commit()
-            except:
-                pass  # Don't fail on cleanup failure
-                )
             except Exception as update_e:
-                logging.error(
-                    f"Failed to update batch status to failed: {update_e}"
-                )
+                logging.error(f"Failed to update batch status to failed: {update_e}")
         return False
 
 
