@@ -643,11 +643,24 @@ function populateResults(data) {
             const llmConfidence = analysis.llm_analysis.confidence || 0;
             const llmReasoning = analysis.llm_analysis.reasoning || 'No reasoning provided';
             
+            // Create unique ID for this analysis
+            const analysisId = `llm_${analysis.filename.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            
             reasoningHtml += `
                 <div class="mt-2 pt-2 border-top">
                     <strong>🤖 AI Analysis:</strong><br>
-                    <div style="margin: 4px 0;"><span class="text-primary font-weight-bold">${llmClassification}</span> (${llmConfidence}% confidence)</div>
-                    <div style="margin: 4px 0; font-size: 0.9em; color: #666;">${llmReasoning}</div>
+                    <div style="margin: 4px 0;">
+                        <span class="text-primary font-weight-bold">${llmClassification}</span> (${llmConfidence}% confidence)
+                        <button class="btn btn-sm btn-outline-secondary ml-2" type="button" 
+                                onclick="toggleLlmDetails('${analysisId}')" 
+                                style="font-size: 0.7em; padding: 2px 8px;">
+                            <span id="${analysisId}_toggle">🔽 Details</span>
+                        </button>
+                    </div>
+                    <div id="${analysisId}_details" style="display: none; margin: 4px 0; font-size: 0.9em; color: #666; 
+                         max-height: 150px; overflow-y: auto; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+                        ${llmReasoning}
+                    </div>
                 </div>
             `;
         } else {
@@ -748,6 +761,19 @@ function populateResults(data) {
             this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Processing...';
         });
     });
+}
+
+function toggleLlmDetails(analysisId) {
+    const detailsDiv = document.getElementById(analysisId + '_details');
+    const toggleSpan = document.getElementById(analysisId + '_toggle');
+    
+    if (detailsDiv.style.display === 'none') {
+        detailsDiv.style.display = 'block';
+        toggleSpan.textContent = '🔼 Hide';
+    } else {
+        detailsDiv.style.display = 'none';
+        toggleSpan.textContent = '🔽 Details';
+    }
 }
 </script>
 {% endblock %}
