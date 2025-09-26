@@ -46,3 +46,7 @@ Document_Scanner_Ollama/model_cache/
 
 # Prevent duplicate nested directory (common issue with relative paths)
 doc_processor/doc_processor/
+
+# Prevent accidental command output files
+=*
+*=*
