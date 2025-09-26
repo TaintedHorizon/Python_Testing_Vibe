@@ -3,6 +3,8 @@
 {% block title %}Order Documents for Batch {{ batch_id }}{% endblock %}
 
 {% block content %}
+<!-- Include PDF Modal Viewer Component -->
+{% include 'components/pdf_modal.html' %}
 <style>
     .doc-list-container { max-width: 800px; margin: auto; background-color: white; padding: 20px; border: 1px solid #ccc; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
     .doc-list-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
@@ -34,6 +36,7 @@
                 <th>Document Name</th>
                 <th>Status</th>
                 <th>Action</th>
+                <th>Preview</th>
             </tr>
         </thead>
         <tbody>
@@ -59,11 +62,21 @@
                         <a href="{{ url_for('order_document_page', document_id=doc.id) }}" class="action-btn btn-order">Order Pages</a>
                     {% endif %}
                 </td>
+                <td>
+                    <!-- PDF Viewer button -->
+                    {% if doc.source_filename %}
+                        <button type="button" class="view-pdf-btn action-btn" data-filename="{{ doc.source_filename }}" data-docname="{{ doc.document_name }}" style="background:#007BFF; color:white; font-size:0.9em;">
+                            📄 View PDF
+                        </button>
+                    {% else %}
+                        <span style="color:#999; font-size:0.8em;">No source</span>
+                    {% endif %}
+                </td>
             </tr>
             {% else %}
             <!-- This message is shown if there are no documents in the batch (or none that need ordering) -->
             <tr>
-                <td colspan="3" style="text-align: center;">No multi-page documents require ordering in this batch.</td>
+                <td colspan="4" style="text-align: center;">No multi-page documents require ordering in this batch.</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -83,6 +96,24 @@
                 .then(function() {
                     window.location.href = '/order/' + docId;
                 });
+        });
+    });
+
+    // PDF Viewer button handlers
+    document.addEventListener('DOMContentLoaded', function() {
+        const viewPdfBtns = document.querySelectorAll('.view-pdf-btn');
+        viewPdfBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                const sourceFilename = this.getAttribute('data-filename');
+                const docName = this.getAttribute('data-docname');
+                if (sourceFilename && typeof openPdfViewer === 'function') {
+                    const pdfUrl = `/original_pdf/${encodeURIComponent(sourceFilename)}`;
+                    const title = `${docName} (Source: ${sourceFilename})`;
+                    openPdfViewer(pdfUrl, title);
+                } else {
+                    alert('PDF viewer not available or source file not found');
+                }
+            });
         });
     });
     </script>

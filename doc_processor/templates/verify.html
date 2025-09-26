@@ -3,6 +3,8 @@
 {% block title %}Verify Batch {{ batch_id }}{% endblock %}
 
 {% block content %}
+<!-- Include PDF Modal Viewer Component -->
+{% include 'components/pdf_modal.html' %}
 <style>
     /* Styles are consistent with other pages like revisit.html and review.html */
     .container { display: flex; gap: 20px; align-items: flex-start; }
@@ -71,6 +73,11 @@
             <button type="button" onclick="rotateImage(90)">Rotate Right ↻</button>
             <button type="button" id="confirm-rotation-btn" style="margin-left:10px; background:#17a2b8; color:white; border:none; border-radius:5px; padding:8px 16px; cursor:pointer;">Confirm Rotation</button>
             <span id="rotation-confirm-msg" style="margin-left:10px; color:#28a745; display:none; font-weight:bold;">Rotation saved!</span>
+        </div>
+        <div style="margin-top: 15px; text-align: center;">
+            <button type="button" id="view-pdf-btn" style="background:#007BFF; color:white; border:none; border-radius:5px; padding:10px 20px; cursor:pointer; font-size:16px;">
+                📄 View Full PDF
+            </button>
         </div>
     </div>
 
@@ -182,6 +189,21 @@
             primaryBtn.classList.toggle('btn-approve', !isCorrection);
         }
         updatePrimaryButtonLabel();
+
+        // PDF Viewer button handler
+        const viewPdfBtn = document.getElementById('view-pdf-btn');
+        if (viewPdfBtn) {
+            viewPdfBtn.addEventListener('click', function() {
+                const sourceFilename = '{{ current_page.source_filename }}';
+                if (sourceFilename && typeof openPdfViewer === 'function') {
+                    const pdfUrl = `/original_pdf/${encodeURIComponent(sourceFilename)}`;
+                    const title = `${sourceFilename} - Page {{ current_page.page_number }}`;
+                    openPdfViewer(pdfUrl, title);
+                } else {
+                    alert('PDF viewer not available or source file not found');
+                }
+            });
+        }
 
         // Confirm Rotation AJAX handler
         const confirmBtn = document.getElementById('confirm-rotation-btn');

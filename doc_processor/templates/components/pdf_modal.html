@@ -1,0 +1,508 @@
+<!-- Reusable PDF Modal Viewer Component -->
+<!-- Include this component in any template that needs PDF viewing capability -->
+
+<style>
+/* PDF Modal Styles */
+.pdf-modal {
+    display: none;
+    position: fixed;
+    z-index: 10000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(5px);
+}
+
+.pdf-modal-content {
+    position: relative;
+    background-color: #fefefe;
+    margin: 2% auto;
+    width: 95%;
+    height: 90%;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+}
+
+.pdf-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    border-bottom: 1px solid #ddd;
+    background-color: #f8f9fa;
+    border-radius: 8px 8px 0 0;
+}
+
+.pdf-modal-title {
+    font-size: 18px;
+    font-weight: bold;
+    color: #333;
+    margin: 0;
+}
+
+.pdf-modal-close {
+    background: #dc3545;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.2s;
+}
+
+.pdf-modal-close:hover {
+    background: #c82333;
+}
+
+.pdf-modal-body {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.pdf-viewer-container {
+    flex: 1;
+    position: relative;
+    background: #525659;
+}
+
+.pdf-viewer-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: white;
+}
+
+.pdf-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-top: 1px solid #ddd;
+    border-radius: 0 0 8px 8px;
+}
+
+.pdf-control-btn {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.pdf-control-btn:hover:not(:disabled) {
+    background: #0056b3;
+}
+
+.pdf-control-btn:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+}
+
+.pdf-page-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: #666;
+}
+
+.pdf-page-input {
+    width: 60px;
+    padding: 4px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    text-align: center;
+    font-size: 14px;
+}
+
+.pdf-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 18px;
+    color: #666;
+    display: none;
+}
+
+.pdf-error {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: #dc3545;
+    display: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .pdf-modal-content {
+        width: 98%;
+        height: 95%;
+        margin: 1% auto;
+    }
+    
+    .pdf-controls {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .pdf-control-btn {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+}
+</style>
+
+<!-- PDF Modal HTML -->
+<div id="pdfModal" class="pdf-modal">
+    <div class="pdf-modal-content">
+        <div class="pdf-modal-header">
+            <h3 class="pdf-modal-title" id="pdfModalTitle">PDF Viewer</h3>
+            <button class="pdf-modal-close" id="pdfModalClose" title="Close (ESC)">×</button>
+        </div>
+        <div class="pdf-modal-body">
+            <div class="pdf-loading" id="pdfLoading">Loading PDF...</div>
+            <div class="pdf-error" id="pdfError">
+                <div>Failed to load PDF</div>
+                <div style="font-size: 14px; margin-top: 10px;">Please check if the file exists and is accessible.</div>
+            </div>
+            <div class="pdf-viewer-container" id="pdfViewerContainer">
+                <!-- PDF.js viewer will be loaded here -->
+            </div>
+        </div>
+        <div class="pdf-controls">
+            <button class="pdf-control-btn" id="pdfPrevPage" title="Previous Page">‹ Previous</button>
+            <div class="pdf-page-info">
+                <span>Page</span>
+                <input type="number" class="pdf-page-input" id="pdfPageInput" min="1" title="Go to page">
+                <span>of <span id="pdfTotalPages">-</span></span>
+            </div>
+            <button class="pdf-control-btn" id="pdfNextPage" title="Next Page">Next ›</button>
+            <button class="pdf-control-btn" id="pdfZoomOut" title="Zoom Out">-</button>
+            <span id="pdfZoomLevel">100%</span>
+            <button class="pdf-control-btn" id="pdfZoomIn" title="Zoom In">+</button>
+            <button class="pdf-control-btn" id="pdfFitWidth" title="Fit Width">Fit Width</button>
+            <button class="pdf-control-btn" id="pdfFitPage" title="Fit Page">Fit Page</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// PDF Modal JavaScript Controller
+class PDFModalViewer {
+    constructor() {
+        this.modal = document.getElementById('pdfModal');
+        this.title = document.getElementById('pdfModalTitle');
+        this.closeBtn = document.getElementById('pdfModalClose');
+        this.loading = document.getElementById('pdfLoading');
+        this.error = document.getElementById('pdfError');
+        this.container = document.getElementById('pdfViewerContainer');
+        
+        // Controls
+        this.prevBtn = document.getElementById('pdfPrevPage');
+        this.nextBtn = document.getElementById('pdfNextPage');
+        this.pageInput = document.getElementById('pdfPageInput');
+        this.totalPages = document.getElementById('pdfTotalPages');
+        this.zoomIn = document.getElementById('pdfZoomIn');
+        this.zoomOut = document.getElementById('pdfZoomOut');
+        this.zoomLevel = document.getElementById('pdfZoomLevel');
+        this.fitWidth = document.getElementById('pdfFitWidth');
+        this.fitPage = document.getElementById('pdfFitPage');
+        
+        this.currentPdf = null;
+        this.currentPage = 1;
+        this.currentZoom = 1.0;
+        this.isLoading = false;
+        
+        this.initEventListeners();
+    }
+    
+    initEventListeners() {
+        // Close modal events
+        this.closeBtn.addEventListener('click', () => this.close());
+        this.modal.addEventListener('click', (e) => {
+            if (e.target === this.modal) this.close();
+        });
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (!this.modal || this.modal.style.display === 'none') return;
+            
+            switch(e.key) {
+                case 'Escape':
+                    this.close();
+                    break;
+                case 'ArrowLeft':
+                    if (!this.pageInput.matches(':focus')) {
+                        e.preventDefault();
+                        this.previousPage();
+                    }
+                    break;
+                case 'ArrowRight':
+                    if (!this.pageInput.matches(':focus')) {
+                        e.preventDefault();
+                        this.nextPage();
+                    }
+                    break;
+            }
+        });
+        
+        // Control buttons
+        this.prevBtn.addEventListener('click', () => this.previousPage());
+        this.nextBtn.addEventListener('click', () => this.nextPage());
+        this.zoomIn.addEventListener('click', () => this.zoomInOut(1.2));
+        this.zoomOut.addEventListener('click', () => this.zoomInOut(0.8));
+        this.fitWidth.addEventListener('click', () => this.fitToWidth());
+        this.fitPage.addEventListener('click', () => this.fitToPage());
+        
+        // Page input
+        this.pageInput.addEventListener('change', () => {
+            const page = parseInt(this.pageInput.value);
+            if (page >= 1 && page <= this.getTotalPages()) {
+                this.goToPage(page);
+            } else {
+                this.pageInput.value = this.currentPage;
+            }
+        });
+        
+        this.pageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.target.blur(); // Trigger change event
+            }
+        });
+    }
+    
+    async open(pdfUrl, title = 'PDF Viewer') {
+        if (this.isLoading) return;
+        
+        this.title.textContent = title;
+        this.modal.style.display = 'block';
+        this.showLoading();
+        
+        try {
+            this.isLoading = true;
+            await this.loadPdf(pdfUrl);
+            this.hideLoading();
+        } catch (error) {
+            console.error('Failed to load PDF:', error);
+            this.showError();
+        } finally {
+            this.isLoading = false;
+        }
+    }
+    
+    close() {
+        this.modal.style.display = 'none';
+        this.container.innerHTML = ''; // Clear PDF viewer
+        this.currentPdf = null;
+        this.currentPage = 1;
+        this.currentZoom = 1.0;
+    }
+    
+    showLoading() {
+        this.loading.style.display = 'block';
+        this.error.style.display = 'none';
+        this.container.innerHTML = '';
+    }
+    
+    hideLoading() {
+        this.loading.style.display = 'none';
+    }
+    
+    showError() {
+        this.loading.style.display = 'none';
+        this.error.style.display = 'block';
+        this.container.innerHTML = '';
+    }
+    
+    async loadPdf(pdfUrl) {
+        // Create iframe with PDF.js viewer
+        const viewerUrl = `/static/pdfjs/web/viewer.html?file=${encodeURIComponent(pdfUrl)}`;
+        
+        return new Promise((resolve, reject) => {
+            const iframe = document.createElement('iframe');
+            iframe.className = 'pdf-viewer-iframe';
+            iframe.src = viewerUrl;
+            
+            iframe.onload = () => {
+                try {
+                    // Try to get PDF info from the iframe
+                    this.setupPdfControls(iframe);
+                    resolve();
+                } catch (error) {
+                    // Fallback: just show the iframe
+                    resolve();
+                }
+            };
+            
+            iframe.onerror = () => {
+                reject(new Error('Failed to load PDF viewer'));
+            };
+            
+            // Timeout after 10 seconds
+            setTimeout(() => {
+                if (!iframe.contentDocument) {
+                    reject(new Error('PDF loading timeout'));
+                }
+            }, 10000);
+            
+            this.container.appendChild(iframe);
+        });
+    }
+    
+    setupPdfControls(iframe) {
+        // Basic control setup
+        this.updateControls();
+        
+        try {
+            // Try to communicate with PDF.js in the iframe
+            iframe.addEventListener('load', () => {
+                const pdfViewer = iframe.contentWindow;
+                
+                // Listen for PDF.js events if available
+                if (pdfViewer && pdfViewer.PDFViewerApplication) {
+                    const app = pdfViewer.PDFViewerApplication;
+                    
+                    app.eventBus.on('pagesinit', () => {
+                        this.totalPages.textContent = app.pagesCount || '?';
+                        this.updateControls();
+                    });
+                    
+                    app.eventBus.on('pagechanging', (evt) => {
+                        this.currentPage = evt.pageNumber;
+                        this.pageInput.value = this.currentPage;
+                        this.updateControls();
+                    });
+                }
+            });
+        } catch (error) {
+            // Fallback to basic controls
+            console.log('Advanced PDF controls not available:', error);
+        }
+    }
+    
+    updateControls() {
+        const totalPages = this.getTotalPages();
+        
+        this.prevBtn.disabled = this.currentPage <= 1;
+        this.nextBtn.disabled = this.currentPage >= totalPages;
+        this.pageInput.value = this.currentPage;
+        this.zoomLevel.textContent = Math.round(this.currentZoom * 100) + '%';
+    }
+    
+    getTotalPages() {
+        const total = this.totalPages.textContent;
+        return total === '-' || total === '?' ? 1 : parseInt(total) || 1;
+    }
+    
+    previousPage() {
+        if (this.currentPage > 1) {
+            this.goToPage(this.currentPage - 1);
+        }
+    }
+    
+    nextPage() {
+        if (this.currentPage < this.getTotalPages()) {
+            this.goToPage(this.currentPage + 1);
+        }
+    }
+    
+    goToPage(pageNum) {
+        this.currentPage = Math.max(1, Math.min(pageNum, this.getTotalPages()));
+        
+        // Try to control PDF.js viewer
+        const iframe = this.container.querySelector('iframe');
+        if (iframe && iframe.contentWindow && iframe.contentWindow.PDFViewerApplication) {
+            const app = iframe.contentWindow.PDFViewerApplication;
+            if (app.pdfViewer) {
+                app.pdfViewer.currentPageNumber = this.currentPage;
+            }
+        }
+        
+        this.updateControls();
+    }
+    
+    zoomInOut(factor) {
+        this.currentZoom *= factor;
+        this.currentZoom = Math.max(0.25, Math.min(5.0, this.currentZoom));
+        
+        // Try to control PDF.js zoom
+        const iframe = this.container.querySelector('iframe');
+        if (iframe && iframe.contentWindow && iframe.contentWindow.PDFViewerApplication) {
+            const app = iframe.contentWindow.PDFViewerApplication;
+            if (app.pdfViewer) {
+                app.pdfViewer.currentScale = this.currentZoom;
+            }
+        }
+        
+        this.updateControls();
+    }
+    
+    fitToWidth() {
+        const iframe = this.container.querySelector('iframe');
+        if (iframe && iframe.contentWindow && iframe.contentWindow.PDFViewerApplication) {
+            const app = iframe.contentWindow.PDFViewerApplication;
+            if (app.pdfViewer) {
+                app.pdfViewer.currentScaleValue = 'page-width';
+            }
+        }
+    }
+    
+    fitToPage() {
+        const iframe = this.container.querySelector('iframe');
+        if (iframe && iframe.contentWindow && iframe.contentWindow.PDFViewerApplication) {
+            const app = iframe.contentWindow.PDFViewerApplication;
+            if (app.pdfViewer) {
+                app.pdfViewer.currentScaleValue = 'page-fit';
+            }
+        }
+    }
+}
+
+// Global PDF viewer instance
+let pdfViewer;
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    pdfViewer = new PDFModalViewer();
+});
+
+// Helper function for other scripts to open PDF viewer
+function openPdfViewer(pdfUrl, title) {
+    if (pdfViewer) {
+        pdfViewer.open(pdfUrl, title);
+    } else {
+        console.error('PDF viewer not initialized');
+    }
+}
+
+// Helper function to create PDF viewer buttons
+function createPdfViewerButton(pdfUrl, title, buttonText = '👁️ View PDF', buttonClass = 'pdf-viewer-btn') {
+    const button = document.createElement('button');
+    button.textContent = buttonText;
+    button.className = buttonClass;
+    button.title = title;
+    button.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openPdfViewer(pdfUrl, title);
+    };
+    return button;
+}
+</script>
+</pre>

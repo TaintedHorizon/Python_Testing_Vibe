@@ -1491,8 +1491,30 @@ def order_batch_page(batch_id):
     """
     all_documents = get_documents_for_batch(batch_id)
 
+    # Enhance documents with source filename information for PDF viewer
+    conn = get_db_connection()
+    enhanced_documents = []
+    for doc in all_documents:
+        # Get the first page's source filename for PDF viewer
+        source_info = conn.execute(
+            """
+            SELECT DISTINCT p.source_filename 
+            FROM pages p 
+            JOIN document_pages dp ON p.id = dp.page_id 
+            WHERE dp.document_id = ? 
+            LIMIT 1
+            """, 
+            (doc["id"],)
+        ).fetchone()
+        
+        # Convert Row to dict and add source filename
+        enhanced_doc = dict(doc)
+        enhanced_doc["source_filename"] = source_info["source_filename"] if source_info else None
+        enhanced_documents.append(enhanced_doc)
+    conn.close()
+
     # Filter for documents that actually need ordering.
-    docs_to_order = [doc for doc in all_documents if doc["page_count"] > 1]
+    docs_to_order = [doc for doc in enhanced_documents if doc["page_count"] > 1]
 
     # If all documents were single-page, they are considered "ordered" by default.
     # This is a quality-of-life feature to avoid an unnecessary step for the user.
@@ -1927,6 +1949,37 @@ def serve_processed_file(filepath):
         abort(400, "Invalid file path")
         
     return send_from_directory(processed_dir, filepath)
+
+
+@app.route("/original_pdf/<path:filename>")
+def serve_original_pdf(filename):
+    """
+    Securely serves original PDF files for the PDF viewer modal.
+    Only allows access to PDF files from the INTAKE_DIR to prevent directory traversal attacks.
+    """
+    intake_dir = app_config.INTAKE_DIR
+    if not intake_dir or not os.path.isdir(intake_dir):
+        abort(500, "Intake directory not configured")
+    
+    # Validate the requested filename - must be a PDF and no path traversal
+    if not validate_path(filename):
+        abort(400, "Invalid file path")
+    
+    if not filename.lower().endswith('.pdf'):
+        abort(400, "Only PDF files are allowed")
+    
+    # Check if file exists in intake directory
+    full_path = os.path.join(intake_dir, filename)
+    if not os.path.isfile(full_path):
+        abort(404, "PDF file not found")
+    
+    # Serve the PDF file with appropriate headers for viewing
+    return send_from_directory(
+        intake_dir, 
+        filename, 
+        mimetype='application/pdf',
+        as_attachment=False  # Don't force download, allow inline viewing
+    )
 
 
 # --- FINALIZATION AND EXPORT ROUTES ---
