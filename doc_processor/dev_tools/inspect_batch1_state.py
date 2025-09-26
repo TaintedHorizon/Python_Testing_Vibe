@@ -11,7 +11,7 @@ else:
 	load_dotenv()
 db_path = os.getenv("DATABASE_PATH")
 if not db_path:
-	db_path = "doc_processor/documents.db"  # fallback
+	db_path = "/home/svc-scan/Python_Testing_Vibe/doc_processor/documents.db"  # fallback
 
 print(f"Using database: {db_path}")
 

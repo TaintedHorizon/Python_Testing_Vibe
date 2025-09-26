@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+
+{% block title %}Manipulate Single Documents{% endblock %}
+
+{% block content %}
+<h1>🛠️ Manipulate Single Documents</h1>
+<p>Edit AI-suggested category and filename for each document in this batch. Review and finalize before export.</p>
+
+<form method="post" action="{{ url_for('manipulate_batch_page', batch_id=batch_id) }}">
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>Original Filename</th>
+                <th>AI Category</th>
+                <th>AI Filename</th>
+                <th>AI Confidence</th>
+                <th>Summary</th>
+                <th>Edit Category</th>
+                <th>Edit Filename</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for doc in documents %}
+            <tr>
+                <td>{{ doc.original_filename }}</td>
+                <td>{{ doc.ai_suggested_category }}</td>
+                <td>{{ doc.ai_suggested_filename }}</td>
+                <td>{{ '%.2f'|format(doc.ai_confidence) }}</td>
+                <td>{{ doc.ai_summary }}</td>
+                <td>
+                    <input type="text" name="category_{{ doc.id }}" value="{{ doc.ai_suggested_category }}" class="form-control" />
+                </td>
+                <td>
+                    <input type="text" name="filename_{{ doc.id }}" value="{{ doc.ai_suggested_filename }}" class="form-control" />
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <button type="submit" class="btn btn-primary">Save Changes</button>
+</form>
+
+<!-- Separate form for finalization to avoid conflicts -->
+<form method="post" action="{{ url_for('finalize_single_documents_batch_action', batch_id=batch_id) }}" style="display: inline;">
+    <button type="submit" class="btn btn-success" onclick="return confirm('Are you sure you want to export all documents to their category folders? This action cannot be undone.');">🎯 Finalize & Export Single Documents</button>
+</form>
+<a href="{{ url_for('batch_control_page') }}" class="btn btn-secondary">Back to Batch Control</a>
+</form>
+{% endblock %}

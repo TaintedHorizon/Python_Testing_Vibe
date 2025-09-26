@@ -80,6 +80,13 @@
                 {% elif batch.status == 'Exported' %}
                     <a href="{{ url_for('view_documents_page', batch_id=batch.id) }}" class="action-btn btn-view-docs">View Documents</a>
 
+                {% elif batch.status == 'ready_for_manipulation' %}
+                    <a href="{{ url_for('manipulate_batch_page', batch_id=batch.id) }}" class="action-btn btn-finalize">Manipulate Single Documents</a>
+                    <form action="{{ url_for('finalize_single_documents_batch_action', batch_id=batch.id) }}" method="post" style="display:inline;">
+                        <button type="submit" class="action-btn btn-group" onclick="return confirm('Export all single documents to category folders?');">🎯 Export Single Documents</button>
+                    </form>
+                    <a href="{{ url_for('view_documents_page', batch_id=batch.id) }}" class="action-btn btn-view-docs">View Documents</a>
+
                 {% else %}
                     <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Batch</a>
                 {% endif %}

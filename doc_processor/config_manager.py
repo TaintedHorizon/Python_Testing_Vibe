@@ -46,6 +46,7 @@ class AppConfig:
     STATUS_ORDERING_COMPLETE: str = "ordering_complete"
     STATUS_EXPORTED: str = "exported"
     STATUS_FAILED: str = "failed"
+    STATUS_READY_FOR_MANIPULATION: str = "ready_for_manipulation"
 
     @classmethod
     def load_from_env(cls) -> 'AppConfig':
@@ -59,18 +60,30 @@ class AppConfig:
         Raises:
             ValueError: If required configuration is missing or invalid
         """
-        load_dotenv()  # Load .env file if it exists
+        # Try to load .env from workspace root, then from doc_processor/
+        from dotenv import load_dotenv
+        import pathlib
+        env_loaded = load_dotenv()
+        if not env_loaded:
+            # Try loading from doc_processor/.env explicitly
+            env_path = pathlib.Path(__file__).parent / ".env"
+            load_dotenv(dotenv_path=env_path)
 
         # Helper function to get environment variable with default
         def get_env(key: str, default: str) -> str:
             """Get environment variable with a required default value."""
             value = os.getenv(key)
+            if value is not None:
+                value = value.strip('"').strip("'")
             return value if value is not None else default
 
         # Helper function to get optional environment variable
         def get_optional_env(key: str) -> Optional[str]:
             """Get environment variable that can be None."""
-            return os.getenv(key)
+            value = os.getenv(key)
+            if value is not None:
+                value = value.strip('"').strip("'")
+            return value
 
         # Helper function to validate directory path
         def validate_directory(path: str, key: str) -> str:
@@ -121,7 +134,8 @@ class AppConfig:
                 STATUS_GROUPING_COMPLETE=cls.STATUS_GROUPING_COMPLETE,
                 STATUS_ORDERING_COMPLETE=cls.STATUS_ORDERING_COMPLETE,
                 STATUS_EXPORTED=cls.STATUS_EXPORTED,
-                STATUS_FAILED=cls.STATUS_FAILED
+                STATUS_FAILED=cls.STATUS_FAILED,
+                STATUS_READY_FOR_MANIPULATION=cls.STATUS_READY_FOR_MANIPULATION
             )
             
             # Validate database path
@@ -142,6 +156,7 @@ STATUS_VERIFICATION_COMPLETE = "verification_complete"
 STATUS_GROUPING_COMPLETE = "grouping_complete"
 STATUS_ORDERING_COMPLETE = "ordering_complete"
 STATUS_EXPORTED = "exported"
+STATUS_READY_FOR_MANIPULATION = "ready_for_manipulation"
 
 # Default categories that should always be available
 DEFAULT_CATEGORIES = [

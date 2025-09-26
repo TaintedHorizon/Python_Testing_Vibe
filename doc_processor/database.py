@@ -181,8 +181,15 @@ def get_db_connection():
             print(f"[APP][database_init] {payload}")
         _DB_LOGGED_ONCE = True
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)  # 30 second timeout for locks
     conn.row_factory = sqlite3.Row
+    
+    # Enable WAL mode for better concurrent access
+    conn.execute("PRAGMA journal_mode=WAL")
+    
+    # Set busy timeout for additional safety
+    conn.execute("PRAGMA busy_timeout=30000")  # 30 seconds in milliseconds
+    
     return conn
 
 

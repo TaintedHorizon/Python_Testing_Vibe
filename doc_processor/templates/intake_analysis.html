@@ -634,23 +634,62 @@ function populateResults(data) {
         // Create reasoning box with proper formatting
         let reasoningHtml = `<div class="reasoning-box p-3 border rounded bg-light" style="max-width: 350px;">`;
         
-        // Add heuristic reasoning
-        reasoningHtml += `<div class="mb-2">`;
-        reasoningHtml += `<strong>📊 Analysis:</strong><br>`;
+        // Separate static analysis (heuristics) from LLM decision lines
+        let staticAnalysis = [];
+        let llmDecisionLines = [];
+        
         analysis.reasoning.forEach(reason => {
-            reasoningHtml += `<div style="margin: 4px 0;">• ${reason}</div>`;
+            // LLM decision lines start with 🤖 or contain "LLM" or "Final classification"
+            if (reason.includes('🤖') || reason.includes('LLM') || reason.includes('Final classification')) {
+                llmDecisionLines.push(reason);
+            } else {
+                staticAnalysis.push(reason);
+            }
         });
+        
+        // Create unique IDs for this analysis
+        const filenameSafe = analysis.filename.replace(/[^a-zA-Z0-9]/g, '_');
+        const staticAnalysisId = `static_${filenameSafe}`;
+        const aiAnalysisId = `ai_${filenameSafe}`;
+        
+        // Determine static analysis verdict
+        let staticVerdict = 'Unknown';
+        let staticDetails = staticAnalysis.join('<br>• ');
+        
+        // Extract verdict from LLM decision lines or fall back to processing strategy
+        if (llmDecisionLines.length > 0) {
+            // If there's LLM decision, the static analysis didn't have final say
+            const classification = analysis.processing_strategy.replace('_', ' ');
+            staticVerdict = `${classification} (heuristic analysis)`;
+        } else {
+            // No LLM, so static analysis made the final decision
+            const classification = analysis.processing_strategy.replace('_', ' ');
+            staticVerdict = `${classification} (${Math.round(analysis.confidence * 100)}% confidence)`;
+        }
+        
+        // Add Static Analysis section
+        reasoningHtml += `<div class="mb-2">`;
+        reasoningHtml += `<strong>📊 Static Analysis:</strong><br>`;
+        reasoningHtml += `<div style="margin: 4px 0;">`;
+        reasoningHtml += `<span class="text-info font-weight-bold">${staticVerdict}</span>`;
+        reasoningHtml += `<button class="btn btn-sm btn-outline-secondary ml-2" type="button" 
+                                onclick="toggleLlmDetails('${staticAnalysisId}')" 
+                                style="font-size: 0.7em; padding: 2px 8px;">
+                            <span id="${staticAnalysisId}_toggle">🔽 Details</span>
+                        </button>`;
+        reasoningHtml += `</div>`;
+        reasoningHtml += `<div id="${staticAnalysisId}_details" style="display: none; margin: 4px 0; font-size: 0.9em; color: #666; 
+                         max-height: 150px; overflow-y: auto; padding: 8px; background: #f8f9fa; border-radius: 4px;">`;
+        reasoningHtml += `• ${staticDetails}`;
+        reasoningHtml += `</div>`;
         reasoningHtml += `</div>`;
         
-        // Add LLM analysis if available
+        // Add AI Analysis section if LLM was used
         if (analysis.llm_analysis) {
             console.log('LLM Analysis for', analysis.filename, ':', analysis.llm_analysis);
             const llmClassification = analysis.llm_analysis.classification ? analysis.llm_analysis.classification.replace('_', ' ') : 'Unknown';
             const llmConfidence = analysis.llm_analysis.confidence || 0;
             const llmReasoning = analysis.llm_analysis.reasoning || 'No reasoning provided';
-            
-            // Create unique ID for this analysis
-            const analysisId = `llm_${analysis.filename.replace(/[^a-zA-Z0-9]/g, '_')}`;
             
             reasoningHtml += `
                 <div class="mt-2 pt-2 border-top">
@@ -658,14 +697,18 @@ function populateResults(data) {
                     <div style="margin: 4px 0;">
                         <span class="text-primary font-weight-bold">${llmClassification}</span> (${llmConfidence}% confidence)
                         <button class="btn btn-sm btn-outline-secondary ml-2" type="button" 
-                                onclick="toggleLlmDetails('${analysisId}')" 
+                                onclick="toggleLlmDetails('${aiAnalysisId}')" 
                                 style="font-size: 0.7em; padding: 2px 8px;">
-                            <span id="${analysisId}_toggle">🔽 Details</span>
+                            <span id="${aiAnalysisId}_toggle">🔽 Details</span>
                         </button>
                     </div>
-                    <div id="${analysisId}_details" style="display: none; margin: 4px 0; font-size: 0.9em; color: #666; 
+                    <div id="${aiAnalysisId}_details" style="display: none; margin: 4px 0; font-size: 0.9em; color: #666; 
                          max-height: 150px; overflow-y: auto; padding: 8px; background: #f8f9fa; border-radius: 4px;">
                         ${llmReasoning}
+                        <div class="mt-2" style="border-top: 1px solid #ddd; padding-top: 8px;">
+                            <strong>LLM Decision Process:</strong><br>
+                            • ${llmDecisionLines.join('<br>• ')}
+                        </div>
                     </div>
                 </div>
             `;
@@ -754,15 +797,20 @@ function populateResults(data) {
             // Clear cached results since user is starting processing
             sessionStorage.removeItem('intake_analysis_results');
             
-            // Disable ALL processing buttons to prevent multiple simultaneous operations
-            disableAllProcessingButtons();
-            
-            // Show processing feedback based on button type
             const buttonText = this.textContent.trim();
             if (buttonText.includes('Smart Processing')) {
                 // Smart processing will redirect to its own progress page
+                // Delay button disabling to allow form submission
                 this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Starting Smart Processing...';
+                setTimeout(() => {
+                    disableAllProcessingButtons();
+                }, 100); // Small delay to allow form submission
             } else {
+                // Disable ALL processing buttons to prevent multiple simultaneous operations
+                disableAllProcessingButtons();
+                
+                // Other modes show loading state on current page
+                document.getElementById('loading-state').style.display = 'block';
                 // Other modes show loading state on current page
                 document.getElementById('loading-state').style.display = 'block';
                 document.getElementById('results-state').style.display = 'none';
@@ -781,6 +829,13 @@ function populateResults(data) {
     startAnalysisButtons.forEach(btn => {
         const originalClick = btn.onclick;
         btn.onclick = function(e) {
+            // Allow Smart Processing to always proceed (it has its own progress page)
+            const buttonText = this.textContent.trim();
+            if (buttonText.includes('Smart Processing')) {
+                // Let the form submit normally for Smart Processing
+                return true;
+            }
+            
             if (this.disabled || isProcessingActive()) {
                 e.preventDefault();
                 return false;

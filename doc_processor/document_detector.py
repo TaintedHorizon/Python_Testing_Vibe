@@ -1,3 +1,4 @@
+from .llm_utils import get_ai_document_type_analysis
 """
 Document type detection and processing strategy selection.
 
@@ -11,8 +12,8 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import logging
-import fitz  # PyMuPDF
 from dataclasses import dataclass
+import fitz
 
 @dataclass
 class DocumentAnalysis:
@@ -20,9 +21,9 @@ class DocumentAnalysis:
     file_path: str
     file_size_mb: float
     page_count: int
-    processing_strategy: str  # 'single_document' or 'batch_scan'
-    confidence: float  # 0.0 to 1.0
-    reasoning: List[str]  # Human-readable reasons for the decision
+    processing_strategy: str
+    confidence: float
+    reasoning: list
     filename_hints: Optional[str] = None
     content_sample: Optional[str] = None
     llm_analysis: Optional[Dict] = None  # LLM analysis results when used
@@ -66,29 +67,10 @@ class DocumentTypeDetector:
     def __init__(self, use_llm_for_ambiguous=True):
         self.logger = logging.getLogger(__name__)
         self.use_llm_for_ambiguous = use_llm_for_ambiguous
-        self._get_ai_analysis = None
-        
-        # Lazy import to avoid circular imports
-        if use_llm_for_ambiguous:
-            self._import_llm_function()
     
     def _import_llm_function(self):
         """Lazy import of LLM function to avoid circular imports."""
-        try:
-            # Try relative import first
-            from . import processing
-            self._get_ai_analysis = processing.get_ai_document_type_analysis
-            self.logger.info("LLM analysis function loaded successfully")
-        except ImportError:
-            try:
-                # Try direct import as fallback
-                import processing
-                self._get_ai_analysis = processing.get_ai_document_type_analysis
-                self.logger.info("LLM analysis function loaded successfully (fallback)")
-            except Exception as e:
-                self.logger.warning(f"Could not import LLM analysis function: {e} - LLM detection disabled")
-                self.use_llm_for_ambiguous = False
-                self._get_ai_analysis = None
+        # _import_llm_function removed: always use llm_utils.get_ai_document_type_analysis
     
     def analyze_pdf(self, file_path: str) -> DocumentAnalysis:
         """
@@ -111,28 +93,51 @@ class DocumentTypeDetector:
             # Open PDF to get page count and sample content
             with fitz.open(file_path) as doc:
                 page_count = len(doc)
-                
                 # Extract first page text sample for analysis
                 content_sample = ""
                 if page_count > 0:
                     first_page = doc[0]
-                    # Use PyMuPDF text extraction - try multiple methods for compatibility
                     try:
-                        # Modern PyMuPDF API
+                        # Extract text from first page for LLM analysis - handle PyMuPDF API variations
                         if hasattr(first_page, 'get_text'):
-                            content_sample = first_page.get_text()[:500]
-                        # Legacy PyMuPDF API
+                            content_sample = getattr(first_page, 'get_text')()
                         elif hasattr(first_page, 'getText'):
-                            content_sample = first_page.getText()[:500]
-                        # Alternative method using textpage
-                        elif hasattr(first_page, 'get_textpage'):
-                            textpage = first_page.get_textpage()
-                            content_sample = textpage.extractText()[:500] if textpage else ""
+                            content_sample = getattr(first_page, 'getText')()
                         else:
-                            self.logger.warning("No text extraction method available in PyMuPDF")
-                            content_sample = ""
+                            self.logger.warning(f"No text extraction method available in PyMuPDF for {file_path}")
+                        
+                        # If no embedded text found, try light OCR for scanned PDFs
+                        if not content_sample or len(content_sample.strip()) < 50:
+                            self.logger.info(f"📄 No embedded text in {os.path.basename(file_path)}, attempting OCR extraction...")
+                            try:
+                                # Convert first page to image and run OCR
+                                from pdf2image import convert_from_path
+                                import pytesseract
+                                from .config_manager import app_config
+                                
+                                if not app_config.DEBUG_SKIP_OCR:
+                                    # Convert just the first page
+                                    pages = convert_from_path(file_path, first_page=1, last_page=1, dpi=150)
+                                    if pages:
+                                        # Run OCR on the first page
+                                        ocr_text = pytesseract.image_to_string(pages[0])
+                                        if ocr_text and len(ocr_text.strip()) > content_sample.count(' '):
+                                            content_sample = ocr_text
+                                            self.logger.info(f"📄 OCR extracted {len(content_sample)} characters from {os.path.basename(file_path)}")
+                                        else:
+                                            self.logger.debug(f"📄 OCR didn't improve text extraction for {os.path.basename(file_path)}")
+                                else:
+                                    content_sample = f"[DEBUG MODE - Sample content for {os.path.basename(file_path)}]"
+                                    self.logger.debug(f"📄 DEBUG mode: using sample content for {os.path.basename(file_path)}")
+                            except Exception as ocr_error:
+                                self.logger.warning(f"📄 OCR extraction failed for {os.path.basename(file_path)}: {ocr_error}")
+                        
+                        if content_sample:
+                            self.logger.debug(f"📄 Final content sample: {len(content_sample)} characters from {os.path.basename(file_path)}")
+                        else:
+                            self.logger.debug(f"📄 No content available for LLM analysis from {os.path.basename(file_path)}")
                     except Exception as text_error:
-                        self.logger.warning(f"Text extraction failed: {text_error}")
+                        self.logger.warning(f"Failed to extract text from {file_path}: {text_error}")
                         content_sample = ""
             
             reasoning.append(f"File size: {file_size_mb:.1f}MB, Pages: {page_count}")
@@ -186,87 +191,64 @@ class DocumentTypeDetector:
                 batch_doc_score += 2
                 reasoning.append("Content structure suggests batch scan")
             
-            # Decision logic with LLM enhancement for ambiguous cases
+            # Decision logic with LLM enhancement
             total_score = single_doc_score + batch_doc_score
             if total_score > 0:
                 confidence = max(single_doc_score, batch_doc_score) / total_score
-            
+            # Heuristic strategy first
+            strategy = None
+            if single_doc_score >= batch_doc_score + 2 and confidence >= 0.7:
+                strategy = "single_document"
+                reasoning.append(f"HIGH CONFIDENCE single document (score: {single_doc_score} vs {batch_doc_score})")
+            else:
+                strategy = "batch_scan"
+                reasoning.append(f"Defaulting to batch scan (score: {single_doc_score} vs {batch_doc_score})")
+
+            # LLM analysis (if enabled and content available)
             llm_analysis = None
+            self.logger.info(f"LLM check for {os.path.basename(file_path)}: use_llm={self.use_llm_for_ambiguous}, content_len={len(content_sample.strip()) if content_sample else 0}")
             
-            # Always use LLM analysis for training data collection (RAG training)  
-            score_difference = abs(single_doc_score - batch_doc_score)
-            is_ambiguous = (
-                score_difference <= 2 or  # Close scores
-                confidence < 0.7 or       # Low confidence
-                (5 <= page_count <= 20)   # Ambiguous page count range
-            )
-            
-            # Always use LLM if available to collect comprehensive training data
-            if (self.use_llm_for_ambiguous and 
-                self._get_ai_analysis and content_sample.strip()):
-                
-                if is_ambiguous:
-                    self.logger.info(f"Ambiguous case detected for {os.path.basename(file_path)}, consulting LLM...")
-                    reasoning.append("Ambiguous heuristics - consulting LLM for deeper analysis")
-                else:
-                    self.logger.info(f"Analyzing {os.path.basename(file_path)} with LLM for training data collection...")
-                    reasoning.append("LLM analysis for comprehensive training data collection")
-                
-                llm_analysis = self._get_ai_analysis(
-                    file_path, content_sample, os.path.basename(file_path), 
-                    page_count, file_size_mb
-                )
-                
-                if llm_analysis:
-                    llm_strategy = llm_analysis.get('classification')
-                    llm_confidence = llm_analysis.get('confidence', 50) / 100.0  # Convert to 0-1
-                    llm_reasoning = llm_analysis.get('reasoning', 'LLM analysis')
-                    
-                    # NEW APPROACH: Prioritize LLM when it's confident (>= 70% confidence)
-                    if llm_confidence >= 0.7:
-                        strategy = llm_strategy
-                        confidence = llm_confidence  # Use LLM confidence as primary
-                        reasoning.append(f"🤖 LLM DECISION (confidence: {llm_confidence:.0%}): {llm_reasoning[:150]}...")
-                        reasoning.append(f"Final classification: {strategy} - LLM analysis preferred over heuristics")
-                    elif llm_confidence >= 0.5:
-                        # Moderate LLM confidence - use it but note the uncertainty
-                        strategy = llm_strategy
-                        confidence = (confidence + llm_confidence) / 2  # Blend with heuristic confidence
-                        reasoning.append(f"🤖 LLM MODERATE (confidence: {llm_confidence:.0%}): {llm_reasoning[:100]}...")
-                        reasoning.append(f"Using LLM suggestion '{strategy}' with blended confidence")
+            if self.use_llm_for_ambiguous and content_sample.strip():
+                self.logger.info(f"🤖 Starting LLM analysis for {os.path.basename(file_path)} (content: {len(content_sample)} chars)")
+                try:
+                    llm_analysis = get_ai_document_type_analysis(
+                        file_path, content_sample, os.path.basename(file_path), page_count, file_size_mb
+                    )
+                    if llm_analysis:
+                        llm_strategy = llm_analysis.get('classification')
+                        llm_confidence = llm_analysis.get('confidence', 50)
+                        llm_reasoning = llm_analysis.get('reasoning', '')
+                        self.logger.info(f"✅ LLM analysis successful for {os.path.basename(file_path)}: {llm_strategy} ({llm_confidence}%)")
+                        reasoning.append(f"🤖 LLM ANALYSIS: {llm_strategy} (confidence: {llm_confidence}%) - {llm_reasoning}")
+                        # If LLM is confident, override heuristic
+                        if llm_confidence >= 70:
+                            strategy = llm_strategy
+                            confidence = llm_confidence / 100.0
+                            self.logger.info(f"🎯 LLM override: {os.path.basename(file_path)} -> {llm_strategy} (confidence: {llm_confidence}%)")
                     else:
-                        # Low LLM confidence - fall back to heuristics but log the disagreement
-                        reasoning.append(f"LLM uncertain (confidence: {llm_confidence:.0%}): {llm_reasoning[:100]}...")
-                        reasoning.append("Using heuristic analysis due to low LLM confidence")
-                        # strategy will be set by heuristics below
-            
-            # Apply heuristic decision logic only if LLM didn't make a confident decision
-            if 'strategy' not in locals() or not strategy:
-                # Conservative threshold: require 70% confidence AND score advantage for single doc
-                if single_doc_score >= batch_doc_score + 2 and confidence >= 0.7:
-                    strategy = "single_document"
-                    reasoning.append(f"HIGH CONFIDENCE single document (score: {single_doc_score} vs {batch_doc_score})")
-                else:
-                    strategy = "batch_scan" 
-                    reasoning.append(f"Defaulting to batch scan (score: {single_doc_score} vs {batch_doc_score})")
-            
+                        self.logger.warning(f"❌ LLM analysis returned None for {os.path.basename(file_path)}")
+                        reasoning.append("🤖 LLM ANALYSIS: No result returned")
+                except Exception as llm_e:
+                    self.logger.error(f"💥 LLM analysis failed for {os.path.basename(file_path)}: {llm_e}")
+                    reasoning.append(f"🤖 LLM ANALYSIS: Failed - {str(llm_e)}")
+            else:
+                skip_reason = "disabled" if not self.use_llm_for_ambiguous else "no content"
+                self.logger.info(f"⏭️ Skipping LLM analysis for {os.path.basename(file_path)}: {skip_reason}")
+                reasoning.append(f"🤖 LLM ANALYSIS: Skipped ({skip_reason})")
             result = DocumentAnalysis(
                 file_path=file_path,
                 file_size_mb=file_size_mb,
                 page_count=page_count,
-                processing_strategy=strategy,
+                processing_strategy=strategy if strategy is not None else "batch_scan",
                 confidence=confidence,
                 reasoning=reasoning,
                 filename_hints=filename_hint,
                 content_sample=content_sample[:200] if content_sample else None,
                 llm_analysis=llm_analysis
             )
-            
             # Log detection decision for training data collection
             try:
-                # Import here to avoid circular imports
                 from .database import log_interaction
-                
                 detection_data = {
                     "filename": os.path.basename(file_path),
                     "file_size_mb": file_size_mb,
@@ -275,11 +257,10 @@ class DocumentTypeDetector:
                     "filename_hints": filename_hint,
                     "final_strategy": strategy,
                     "final_confidence": confidence,
-                    "llm_used": llm_analysis is not None,
+                    "llm_used": bool(llm_analysis),
                     "llm_analysis": llm_analysis,
                     "reasoning": reasoning
                 }
-                
                 log_interaction(
                     batch_id=None,
                     document_id=None,
@@ -291,7 +272,6 @@ class DocumentTypeDetector:
                 )
             except Exception as log_error:
                 self.logger.warning(f"Failed to log detection decision: {log_error}")
-            
             return result
             
         except Exception as e:

@@ -43,3 +43,6 @@ log/
 Document_Scanner_Ollama/__pycache__/
 Document_Scanner_Ollama/.venv/
 Document_Scanner_Ollama/model_cache/
+
+# Prevent duplicate nested directory (common issue with relative paths)
+doc_processor/doc_processor/

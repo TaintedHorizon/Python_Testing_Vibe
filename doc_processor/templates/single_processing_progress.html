@@ -1,21 +1,21 @@
 {% extends 'base.html' %}
 
-{% block title %}Smart Processing{% endblock %}
+{% block title %}Single Document Processing{% endblock %}
 
 {% block content %}
 <div class="container">
-    <h1>🚀 Smart Processing</h1>
+    <h1>⚡ Single Document Processing</h1>
     
     <!-- Processing State -->
     <div id="processing-state" class="alert alert-primary text-center">
         <div class="spinner-border text-primary mb-3" role="status">
         </div>
-        <h4>⚙️ Processing Your Documents...</h4>
-        <p id="processing-message" class="mb-3">Initializing smart processing...</p>
+        <h4>⚙️ Processing All Files as Single Documents...</h4>
+        <p id="processing-message" class="mb-3">Initializing single document processing...</p>
         
         <!-- Progress Bar -->
         <div class="progress mb-3" style="height: 30px; max-width: 600px; margin: 0 auto;">
-            <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+            <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" 
                  role="progressbar" 
                  style="width: 0%; white-space: nowrap; font-weight: 500; font-size: 14px; line-height: 30px;"
                  aria-valuenow="0" 
@@ -26,14 +26,14 @@
         </div>
         
         <div id="processing-details" class="text-left" style="max-width: 600px; margin: 0 auto;">
-            <small class="text-muted">Processing files using AI-optimized strategies...</small>
+            <small class="text-muted">Processing files in speed mode - each file treated as a complete document...</small>
         </div>
     </div>
     
     <!-- Success State -->
     <div id="success-state" style="display: none;" class="alert alert-success text-center">
         <h4>✅ Processing Complete!</h4>
-        <p id="success-message">Your documents have been processed successfully.</p>
+        <p id="success-message">Your documents have been processed as single documents.</p>
         <a href="/batch_control" class="btn btn-success btn-lg">📋 View Results</a>
     </div>
     
@@ -139,11 +139,11 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    startSmartProcessing();
+    startSingleProcessing();
 });
 
-function startSmartProcessing() {
-    console.log('Starting smart processing with progress tracking...');
+function startSingleProcessing() {
+    console.log('Starting single document processing with progress tracking...');
     
     // Add debugging output to screen
     const messageEl = document.getElementById('processing-message');
@@ -152,8 +152,8 @@ function startSmartProcessing() {
     }
     
     // Use Server-Sent Events for real-time progress
-    console.log('Creating EventSource for /api/smart_processing_progress');
-    const eventSource = new EventSource('/api/smart_processing_progress');
+    console.log('Creating EventSource for /api/single_processing_progress');
+    const eventSource = new EventSource('/api/single_processing_progress');
     
     eventSource.onopen = function(event) {
         console.log('SSE connection opened successfully');
@@ -201,79 +201,13 @@ function startSmartProcessing() {
     eventSource.onerror = function(error) {
         console.error('EventSource error:', error);
         console.log('EventSource readyState:', eventSource.readyState);
-        console.log('Attempting fallback to HTTP polling...');
+        const messageEl = document.getElementById('processing-message');
+        if (messageEl) {
+            messageEl.textContent = 'Connection error occurred. Check console for details.';
+        }
         eventSource.close();
-        
-        // Fallback to HTTP polling for browsers with SSE issues
-        startPollingFallback();
+        showError('Connection lost during processing. Please check the server.');
     };
-}
-
-function startPollingFallback() {
-    console.log('Starting HTTP polling fallback...');
-    const messageEl = document.getElementById('processing-message');
-    if (messageEl) {
-        messageEl.textContent = 'Using fallback connection method...';
-    }
-    
-    // First, trigger the processing to start
-    fetch('/api/smart_processing_start', { 
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        }
-    }).then(response => {
-        if (!response.ok) {
-            throw new Error('Failed to start processing');
-        }
-        console.log('Processing started, beginning polling...');
-        pollForProgress();
-    }).catch(error => {
-        console.error('Error starting processing:', error);
-        showError('Failed to start processing: ' + error.message);
-    });
-}
-
-function pollForProgress() {
-    const poll = () => {
-        fetch('/api/smart_processing_status')
-            .then(response => response.json())
-            .then(data => {
-                console.log('Polling update:', data);
-                
-                if (data.error) {
-                    showError(data.error);
-                    return;
-                }
-                
-                if (data.complete) {
-                    if (data.success) {
-                        showSuccess(data.message);
-                        if (data.redirect) {
-                            setTimeout(() => {
-                                window.location.href = data.redirect;
-                            }, 2000);
-                        }
-                    } else {
-                        showError(data.error || 'Processing failed');
-                    }
-                    return;
-                }
-                
-                // Update progress
-                updateProgress(data);
-                
-                // Continue polling
-                setTimeout(poll, 1000);
-            })
-            .catch(error => {
-                console.error('Polling error:', error);
-                showError('Connection lost during processing.');
-            });
-    };
-    
-    // Start polling
-    poll();
 }
 
 function updateProgress(data) {

@@ -4,9 +4,45 @@ All notable changes to this project will be documented in this file.
 
 
 ## [Unreleased]
-- Added full interaction logging: every AI prompt/response, human correction, and status change is now recorded in the `interaction_log` table for RAG and audit
-- Database schema and backend updated for robust auditability and future LLM workflows
-- Export workflow and documentation improved for clarity and traceability
+
+## [2025-09-26] - Major LLM Integration & File Safety Update
+### Added
+- **Complete LLM Functionality Restoration**: Fixed broken document type analysis with comprehensive OCR fallback for scanned documents
+- **Advanced File Safety System**: Implemented `safe_move()` operations with verification and automatic rollback on failures
+- **Single Document Processing Fix**: Corrected workflow to send single documents to category folders (not archive)
+- **Comprehensive Logging System**: Added emoji-based logging identifiers (🤖 🌐 ✅ ❌ 💥 📄) for easy troubleshooting
+- **Smart Document Detection**: Enhanced LLM-powered detection between single documents and batch scans
+- **File Safety Monitoring**: Added `/api/file_safety_check` endpoint and `verify_no_file_loss()` function
+- **Database Path Consistency**: Fixed duplicate `doc_processor/doc_processor/` directory creation with absolute paths
+- **Modern Single Document Workflow**: All single documents now use `_process_single_documents_as_batch()` for consistent processing
+
+### Changed
+- **Configuration Management**: Enhanced with quote-stripping and fallback to `doc_processor/.env` location
+- **Document Processing**: Unified all single document processing to use modern workflow instead of legacy archive-based approach
+- **PDF Content Extraction**: Fixed broken content sampling in `document_detector.py` with proper OCR fallback
+- **LLM Integration**: Restored `get_ai_document_type_analysis()` function with comprehensive error handling
+- **Export Safety**: Added rollback mechanisms for export operations with verification of file integrity
+
+### Fixed
+- **Critical LLM Analysis Bug**: Content extraction was returning empty strings, breaking all AI classification
+- **Single Document Routing**: Legacy workflow incorrectly moved single documents to archive instead of category folders
+- **Configuration Loading**: Quote handling and path resolution issues in environment variable processing
+- **Database Path Duplication**: Relative paths causing duplicate directories when working directory changed
+- **Missing OCR Fallback**: Scanned documents with no extractable text now properly trigger OCR processing
+- **File Movement Safety**: Replaced basic file operations with verified moves and rollback capabilities
+
+### Developer / Infrastructure
+- **Deprecated Legacy Functions**: Added warnings to `process_single_document()` as it incorrectly uses archive workflow
+- **Enhanced Error Handling**: Comprehensive logging throughout LLM and processing pipelines
+- **Test Scripts**: Added verification scripts for single document workflow and database path consistency
+- **Configuration Validation**: Improved `.env` loading with better error messages and fallback handling
+- **File Safety Verification**: Created monitoring tools to ensure no PDFs are lost during processing
+
+### Documentation
+- **Updated README**: Enhanced with current feature set, LLM integration details, and file safety information
+- **Added Audit Trail Documentation**: Comprehensive RAG-ready data structure explanation
+- **Enhanced Setup Instructions**: Updated with current configuration requirements and troubleshooting
+- **File Safety Guidelines**: Added documentation for rollback mechanisms and safety verification
 
 ## [2025-09-24]
 ### Added

@@ -1,10 +1,11 @@
 
-# Human-in-the-Loop (HITL) Document Processing System
+# Human-in-the-Loop Document Processing System
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Project Status
 
-**Current Module Under Test:** Finalize & Export  
-**Status:** All previous modules (Batch Processing, Verification, Review, Grouping, Ordering) have been tested and are complete. The system is currently focused on testing and refinement of the final export functionality.
+**Current Status:** Production Ready - All core modules (Batch Processing, Verification, Review, Grouping, Ordering, Export) have been tested and are complete. The system includes comprehensive file safety, LLM integration, and audit trail capabilities.
 
 ## Recent Changes (September 2025)
 
@@ -16,6 +17,14 @@
     - Removed obsolete and duplicate files; validated all core `.py` files as referenced
     - Added `.gitignore` to exclude model weights and backup files from version control
     - Updated and clarified documentation throughout the project
+
+- **LLM Integration & File Safety Improvements:**
+    - Restored complete LLM functionality with OCR fallback for scanned documents
+    - Implemented comprehensive file safety with `safe_move()` and rollback mechanisms
+    - Fixed single document processing to use category folders (not archive)
+    - Added extensive logging with emoji identifiers for easy troubleshooting
+    - Enhanced configuration management with quote-stripping and fallback paths
+    - Fixed duplicate database path issues with absolute path configuration
 
 ---
 
@@ -34,18 +43,19 @@ The core philosophy is to use automation for the heavy lifting (like text extrac
 
 This project has recently completed Module 5, which finalizes the document processing workflow with robust export and finalization features.
 
-## Features
+## Key Features
 
-*   **Automated Ingestion**: Automatically processes all PDFs from a designated intake folder.
-*   **OCR and Pre-processing**: Converts PDFs to images, detects and corrects page orientation, and extracts text using EasyOCR and Tesseract OCR.
-*   **AI-Powered Classification**: Uses a local Large Language Model (via Ollama) to provide an initial "best guess" category for each page.
-*   **Guided Web Interface**: A step-by-step workflow presented in a central "Batch Control" dashboard that guides the user through each stage.
-*   **Verification & Correction**: A rapid, page-by-page UI to approve or correct AI-suggested categories.
-*   **Flagging & Review**: A safety net to flag problematic pages for a dedicated review process, where OCR can be re-run with manual rotation.
-*   **Interactive Document Grouping**: A user-friendly interface to assemble individual verified pages into logical, multi-page documents.
-*   **Drag-and-Drop Page Ordering**: An intuitive, two-column UI with a large preview pane and a drag-and-drop list for reordering pages within a document.
-*   **Robust AI-Assisted Ordering**: A hybrid AI feature that reliably suggests page order by extracting printed page numbers, which are then used for a code-based sort.
-*   **Finalization and Export**: A final review stage to edit AI-suggested filenames and export documents into a clean, categorized folder structure as standard PDFs, searchable PDFs, and detailed Markdown log files.
+*   **End-to-end Document Pipeline**: Intake → OCR → AI Classification → Human Verification → Grouping → Ordering → Export
+*   **Full Audit Trail**: Every AI prompt/response, human correction, rotation update, category change, and status transition is logged with complete traceability
+*   **RAG-Ready Architecture**: All OCR text, AI outputs, human decisions, and taxonomy evolution are stored for future retrieval-augmented workflows
+*   **AI-Powered Classification**: Uses a local Large Language Model (via Ollama) with intelligent fallback to OCR for scanned documents
+*   **File Safety & Integrity**: Comprehensive `safe_move()` operations with verification and automatic rollback on failures
+*   **Category Governance**: Add, rename (with historical trace), soft delete/restore, annotate categories with full database persistence
+*   **Modern Flask Web UI**: Guided workflow with batch control, verification, review, grouping, ordering, finalization, and audit views
+*   **Rotation-Safe OCR**: Re-run OCR with in-memory rotation (non-destructive) while persisting logical rotation angles
+*   **Smart Document Detection**: Automatically distinguishes single documents from batch scans using LLM analysis
+*   **Export Formats**: Each document exported as non-searchable PDF, searchable PDF (OCR layer), and structured Markdown logs
+*   **Structured Logging**: JSON-based logging with emoji identifiers for easy troubleshooting and system monitoring
 
 ## Technology Stack
 
@@ -207,6 +217,21 @@ Documentation and usage guides. Example: `USAGE.md` covers quick start, workflow
 ### Other Folders
 - `tools/`: Utility scripts and GUIs (download manager, file copy, SD card imager, etc.)
 - `Document_Scanner_Ollama_outdated/`, `Document_Scanner_Gemini_outdated/`: Legacy/experimental code (not core)
+
+---
+
+## Audit & RAG Integration
+
+This system is designed with full auditability and future RAG (Retrieval-Augmented Generation) integration in mind:
+
+- **Complete Document Trail**: All document/page-level OCR text is stored in the database for retrieval
+- **Interaction Logging**: The `interaction_log` table records every AI and human action, correction, and status change with batch/document/user/timestamp context
+- **Category Evolution**: The `category_change_log` provides immutable lineage for taxonomy changes (rename, add, restore, delete)
+- **AI Decision Context**: All AI prompts, responses, and confidence scores are preserved for future analysis
+- **Human Feedback Loop**: Every human correction and decision is captured, enabling future LLMs to learn from human expertise
+- **Export Metadata**: Each exported document includes comprehensive Markdown logs with processing history and human decisions
+
+This rich data foundation enables future LLMs to use Retrieval-Augmented Generation with full process history, human feedback patterns, and document classification expertise.
 
 ---
 
