@@ -117,25 +117,34 @@ class DocumentTypeDetector:
                                 
                                 if not app_config.DEBUG_SKIP_OCR:
                                     # Convert just the first page
+                                    self.logger.debug(f"📄 Converting PDF to image for OCR: {os.path.basename(file_path)}")
                                     pages = convert_from_path(file_path, first_page=1, last_page=1, dpi=150)
                                     if pages:
+                                        self.logger.debug(f"📄 Successfully converted PDF page, image size: {pages[0].size}")
                                         # Run OCR on the first page
                                         ocr_text = pytesseract.image_to_string(pages[0])
-                                        if ocr_text and len(ocr_text.strip()) > content_sample.count(' '):
+                                        self.logger.debug(f"📄 OCR raw output length: {len(ocr_text)} characters")
+                                        if ocr_text and len(ocr_text.strip()) > 10:  # More reasonable threshold
                                             content_sample = ocr_text
-                                            self.logger.info(f"📄 OCR extracted {len(content_sample)} characters from {os.path.basename(file_path)}")
+                                            self.logger.info(f"📄 ✅ OCR extracted {len(content_sample)} characters from {os.path.basename(file_path)}")
                                         else:
-                                            self.logger.debug(f"📄 OCR didn't improve text extraction for {os.path.basename(file_path)}")
+                                            if ocr_text:
+                                                self.logger.warning(f"📄 ⚠️ OCR found minimal text ({len(ocr_text.strip())} chars) in {os.path.basename(file_path)}: '{ocr_text.strip()[:50]}'")
+                                            else:
+                                                self.logger.warning(f"📄 ❌ OCR returned no text for {os.path.basename(file_path)} - may be blank page or unreadable content")
+                                    else:
+                                        self.logger.error(f"📄 ❌ Failed to convert PDF to image for {os.path.basename(file_path)}")
                                 else:
                                     content_sample = f"[DEBUG MODE - Sample content for {os.path.basename(file_path)}]"
                                     self.logger.debug(f"📄 DEBUG mode: using sample content for {os.path.basename(file_path)}")
                             except Exception as ocr_error:
                                 self.logger.warning(f"📄 OCR extraction failed for {os.path.basename(file_path)}: {ocr_error}")
                         
-                        if content_sample:
-                            self.logger.debug(f"📄 Final content sample: {len(content_sample)} characters from {os.path.basename(file_path)}")
+                        if content_sample and len(content_sample.strip()) > 10:
+                            self.logger.info(f"📄 ✅ Final content ready: {len(content_sample)} characters from {os.path.basename(file_path)}")
                         else:
-                            self.logger.debug(f"📄 No content available for LLM analysis from {os.path.basename(file_path)}")
+                            content_reason = "no embedded text and OCR failed/returned minimal content"
+                            self.logger.warning(f"📄 ❌ No usable content for LLM analysis from {os.path.basename(file_path)} - {content_reason}")
                     except Exception as text_error:
                         self.logger.warning(f"Failed to extract text from {file_path}: {text_error}")
                         content_sample = ""
@@ -232,9 +241,12 @@ class DocumentTypeDetector:
                     self.logger.error(f"💥 LLM analysis failed for {os.path.basename(file_path)}: {llm_e}")
                     reasoning.append(f"🤖 LLM ANALYSIS: Failed - {str(llm_e)}")
             else:
-                skip_reason = "disabled" if not self.use_llm_for_ambiguous else "no content"
-                self.logger.info(f"⏭️ Skipping LLM analysis for {os.path.basename(file_path)}: {skip_reason}")
-                reasoning.append(f"🤖 LLM ANALYSIS: Skipped ({skip_reason})")
+                if not self.use_llm_for_ambiguous:
+                    skip_reason = "LLM analysis disabled"
+                else:
+                    skip_reason = "no usable content (embedded text + OCR both failed/insufficient)"
+                self.logger.warning(f"⏭️ Skipping LLM analysis for {os.path.basename(file_path)}: {skip_reason}")
+                reasoning.append(f"🤖 LLM ANALYSIS: Skipped - {skip_reason}")
             result = DocumentAnalysis(
                 file_path=file_path,
                 file_size_mb=file_size_mb,
