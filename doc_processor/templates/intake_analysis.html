@@ -6,14 +6,46 @@
 {% block content %}
 <!-- Include PDF Modal Viewer Component -->
 {% include 'components/pdf_modal.html' %}
+
+<style>
+.strategy-override-container {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 0.9em;
+}
+
+.strategy-override-select {
+    font-size: 0.85em;
+    padding: 4px 8px;
+}
+
+.override-status {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-top: 4px;
+}
+
+.override-indicator {
+    font-weight: 500;
+}
+
+.strategy-override-container .text-muted {
+    color: #6c757d !important;
+}
+</style>
+
 <div class="container">
     <h1>📋 Document Processing Strategy Analysis</h1>
     
     <!-- Start Analysis Button -->
     <div class="alert alert-info text-center">
         <button id="start-analysis-btn" onclick="startAnalysis()" class="btn btn-primary">🔍 Start Analysis</button>
-        <form method="post" action="/clear_analysis_cache" style="display: inline-block; margin-left: 10px;">
-            <button type="submit" class="btn btn-secondary">🔄 Force Re-Analysis</button>
+        <form method="post" action="/clear_analysis_cache" style="display: inline-block; margin-left: 10px;" onsubmit="handleForceReAnalysis(this, event)">
+            <button type="submit" id="force-reanalysis-btn" class="btn btn-secondary">🔄 Force Re-Analysis</button>
         </form>
         <p class="mt-2">Click to analyze your intake files and determine optimal processing strategies for each document.</p>
         {% if analyses %}
@@ -445,6 +477,9 @@ function startAnalysis() {
                         total_count: data.total
                     };
                     
+                    // Store analysis data globally for strategy override functionality
+                    window.analysisData = formattedData;
+                    
                     // Cache results for this session
                     sessionStorage.setItem('intake_analysis_results', JSON.stringify(formattedData));
                     
@@ -507,6 +542,33 @@ function updateLoadingProgress(data) {
     console.log(`Progress: ${progressText} PDFs (${progressPercent}%)`);
 }
 
+function handleForceReAnalysis(form, event) {
+    // Show loading state for force re-analysis
+    const btn = form.querySelector('#force-reanalysis-btn');
+    const originalText = btn.innerHTML;
+    
+    // Update button to show processing state
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+    btn.classList.remove('btn-secondary');
+    btn.classList.add('btn-primary');
+    
+    // Show loading message
+    document.getElementById('loading-state').style.display = 'block';
+    document.getElementById('results-state').style.display = 'none';
+    document.getElementById('no-files-state').style.display = 'none';
+    document.getElementById('error-state').style.display = 'none';
+    
+    // Update loading message
+    const statusMessage = document.querySelector('#loading-state p');
+    if (statusMessage) {
+        statusMessage.textContent = 'Clearing cache and preparing for fresh analysis...';
+    }
+    
+    // Allow form to submit normally - the page will refresh and show the analysis UI
+    return true;
+}
+
 function startAnalysisOld() {
     // Show loading state
     document.getElementById('loading-state').style.display = 'block';
@@ -564,6 +626,9 @@ function recheckForPDFs() {
 }
 
 function populateResults(data) {
+    // Store analysis data globally for strategy override functionality
+    window.analysisData = data;
+    
     const resultsDiv = document.getElementById('analysis-results');
     
     // Create summary statistics
@@ -612,7 +677,8 @@ function populateResults(data) {
                                 <th style="width: 7%">Pages</th>
                                 <th style="width: 14%">Processing Strategy</th>
                                 <th style="width: 11%">Confidence</th>
-                                <th style="width: 33%">Analysis & Reasoning</th>
+                                <th style="width: 15%">Strategy Override</th>
+                                <th style="width: 28%">Analysis & Reasoning</th>
                                 <th style="width: 10%">Preview</th>
                             </tr>
                         </thead>
@@ -736,6 +802,29 @@ function populateResults(data) {
                     </div>
                     <small class="d-block">${confidencePercent}%</small>
                 </td>
+                <td class="py-3">
+                    <div class="strategy-override-container" data-filename="${analysis.filename}">
+                        <div class="mb-2">
+                            ${analysis.llm_analysis ? 
+                                `<strong>🤖 AI Suggested:</strong><br><span class="text-primary">${analysis.processing_strategy === 'single_document' ? '🚀 Single Document' : '📋 Batch Scan'}</span>` :
+                                `<strong>⚙️ Static Fallback:</strong><br><span class="text-muted">${analysis.processing_strategy === 'single_document' ? '🚀 Single Document' : '📋 Batch Scan'}</span><br><small class="text-warning">AI analysis failed</small>`
+                            }
+                        </div>
+                        <div class="mb-2">
+                            <label class="small text-muted">Override Strategy:</label>
+                            <select class="form-control form-control-sm strategy-override-select" 
+                                    data-filename="${analysis.filename}"
+                                    data-original="${analysis.processing_strategy}">
+                                <option value="use_suggested">✅ Use Suggestion</option>
+                                <option value="single_document">🚀 Single Document</option>
+                                <option value="batch_scan">📋 Batch Scan</option>
+                            </select>
+                        </div>
+                        <div class="override-status text-muted small" style="display: none;">
+                            <span class="override-indicator"></span>
+                        </div>
+                    </div>
+                </td>
                 <td class="py-3">${reasoningHtml}</td>
                 <td class="py-3 text-center">
                     <button type="button" class="btn btn-sm btn-outline-primary view-pdf-btn" 
@@ -765,9 +854,8 @@ function populateResults(data) {
                     <div class="card-body text-center">
                         <h5>🎯 Smart Processing</h5>
                         <p class="text-muted"><strong>Recommended:</strong> Use AI recommendations for optimal processing.</p>
-                        <form action="/process_batch_smart" method="post">
-                            <button type="submit" class="btn btn-success btn-lg btn-block">🚀 Smart Processing</button>
-                        </form>
+                        <button type="button" class="btn btn-success btn-lg btn-block" 
+                                onclick="processWithOverrides('smart')">🚀 Smart Processing</button>
                         <small class="text-muted mt-2 d-block">Best balance of speed and safety</small>
                     </div>
                 </div>
@@ -873,6 +961,9 @@ function populateResults(data) {
             }
         });
     });
+    
+    // Initialize strategy override functionality
+    setupStrategyOverrides();
 }
 
 function disableAllProcessingButtons() {
@@ -925,6 +1016,91 @@ function toggleLlmDetails(analysisId) {
         detailsDiv.style.display = 'none';
         toggleSpan.textContent = '🔽 Details';
     }
+}
+
+// Strategy Override Functionality
+function setupStrategyOverrides() {
+    // Initialize all strategy override dropdowns
+    document.querySelectorAll('.strategy-override-select').forEach(select => {
+        const filename = select.getAttribute('data-filename');
+        const originalStrategy = select.getAttribute('data-original');
+        const statusDiv = select.closest('.strategy-override-container').querySelector('.override-status');
+        const indicator = statusDiv.querySelector('.override-indicator');
+        
+        // Check if this document has actual AI analysis or is using static fallback
+        const hasAiAnalysis = window.analysisData && window.analysisData.analyses ? 
+            window.analysisData.analyses.find(a => a.filename === filename)?.llm_analysis : false;
+        
+        // Set up change handler
+        select.addEventListener('change', function() {
+            const selectedValue = this.value;
+            
+            if (selectedValue === 'use_suggested') {
+                // Using original suggestion (AI or static fallback)
+                statusDiv.style.display = 'none';
+                indicator.innerHTML = '';
+            } else {
+                // Manual override
+                statusDiv.style.display = 'block';
+                const overrideText = selectedValue === 'single_document' ? '🚀 Single Document' : '📋 Batch Scan';
+                const originalText = originalStrategy === 'single_document' ? '🚀 Single Document' : '📋 Batch Scan';
+                
+                if (selectedValue === originalStrategy) {
+                    if (hasAiAnalysis) {
+                        indicator.innerHTML = `🔄 Override: ${overrideText} <span class="text-success">(matches AI)</span>`;
+                    } else {
+                        indicator.innerHTML = `🔄 Override: ${overrideText} <span class="text-info">(matches static fallback)</span>`;
+                    }
+                } else {
+                    if (hasAiAnalysis) {
+                        indicator.innerHTML = `🔄 Override: ${overrideText} <span class="text-warning">(overriding AI)</span>`;
+                    } else {
+                        indicator.innerHTML = `🔄 Override: ${overrideText} <span class="text-primary">(overriding static fallback)</span>`;
+                    }
+                }
+            }
+        });
+    });
+}
+
+// Get current strategy overrides for processing
+function getStrategyOverrides() {
+    const overrides = {};
+    document.querySelectorAll('.strategy-override-select').forEach(select => {
+        const filename = select.getAttribute('data-filename');
+        const selectedValue = select.value;
+        const originalStrategy = select.getAttribute('data-original');
+        
+        if (selectedValue === 'use_suggested') {
+            // No override, use original AI suggestion
+            overrides[filename] = originalStrategy;
+        } else {
+            // Manual override
+            overrides[filename] = selectedValue;
+        }
+    });
+    return overrides;
+}
+
+// Enhanced Smart Processing with overrides
+function processWithOverrides(processingMode) {
+    const overrides = getStrategyOverrides();
+    
+    // Create a form with the overrides data
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = `/process_batch_${processingMode}`;
+    
+    // Add overrides as hidden inputs
+    const overrideInput = document.createElement('input');
+    overrideInput.type = 'hidden';
+    overrideInput.name = 'strategy_overrides';
+    overrideInput.value = JSON.stringify(overrides);
+    form.appendChild(overrideInput);
+    
+    // Submit the form
+    document.body.appendChild(form);
+    form.submit();
 }
 </script>
 {% endblock %}

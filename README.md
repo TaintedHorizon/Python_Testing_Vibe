@@ -14,6 +14,10 @@ Production-ready document processing pipeline with AI integration, human verific
 
 **Key Features:**
 - End-to-end document workflow: Intake → OCR → AI Classification → Human Verification → Export
+- **Enhanced Single Document Workflow**: Streamlined processing with AI-powered category and filename suggestions
+- **Intelligent AI Filename Generation**: Content-based filename suggestions using document analysis
+- **Interactive Manipulation Interface**: Edit AI suggestions with dropdown categories and filename options
+- **Individual Document Rescan**: Re-analyze specific documents for improved AI results
 - LLM-powered document analysis with Ollama integration
 - Complete file safety with rollback mechanisms
 - RAG-ready data structure for future AI integration

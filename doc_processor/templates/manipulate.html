@@ -5,64 +5,198 @@
 {% block content %}
 <!-- Include PDF Modal Viewer Component -->
 {% include 'components/pdf_modal.html' %}
+
+<style>
+    .document-card {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        margin: 20px 0;
+        padding: 20px;
+        background: #f9f9f9;
+    }
+    .document-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #ddd;
+    }
+    .ai-info {
+        background: #e3f2fd;
+        padding: 10px;
+        border-radius: 4px;
+        margin: 10px 0;
+        font-size: 0.9em;
+    }
+    .form-row {
+        display: flex;
+        gap: 20px;
+        margin-top: 15px;
+    }
+    .form-group {
+        flex: 1;
+        margin-bottom: 15px;
+    }
+    .form-group label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 5px;
+    }
+    .form-control {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+    .radio-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .radio-option {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .btn-view-pdf {
+        background: #17a2b8;
+        color: white;
+        border: none;
+        padding: 8px 15px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    .btn-rescan {
+        background: #28a745;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9em;
+        white-space: nowrap;
+    }
+    .btn-rescan:hover {
+        background: #218838;
+    }
+    .btn-rescan:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
+    }
+    .save-section {
+        margin: 30px 0;
+        text-align: center;
+        padding: 20px;
+        background: #f0f8ff;
+        border-radius: 8px;
+    }
+</style>
+
 <h1>🛠️ Manipulate Single Documents</h1>
-<p>Edit AI-suggested category and filename for each document in this batch. Review and finalize before export.</p>
+<p>Review and edit the AI suggestions for category and filename for each document. Choose from existing categories or create new ones.</p>
 
 <form method="post" action="{{ url_for('manipulate_batch_page', batch_id=batch_id) }}">
-    <table class="table table-bordered">
-        <thead>
-            <tr>
-                <th>Original Filename</th>
-                <th>AI Category</th>
-                <th>AI Filename</th>
-                <th>AI Confidence</th>
-                <th>Summary</th>
-                <th>Edit Category</th>
-                <th>Edit Filename</th>
-                <th>Preview</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for doc in documents %}
-            <tr>
-                <td>{{ doc.original_filename }}</td>
-                <td>{{ doc.ai_suggested_category }}</td>
-                <td>{{ doc.ai_suggested_filename }}</td>
-                <td>{{ '%.2f'|format(doc.ai_confidence) }}</td>
-                <td>{{ doc.ai_summary }}</td>
-                <td>
-                    <input type="text" name="category_{{ doc.id }}" value="{{ doc.ai_suggested_category }}" class="form-control" />
-                </td>
-                <td>
-                    <input type="text" name="filename_{{ doc.id }}" value="{{ doc.ai_suggested_filename }}" class="form-control" />
-                </td>
-                <td class="text-center">
-                    <button type="button" class="btn btn-sm btn-outline-primary view-pdf-btn" 
-                            data-filename="{{ doc.original_filename }}" 
-                            data-category="{{ doc.ai_suggested_category }}"
-                            data-suggested="{{ doc.ai_suggested_filename }}"
-                            title="Preview original PDF to verify AI suggestions">
-                        📄 View PDF
-                    </button>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    <button type="submit" class="btn btn-primary">Save Changes</button>
+    {% for doc in documents %}
+    <div class="document-card">
+        <div class="document-header">
+            <h3>📄 {{ doc.original_filename }}</h3>
+            <button type="button" class="btn-view-pdf" 
+                    data-filename="{{ doc.original_filename }}" 
+                    data-category="{{ doc.ai_suggested_category }}"
+                    data-suggested="{{ doc.ai_suggested_filename }}"
+                    title="Preview original PDF">
+                📄 View PDF
+            </button>
+        </div>
+        
+        <div class="ai-info">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                    <strong>AI Analysis:</strong> 
+                    Category: {{ doc.ai_suggested_category }} | 
+                    Filename: {{ doc.ai_suggested_filename }} |
+                    Confidence: {{ '%.2f'|format(doc.ai_confidence) }}
+                    {% if doc.ai_summary %}
+                    <br><strong>Summary:</strong> {{ doc.ai_summary }}
+                    {% endif %}
+                </div>
+                <button type="button" class="btn-rescan" data-doc-id="{{ doc.id }}" 
+                        title="Re-analyze this document with AI">
+                    🔄 Rescan
+                </button>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label for="category-select-{{ doc.id }}">Category</label>
+                <select id="category-select-{{ doc.id }}" name="category_dropdown_{{ doc.id }}" class="form-control category-select">
+                    <option value="" disabled selected>-- AI Suggestion: {{ doc.ai_suggested_category }} --</option>
+                    {% for cat in categories %}
+                        <option value="{{ cat }}">{{ cat }}</option>
+                    {% endfor %}
+                    <option value="other_new">Other (Create New)...</option>
+                </select>
+                <div id="other-category-group-{{ doc.id }}" style="display:none; margin-top: 10px;">
+                    <input type="text" id="other-category-input-{{ doc.id }}" name="other_category_{{ doc.id }}" 
+                           placeholder="Enter new category name" class="form-control">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>Filename</label>
+                <div class="radio-group">
+                    <div class="radio-option">
+                        <input type="radio" id="filename-original-{{ doc.id }}" name="filename_choice_{{ doc.id }}" value="original">
+                        <label for="filename-original-{{ doc.id }}">
+                            <strong>Original:</strong> {{ doc.original_filename.rsplit('.', 1)[0] if '.' in doc.original_filename else doc.original_filename }}
+                        </label>
+                    </div>
+                    <div class="radio-option">
+                        <input type="radio" id="filename-ai-{{ doc.id }}" name="filename_choice_{{ doc.id }}" value="ai" checked>
+                        <label for="filename-ai-{{ doc.id }}">
+                            <strong>AI Suggested:</strong> {{ doc.ai_suggested_filename }}
+                            <small style="color: #666; display: block;">Based on document content analysis</small>
+                        </label>
+                    </div>
+                    <div class="radio-option">
+                        <input type="radio" id="filename-custom-{{ doc.id }}" name="filename_choice_{{ doc.id }}" value="custom">
+                        <label for="filename-custom-{{ doc.id }}"><strong>Custom:</strong></label>
+                        <input type="text" id="custom-filename-{{ doc.id }}" name="custom_filename_{{ doc.id }}" 
+                               placeholder="Enter custom filename" class="form-control" style="margin-left: 20px; max-width: 300px;" 
+                               onclick="document.getElementById('filename-custom-{{ doc.id }}').checked = true;">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+    
+    <div class="save-section">
+        <button type="submit" class="btn btn-primary btn-lg">Save Changes</button>
+        <p style="margin-top: 10px; color: #666;">
+            After saving, you'll return to Batch Control where the Export button will be available.
+        </p>
+    </div>
 </form>
-
-<!-- Separate form for finalization to avoid conflicts -->
-<form method="post" action="{{ url_for('finalize_single_documents_batch_action', batch_id=batch_id) }}" style="display: inline;">
-    <button type="submit" class="btn btn-success" onclick="return confirm('Are you sure you want to export all documents to their category folders? This action cannot be undone.');">🎯 Finalize & Export Single Documents</button>
-</form>
-<a href="{{ url_for('batch_control_page') }}" class="btn btn-secondary">Back to Batch Control</a>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Handle category dropdown changes for each document
+    document.querySelectorAll('.category-select').forEach(select => {
+        const docId = select.id.split('-').pop();
+        const otherGroup = document.getElementById(`other-category-group-${docId}`);
+        
+        select.addEventListener('change', function() {
+            if (otherGroup) {
+                otherGroup.style.display = (this.value === 'other_new') ? 'block' : 'none';
+            }
+        });
+    });
+
     // PDF Viewer button handlers
-    const viewPdfBtns = document.querySelectorAll('.view-pdf-btn');
-    viewPdfBtns.forEach(btn => {
+    document.querySelectorAll('.btn-view-pdf').forEach(btn => {
         btn.addEventListener('click', function() {
             const filename = this.getAttribute('data-filename');
             const category = this.getAttribute('data-category');
@@ -75,6 +209,43 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 alert('PDF viewer not available or source file not found');
             }
+        });
+    });
+    
+    // Rescan button handlers
+    document.querySelectorAll('.btn-rescan').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const docId = this.getAttribute('data-doc-id');
+            const button = this;
+            
+            // Disable button and show loading state
+            button.disabled = true;
+            button.innerHTML = '⏳ Rescanning...';
+            
+            // Make API call to rescan document
+            fetch(`/api/rescan_document/${docId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Reload the page to show updated results
+                    window.location.reload();
+                } else {
+                    alert(`Rescan failed: ${data.error || 'Unknown error'}`);
+                    button.disabled = false;
+                    button.innerHTML = '🔄 Rescan';
+                }
+            })
+            .catch(error => {
+                console.error('Rescan error:', error);
+                alert('Failed to rescan document. Please try again.');
+                button.disabled = false;
+                button.innerHTML = '🔄 Rescan';
+            });
         });
     });
 });

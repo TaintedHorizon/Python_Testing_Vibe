@@ -151,6 +151,28 @@ function startSmartProcessing() {
         messageEl.textContent = 'Connecting to server...';
     }
     
+    // Set up client-side timeout for stuck connections
+    let lastUpdateTime = Date.now();
+    const CLIENT_TIMEOUT = 60000; // 60 seconds
+    
+    const timeoutCheck = setInterval(() => {
+        if (Date.now() - lastUpdateTime > CLIENT_TIMEOUT) {
+            console.log('Client timeout - no updates for 60 seconds');
+            clearInterval(timeoutCheck);
+            eventSource.close();
+            // Check if we should redirect to batch control
+            console.log('Checking for completed processing...');
+            fetch('/batch_control')
+                .then(() => {
+                    console.log('Analysis likely complete, redirecting...');
+                    window.location.href = '/batch_control';
+                })
+                .catch(() => {
+                    showError('Connection timeout. Processing may have completed - check Batch Control.');
+                });
+        }
+    }, 5000); // Check every 5 seconds
+    
     // Use Server-Sent Events for real-time progress
     console.log('Creating EventSource for /api/smart_processing_progress');
     const eventSource = new EventSource('/api/smart_processing_progress');
@@ -168,13 +190,18 @@ function startSmartProcessing() {
             const data = JSON.parse(event.data);
             console.log('Processing update:', data);
             
+            // Reset timeout on any message
+            lastUpdateTime = Date.now();
+            
             if (data.error) {
+                clearInterval(timeoutCheck);
                 eventSource.close();
                 showError(data.error);
                 return;
             }
             
             if (data.complete) {
+                clearInterval(timeoutCheck);
                 eventSource.close();
                 if (data.success) {
                     showSuccess(data.message);
@@ -202,6 +229,7 @@ function startSmartProcessing() {
         console.error('EventSource error:', error);
         console.log('EventSource readyState:', eventSource.readyState);
         console.log('Attempting fallback to HTTP polling...');
+        clearInterval(timeoutCheck);
         eventSource.close();
         
         // Fallback to HTTP polling for browsers with SSE issues

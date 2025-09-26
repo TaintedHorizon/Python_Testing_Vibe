@@ -9,6 +9,14 @@
 
 ## Recent Changes (September 2025)
 
+- **Single Document Workflow Enhancement:**
+    - Implemented AI-powered filename generation based on document content analysis
+    - Enhanced manipulation interface with category dropdowns and three filename options
+    - Added individual document rescan functionality for improved AI results
+    - Fixed manipulation workflow to properly track editing status and show appropriate buttons
+    - Created content-based filename suggestions using document OCR text and AI analysis
+    - Streamlined save process with clear "Manipulate → Save → Export" workflow progression
+
 - **Major project hygiene and structure improvements:**
     - All dev/admin scripts moved to `dev_tools/`
     - Added `tests/` for pytest-based testing
@@ -46,6 +54,10 @@ This project has recently completed Module 5, which finalizes the document proce
 ## Key Features
 
 *   **End-to-end Document Pipeline**: Intake → OCR → AI Classification → Human Verification → Grouping → Ordering → Export
+*   **Enhanced Single Document Workflow**: Streamlined processing with AI-powered category and filename suggestions, manipulation interface, and individual document rescan capabilities
+*   **AI-Powered Filename Generation**: Intelligent content-based filename suggestions using document analysis and OCR text
+*   **Interactive Manipulation Interface**: Edit AI suggestions with category dropdowns (matching verify workflow) and three filename options: Original, AI-Generated, and Custom
+*   **Individual Document Rescan**: Re-analyze specific documents for improved AI results with loading states and error handling
 *   **Full Audit Trail**: Every AI prompt/response, human correction, rotation update, category change, and status transition is logged with complete traceability
 *   **RAG-Ready Architecture**: All OCR text, AI outputs, human decisions, and taxonomy evolution are stored for future retrieval-augmented workflows
 *   **AI-Powered Classification**: Uses a local Large Language Model (via Ollama) with intelligent fallback to OCR for scanned documents

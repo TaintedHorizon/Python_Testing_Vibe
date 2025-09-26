@@ -1058,30 +1058,58 @@ Respond in this exact JSON format:
     "confidence": 0.85
 }}"""
 
-        # Get AI response
-        response = get_ai_classification(prompt)
-        # Parse response as string, not dict
+        # Get AI response using direct Ollama query for JSON response
+        response = _query_ollama(prompt, 
+                                context_window=app_config.OLLAMA_CTX_CLASSIFICATION, 
+                                task_name="document_analysis")
+        
+        # Parse JSON response
         if response:
-            # Try to extract fields from JSON if possible
             import json
             try:
-                parsed = json.loads(response)
-                return (
-                    parsed.get("category", "Uncategorized"),
-                    parsed.get("filename", filename.replace(".pdf", "")),
-                    float(parsed.get("confidence", 0.5)),
-                    parsed.get("summary", "AI analysis completed")
-                )
-            except Exception:
-                # If not JSON, treat as single category string
-                return (response.strip(), filename.replace(".pdf", ""), 0.5, "AI analysis completed")
-        else:
-            return (
-                "Uncategorized",
-                filename.replace(".pdf", ""),
-                0.3,
-                "AI classification failed - manual review needed"
-            )
+                # Clean up response - remove any extra text before/after JSON
+                response_clean = response.strip()
+                if '{' in response_clean and '}' in response_clean:
+                    # Extract JSON from response
+                    start = response_clean.find('{')
+                    end = response_clean.rfind('}') + 1
+                    json_str = response_clean[start:end]
+                    
+                    parsed = json.loads(json_str)
+                    
+                    # Validate that suggested filename is different from original
+                    ai_filename = parsed.get("filename", "").strip()
+                    original_base = filename.replace(".pdf", "").replace(".PDF", "")
+                    
+                    # If AI didn't provide a meaningful filename, create one based on content
+                    if not ai_filename or ai_filename == original_base:
+                        # Generate filename based on category and content
+                        category = parsed.get("category", "Document")
+                        summary = parsed.get("summary", "")[:50]  # First 50 chars of summary
+                        if summary:
+                            # Create filename from category and summary
+                            ai_filename = f"{category}_{summary}".replace(" ", "_").replace(",", "").replace(".", "")[:50]
+                        else:
+                            ai_filename = f"{category}_Document"
+                    
+                    return (
+                        parsed.get("category", "Uncategorized"),
+                        ai_filename,
+                        float(parsed.get("confidence", 0.5)),
+                        parsed.get("summary", "AI analysis completed")
+                    )
+                    
+            except Exception as e:
+                logging.warning(f"Failed to parse AI response as JSON: {e}")
+                logging.debug(f"Response was: {response}")
+                
+        # Fallback if AI response fails
+        return (
+            "Uncategorized",
+            filename.replace(".pdf", ""),
+            0.3,
+            "AI classification failed - manual review needed"
+        )
             
     except Exception as e:
         logging.error(f"Error getting AI suggestions: {e}")
