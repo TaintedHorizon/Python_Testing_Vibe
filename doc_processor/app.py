@@ -1491,30 +1491,8 @@ def order_batch_page(batch_id):
     """
     all_documents = get_documents_for_batch(batch_id)
 
-    # Enhance documents with source filename information for PDF viewer
-    conn = get_db_connection()
-    enhanced_documents = []
-    for doc in all_documents:
-        # Get the first page's source filename for PDF viewer
-        source_info = conn.execute(
-            """
-            SELECT DISTINCT p.source_filename 
-            FROM pages p 
-            JOIN document_pages dp ON p.id = dp.page_id 
-            WHERE dp.document_id = ? 
-            LIMIT 1
-            """, 
-            (doc["id"],)
-        ).fetchone()
-        
-        # Convert Row to dict and add source filename
-        enhanced_doc = dict(doc)
-        enhanced_doc["source_filename"] = source_info["source_filename"] if source_info else None
-        enhanced_documents.append(enhanced_doc)
-    conn.close()
-
     # Filter for documents that actually need ordering.
-    docs_to_order = [doc for doc in enhanced_documents if doc["page_count"] > 1]
+    docs_to_order = [doc for doc in all_documents if doc["page_count"] > 1]
 
     # If all documents were single-page, they are considered "ordered" by default.
     # This is a quality-of-life feature to avoid an unnecessary step for the user.

@@ -4,6 +4,8 @@
 {% block title %}Intake Analysis{% endblock %}
 
 {% block content %}
+<!-- Include PDF Modal Viewer Component -->
+{% include 'components/pdf_modal.html' %}
 <div class="container">
     <h1>📋 Document Processing Strategy Analysis</h1>
     
@@ -605,12 +607,13 @@ function populateResults(data) {
                     <table class="table table-striped table-hover">
                         <thead class="thead-dark">
                             <tr>
-                                <th style="width: 20%">Filename</th>
-                                <th style="width: 8%">Size</th>
-                                <th style="width: 8%">Pages</th>
-                                <th style="width: 15%">Processing Strategy</th>
-                                <th style="width: 12%">Confidence</th>
-                                <th style="width: 37%">Analysis & Reasoning</th>
+                                <th style="width: 18%">Filename</th>
+                                <th style="width: 7%">Size</th>
+                                <th style="width: 7%">Pages</th>
+                                <th style="width: 14%">Processing Strategy</th>
+                                <th style="width: 11%">Confidence</th>
+                                <th style="width: 33%">Analysis & Reasoning</th>
+                                <th style="width: 10%">Preview</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -734,6 +737,14 @@ function populateResults(data) {
                     <small class="d-block">${confidencePercent}%</small>
                 </td>
                 <td class="py-3">${reasoningHtml}</td>
+                <td class="py-3 text-center">
+                    <button type="button" class="btn btn-sm btn-outline-primary view-pdf-btn" 
+                            data-filename="${analysis.filename}" 
+                            data-strategy="${analysis.processing_strategy}"
+                            title="Preview PDF before processing">
+                        📄 View
+                    </button>
+                </td>
             </tr>
         `;
     });
@@ -844,6 +855,23 @@ function populateResults(data) {
                 originalClick.call(this, e);
             }
         };
+    });
+
+    // Add PDF Viewer button handlers
+    const viewPdfBtns = document.querySelectorAll('.view-pdf-btn');
+    viewPdfBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const filename = this.getAttribute('data-filename');
+            const strategy = this.getAttribute('data-strategy');
+            if (filename && typeof openPdfViewer === 'function') {
+                const pdfUrl = `/original_pdf/${encodeURIComponent(filename)}`;
+                const strategyLabel = strategy === 'single_document' ? 'Single Document' : 'Batch Scan';
+                const title = `${filename} (${strategyLabel} Strategy)`;
+                openPdfViewer(pdfUrl, title);
+            } else {
+                alert('PDF viewer not available or file not found');
+            }
+        });
     });
 }
 

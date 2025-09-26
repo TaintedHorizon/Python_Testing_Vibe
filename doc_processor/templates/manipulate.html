@@ -3,6 +3,8 @@
 {% block title %}Manipulate Single Documents{% endblock %}
 
 {% block content %}
+<!-- Include PDF Modal Viewer Component -->
+{% include 'components/pdf_modal.html' %}
 <h1>🛠️ Manipulate Single Documents</h1>
 <p>Edit AI-suggested category and filename for each document in this batch. Review and finalize before export.</p>
 
@@ -17,6 +19,7 @@
                 <th>Summary</th>
                 <th>Edit Category</th>
                 <th>Edit Filename</th>
+                <th>Preview</th>
             </tr>
         </thead>
         <tbody>
@@ -33,6 +36,15 @@
                 <td>
                     <input type="text" name="filename_{{ doc.id }}" value="{{ doc.ai_suggested_filename }}" class="form-control" />
                 </td>
+                <td class="text-center">
+                    <button type="button" class="btn btn-sm btn-outline-primary view-pdf-btn" 
+                            data-filename="{{ doc.original_filename }}" 
+                            data-category="{{ doc.ai_suggested_category }}"
+                            data-suggested="{{ doc.ai_suggested_filename }}"
+                            title="Preview original PDF to verify AI suggestions">
+                        📄 View PDF
+                    </button>
+                </td>
             </tr>
             {% endfor %}
         </tbody>
@@ -45,5 +57,26 @@
     <button type="submit" class="btn btn-success" onclick="return confirm('Are you sure you want to export all documents to their category folders? This action cannot be undone.');">🎯 Finalize & Export Single Documents</button>
 </form>
 <a href="{{ url_for('batch_control_page') }}" class="btn btn-secondary">Back to Batch Control</a>
-</form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // PDF Viewer button handlers
+    const viewPdfBtns = document.querySelectorAll('.view-pdf-btn');
+    viewPdfBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const filename = this.getAttribute('data-filename');
+            const category = this.getAttribute('data-category');
+            const suggested = this.getAttribute('data-suggested');
+            
+            if (filename && typeof openPdfViewer === 'function') {
+                const pdfUrl = `/original_pdf/${encodeURIComponent(filename)}`;
+                const title = `${filename} - AI Suggested: "${suggested}" (${category})`;
+                openPdfViewer(pdfUrl, title);
+            } else {
+                alert('PDF viewer not available or source file not found');
+            }
+        });
+    });
+});
+</script>
 {% endblock %}
