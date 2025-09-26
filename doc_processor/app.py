@@ -429,14 +429,42 @@ def index():
     return redirect(url_for("analyze_intake_page"))
 
 
+@app.route("/clear_analysis_cache", methods=["POST"])
+def clear_analysis_cache():
+    """Clear the cached analysis results to force re-analysis."""
+    try:
+        import tempfile
+        cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
+            logging.info("Cleared analysis cache")
+    except Exception as e:
+        logging.error(f"Failed to clear analysis cache: {e}")
+    
+    return redirect(url_for("analyze_intake_page"))
+
 @app.route("/analyze_intake")
 def analyze_intake_page():
     """
     Show intake analysis page. Analysis results are loaded via AJAX 
     to provide loading feedback to the user.
     """
+    # Check if we have cached analysis results to avoid re-analyzing
+    cached_analyses = None
+    try:
+        import tempfile
+        import pickle
+        cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+        if os.path.exists(cache_file):
+            with open(cache_file, 'rb') as f:
+                cached_analyses = pickle.load(f)
+            logging.info("Loaded cached analysis results")
+    except Exception as e:
+        logging.warning(f"Failed to load cached analysis results: {e}")
+        cached_analyses = None
+    
     return render_template('intake_analysis.html', 
-                         analyses=None,  # Will be loaded via AJAX
+                         analyses=cached_analyses,  # Use cached if available
                          intake_dir=app_config.INTAKE_DIR)
 
 @app.route("/api/analyze_intake_progress")
@@ -518,6 +546,17 @@ def analyze_intake_progress():
                     progress_msg += ' (AI analyzed)'
                     
                 yield f"data: {json.dumps({'progress': i + 1, 'total': total_files, 'current_file': None, 'message': progress_msg})}\n\n"
+            
+            # Cache the results for future use to avoid re-analysis
+            import tempfile
+            import pickle
+            cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+            try:
+                with open(cache_file, 'wb') as f:
+                    pickle.dump(analyses, f)
+                logging.info(f"Cached analysis results to {cache_file}")
+            except Exception as cache_err:
+                logging.warning(f"Failed to cache analysis results: {cache_err}")
             
             # Send final results
             yield f"data: {json.dumps({'complete': True, 'analyses': analyses, 'total': total_files, 'single_count': single_count, 'batch_count': batch_count, 'success': True})}\n\n"
@@ -604,6 +643,7 @@ def process_batch_smart():
     """
     Start smart processing in the background and redirect to progress page.
     """
+    logging.info("[SMART] /process_batch_smart invoked; redirecting to /smart_processing_progress")
     return redirect(url_for("smart_processing_progress"))
 
 @app.route("/smart_processing_progress")
@@ -611,6 +651,7 @@ def smart_processing_progress():
     """
     Show progress page for smart processing with real-time updates.
     """
+    logging.info("[SMART] Rendering smart_processing_progress page")
     return render_template("smart_processing_progress.html")
 
 @app.route("/api/smart_processing_progress")
@@ -621,52 +662,155 @@ def api_smart_processing_progress():
     from flask import Response
     from .document_detector import get_detector
     from .processing import process_single_document
-    
+    logging.info("[SMART SSE] Client connected to /api/smart_processing_progress")
+
     def generate_progress():
+        import time
+        
+        # IMMEDIATE yield to test connection and prevent hanging
+        yield f"data: {json.dumps({'message': 'Connection established, initializing...', 'progress': 0, 'total': 0})}\n\n"
+        
         try:
+            logging.info("[SMART SSE] Starting smart processing progress generator.")
             cleanup_old_archives()
-            
-            # Step 1: Quick re-analysis to get file list
-            detector = get_detector()
-            analyses = detector.analyze_intake_directory(app_config.INTAKE_DIR)
-            
-            if not analyses:
+            import os as _os
+
+            # Watchdog setup
+            last_progress_time = time.time()
+            watchdog_timeout = 300  # 5 minutes
+
+            def watchdog_check():
+                if time.time() - last_progress_time > watchdog_timeout:
+                    logging.warning("[SMART SSE] No progress for 5 minutes. Possible freeze detected.")
+                    yield f"data: {json.dumps({'error': 'No progress for 5 minutes. Please check logs or restart processing.'})}\n\n"
+
+            # Step 0: Discover files quickly and report immediately
+            intake_dir = app_config.INTAKE_DIR
+            logging.info(f"[SMART SSE] Checking intake directory: {intake_dir}")
+            if not _os.path.exists(intake_dir):
+                logging.error(f"[SMART SSE] Intake directory does not exist: {intake_dir}")
+                yield f"data: {json.dumps({'complete': True, 'success': False, 'error': f'Intake directory does not exist: {intake_dir}'})}\n\n"
+                return
+
+            pdf_files = [
+                _os.path.join(intake_dir, f)
+                for f in _os.listdir(intake_dir)
+                if f.lower().endswith('.pdf')
+            ]
+
+            total_files = len(pdf_files)
+            logging.info(f"[SMART SSE] Found {total_files} PDF files in intake directory.")
+            if total_files == 0:
+                logging.warning("[SMART SSE] No files to process in intake directory.")
                 yield f"data: {json.dumps({'complete': True, 'success': True, 'message': 'No files to process', 'redirect': '/batch_control'})}\n\n"
                 return
-            
-            total_files = len(analyses)
+
+            logging.info(f"[SMART SSE] Pre-scanning {total_files} files with heuristics.")
+            yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'message': f'Found {total_files} files. Pre-scanning with heuristics...', 'current_file': None})}\n\n"
+            last_progress_time = time.time()
+
+            # Step 1: Heuristic-only pre-scan (no LLM) with per-file updates
+            detector = get_detector(use_llm_for_ambiguous=False)
+            analyses = []
+            for i, path in enumerate(pdf_files, start=1):
+                fname = _os.path.basename(path)
+                logging.info(f"[SMART SSE] Heuristic analysis starting for: {fname}")
+                yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'message': f'Analyzing: {fname}', 'current_file': fname})}\n\n"
+                last_progress_time = time.time()
+                try:
+                    analysis = detector.analyze_pdf(path)
+                    logging.info(f"[SMART SSE] Heuristic analysis complete for: {fname} | Strategy: {getattr(analysis, 'processing_strategy', None)} | Pages: {getattr(analysis, 'page_count', None)} | Confidence: {getattr(analysis, 'confidence', None)}")
+                    analyses.append(analysis)
+                    yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'message': f'Analyzed ({i}/{total_files}): {fname}', 'current_file': None})}\n\n"
+                    last_progress_time = time.time()
+                except Exception as e:
+                    logging.error(f"[SMART SSE] Analysis failed for {fname}: {e}")
+                    from .document_detector import DocumentAnalysis
+                    analyses.append(DocumentAnalysis(
+                        file_path=path,
+                        file_size_mb=0.0,
+                        page_count=0,
+                        processing_strategy='batch_scan',
+                        confidence=0.0,
+                        reasoning=[f'Analysis error: {e}', 'Defaulting to batch scan']
+                    ))
+                    last_progress_time = time.time()
+
+                # Watchdog check after each file
+                for msg in watchdog_check():
+                    yield msg
+
             single_docs = [a for a in analyses if a.processing_strategy == "single_document"]
             batch_scans = [a for a in analyses if a.processing_strategy == "batch_scan"]
-            
-            yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'message': f'Starting smart processing for {total_files} files...', 'single_count': len(single_docs), 'batch_count': len(batch_scans)})}\n\n"
-            
-            # Step 2: Process single documents first
+
+            logging.info(f"[SMART SSE] Starting single document processing: {len(single_docs)} file(s)")
+            yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'message': f'Starting single documents: {len(single_docs)} file(s)', 'single_count': len(single_docs), 'batch_count': len(batch_scans)})}\n\n"
+            last_progress_time = time.time()
+
+            # Step 2: Process single documents with progress updates
             processed = 0
             for analysis in single_docs:
-                filename = os.path.basename(analysis.file_path)
+                filename = _os.path.basename(analysis.file_path)
+                logging.info(f"[SMART SSE] Processing single document: {filename}")
                 yield f"data: {json.dumps({'progress': processed, 'total': total_files, 'message': f'Processing single document: {filename}', 'current_file': filename})}\n\n"
-                
+                last_progress_time = time.time()
                 try:
-                    doc_id = process_single_document(analysis.file_path)
+                    _ = process_single_document(analysis.file_path)
                     processed += 1
+                    logging.info(f"[SMART SSE] ✓ Completed single document: {filename}")
                     yield f"data: {json.dumps({'progress': processed, 'total': total_files, 'message': f'✓ Completed: {filename}', 'current_file': None})}\n\n"
+                    last_progress_time = time.time()
                 except Exception as e:
-                    logging.error(f"Error processing {filename}: {e}")
+                    logging.error(f"[SMART SSE] Error processing single document {filename}: {e}")
                     yield f"data: {json.dumps({'progress': processed, 'total': total_files, 'message': f'✗ Failed: {filename} - {e}', 'current_file': None})}\n\n"
-            
-            # Step 3: Process batch scans if any
+                    last_progress_time = time.time()
+
+                # Watchdog check after each document
+                for msg in watchdog_check():
+                    yield msg
+
+            # Step 3: Process batch scans as a group (traditional workflow)
             if batch_scans:
-                yield f"data: {json.dumps({'progress': processed, 'total': total_files, 'message': f'Processing {len(batch_scans)} batch scans...'})}\n\n"
-                # For batch scans, we'd call the traditional process_batch but that's complex
-                # For now, let's skip or handle them separately
-                
-            yield f"data: {json.dumps({'complete': True, 'success': True, 'message': f'Smart processing completed! Processed {processed} files.', 'redirect': '/batch_control'})}\n\n"
-                
+                batch_paths = [a.file_path for a in batch_scans]
+                logging.info(f"[SMART SSE] Processing batch scan files: {len(batch_paths)} file(s)")
+                yield f"data: {json.dumps({'progress': processed, 'total': total_files, 'message': f'Processing {len(batch_paths)} batch scan file(s)...', 'current_file': None})}\n\n"
+                last_progress_time = time.time()
+                try:
+                    ok = _process_batch_traditional(batch_paths)
+                    if ok:
+                        processed = total_files
+                        logging.info(f"[SMART SSE] ✓ Batch scans complete.")
+                        yield f"data: {json.dumps({'progress': processed, 'total': total_files, 'message': '✓ Batch scans complete', 'current_file': None})}\n\n"
+                        last_progress_time = time.time()
+                    else:
+                        logging.error("[SMART SSE] Traditional batch processing failed. Check logs.")
+                        yield f"data: {json.dumps({'complete': True, 'success': False, 'error': 'Traditional batch processing failed. Check logs.'})}\n\n"
+                        return
+                except Exception as e:
+                    logging.error(f"[SMART SSE] Traditional batch processing error: {e}")
+                    yield f"data: {json.dumps({'complete': True, 'success': False, 'error': f'Traditional batch processing error: {e}'})}\n\n"
+                    return
+
+                # Watchdog check after batch
+                for msg in watchdog_check():
+                    yield msg
+
+            # Final success
+            logging.info(f"[SMART SSE] Smart processing stream finished successfully. Processed {processed} of {total_files} files.")
+            yield f"data: {json.dumps({'complete': True, 'success': True, 'message': f'Smart processing completed! Processed {processed} of {total_files} files.', 'redirect': '/batch_control'})}\n\n"
+            last_progress_time = time.time()
         except Exception as e:
-            logging.error(f"Error in smart processing progress: {e}")
+            logging.error(f"[SMART SSE] Error in smart processing progress: {e}")
             yield f"data: {json.dumps({'complete': True, 'success': False, 'error': f'Processing error: {e}'})}\n\n"
-    
-    return Response(generate_progress(), mimetype='text/event-stream')
+
+    # Mirror headers used by analyze_intake_progress to avoid buffering
+    response = app.response_class(generate_progress(), mimetype='text/event-stream')
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['Connection'] = 'keep-alive'
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    # Disable proxy buffering (Nginx etc.) when applicable
+    response.headers['X-Accel-Buffering'] = 'no'
+    return response
 
 
 @app.route("/process_batch_all_single", methods=["POST"])

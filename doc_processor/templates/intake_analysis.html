@@ -10,7 +10,15 @@
     <!-- Start Analysis Button -->
     <div class="alert alert-info text-center">
         <button id="start-analysis-btn" onclick="startAnalysis()" class="btn btn-primary">🔍 Start Analysis</button>
+        <form method="post" action="/clear_analysis_cache" style="display: inline-block; margin-left: 10px;">
+            <button type="submit" class="btn btn-secondary">🔄 Force Re-Analysis</button>
+        </form>
         <p class="mt-2">Click to analyze your intake files and determine optimal processing strategies for each document.</p>
+        {% if analyses %}
+        <div class="alert alert-success mt-3">
+            <strong>📌 Cached Results Available:</strong> Previous analysis results are shown below. Use "Force Re-Analysis" to refresh if files have changed.
+        </div>
+        {% endif %}
     </div>
 
     <!-- Loading State -->
@@ -365,25 +373,20 @@
 <script>
 // Start analysis automatically when page loads
 document.addEventListener('DOMContentLoaded', function() {
-    // Temporarily disable caching to debug the issue
-    // Check if we have cached results from this session
-    // const cachedResults = sessionStorage.getItem('intake_analysis_results');
-    // if (cachedResults) {
-    //     try {
-    //         const data = JSON.parse(cachedResults);
-    //         console.log('Using cached analysis results:', data);
-    //         document.getElementById('results-state').style.display = 'block';
-    //         populateResults(data);
-    //         return; // Don't start new analysis
-    //     } catch (e) {
-    //         console.error('Failed to parse cached results:', e);
-    //         sessionStorage.removeItem('intake_analysis_results');
-    //     }
-    // }
-    
-    // No cached results, start fresh analysis
-    // Manually trigger analysis with button for debugging
-    console.log('Page loaded, waiting for manual trigger');
+    // Check if we have cached results from server
+    {% if analyses %}
+    console.log('Using cached analysis results from server');
+    const cachedData = {
+        analyses: {{ analyses | tojson }},
+        single_count: {{ analyses | selectattr("processing_strategy", "equalto", "single_document") | list | length }},
+        batch_count: {{ analyses | selectattr("processing_strategy", "equalto", "batch_scan") | list | length }},
+        total_count: {{ analyses | length }}
+    };
+    document.getElementById('results-state').style.display = 'block';
+    populateResults(cachedData);
+    {% else %}
+    console.log('No cached results, waiting for manual trigger');
+    {% endif %}
 });
 
 function startAnalysis() {
@@ -412,10 +415,11 @@ function startAnalysis() {
             
             if (data.error) {
                 eventSource.close();
-                resetStartButton();
                 document.getElementById('loading-state').style.display = 'none';
                 document.getElementById('error-state').style.display = 'block';
                 document.getElementById('error-message').textContent = data.error;
+                // Now that error-state is visible, set primary button to Retry
+                resetStartButton();
                 return;
             }
             
@@ -456,10 +460,11 @@ function startAnalysis() {
     eventSource.onerror = function(error) {
         console.error('EventSource error:', error);
         eventSource.close();
-        resetStartButton();
         document.getElementById('loading-state').style.display = 'none';
         document.getElementById('error-state').style.display = 'block';
         document.getElementById('error-message').textContent = 'Connection lost during analysis.';
+        // Ensure button becomes Retry when error panel is shown
+        resetStartButton();
     };
 }
 
@@ -527,12 +532,16 @@ function startAnalysisOld() {
             } else {
                 document.getElementById('error-state').style.display = 'block';
                 document.getElementById('error-message').textContent = data.error;
+                // Set Start button to Retry since error-state is now visible
+                resetStartButton();
             }
         })
         .catch(error => {
             document.getElementById('loading-state').style.display = 'none';
             document.getElementById('error-state').style.display = 'block';
             document.getElementById('error-message').textContent = 'Network error: ' + error.message;
+            // Set Start button to Retry on network error
+            resetStartButton();
         });
 }
 
