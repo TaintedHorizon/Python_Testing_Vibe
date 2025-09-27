@@ -2254,7 +2254,46 @@ def finalize_single_documents_batch_action(batch_id):
 def view_documents_page(batch_id):
     """
     Displays a list of all documents for a given batch, providing a preview of each document (ordered page thumbnails and text snippets) and download links to the final PDF and log files.
+    For single document batches, shows the actual PDFs instead of page thumbnails.
     """
+    # Check if this is a single document batch
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT status FROM batches WHERE id = ?", (batch_id,))
+    batch_result = cursor.fetchone()
+    
+    if batch_result and batch_result[0] in ['ready_for_manipulation', 'ready_for_export']:
+        # Single document batch - show PDFs
+        cursor.execute("""
+            SELECT id, original_filename, ai_suggested_category, final_category, 
+                   ai_suggested_filename, final_filename, searchable_pdf_path, ai_summary
+            FROM single_documents WHERE batch_id = ?
+            ORDER BY original_filename
+        """, (batch_id,))
+        
+        single_docs = cursor.fetchall()
+        conn.close()
+        
+        docs_with_previews = []
+        for doc in single_docs:
+            doc_dict = {
+                'id': doc[0],
+                'original_filename': doc[1],
+                'category': doc[3] or doc[2] or 'Uncategorized',  # final_category or ai_suggested_category
+                'filename': doc[5] or doc[4] or doc[1],  # final_filename or ai_suggested_filename
+                'searchable_pdf_path': doc[6],
+                'summary': doc[7] or 'No summary available',
+                'is_single_document': True
+            }
+            docs_with_previews.append(doc_dict)
+        
+        return render_template('view_documents.html', 
+                             batch_id=batch_id, 
+                             documents=docs_with_previews,
+                             is_single_document_batch=True)
+    
+    conn.close()
+    # Traditional batch - show page thumbnails
     documents = get_documents_for_batch(batch_id)
     processed_dir = os.getenv("PROCESSED_DIR")
     docs_with_previews = []
@@ -2373,6 +2412,10 @@ def manipulate_batch_page(batch_id):
                     final_filename=?
                 WHERE id=?
             """, (new_category, new_filename, doc_id))
+        conn.commit()
+        
+        # Update batch status to ready for export
+        cursor.execute("UPDATE batches SET status = 'ready_for_export' WHERE id = ?", (batch_id,))
         conn.commit()
         conn.close()
         flash('Changes saved successfully. Ready for export.', 'success')

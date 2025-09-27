@@ -112,12 +112,13 @@ def create_searchable_pdf(original_pdf_path: str, output_path: str) -> tuple[str
             
             # Convert page to image for OCR
             mat = fitz.Matrix(2.0, 2.0)  # 2x zoom for better OCR
-            # Use modern PyMuPDF API if available, else fallback
-            # Fallback: render page to image using PIL from PDF page
-            # PyMuPDF legacy: use page.getImageList and extract image if available
-            # Fallback: create blank white image for OCR
+            pix = page.get_pixmap(matrix=mat)
+            img_data = pix.tobytes("png")
+            
+            # Convert to PIL Image for OCR
             from PIL import Image
-            img = Image.new("L", (int(page.rect.width), int(page.rect.height)), 255)
+            import io
+            img = Image.open(io.BytesIO(img_data))
             
             # Perform OCR using PIL Image
             from PIL import Image
@@ -1621,15 +1622,16 @@ def finalize_single_documents_batch(batch_id: int) -> bool:
     success = True
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, original_pdf_path, searchable_pdf_path, ai_suggested_category, ai_suggested_filename, ocr_text FROM single_documents WHERE batch_id=?", (batch_id,))
+    cursor.execute("SELECT id, original_pdf_path, searchable_pdf_path, final_category, final_filename, ai_suggested_category, ai_suggested_filename, ocr_text FROM single_documents WHERE batch_id=?", (batch_id,))
     docs = cursor.fetchall()
     for doc in docs:
         doc_id = doc[0]
         original_pdf = doc[1]
         searchable_pdf = doc[2]
-        category = doc[3] or "Uncategorized"
-        filename_base = doc[4] or f"document_{doc_id}"
-        ocr_text = doc[5] or ""
+        # Use final category/filename if available, otherwise fall back to AI suggestions
+        category = doc[3] or doc[5] or "Uncategorized"
+        filename_base = doc[4] or doc[6] or f"document_{doc_id}"
+        ocr_text = doc[7] or ""
         # Destination folder
         category_dir = os.path.join(app_config.FILING_CABINET_DIR, category)
         os.makedirs(category_dir, exist_ok=True)
