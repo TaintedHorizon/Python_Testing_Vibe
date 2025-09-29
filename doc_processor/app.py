@@ -725,10 +725,13 @@ def api_smart_processing_progress():
     from .document_detector import get_detector
     from .processing import process_single_document
     
-    # Get strategy overrides from session
+    # Get strategy overrides from session BEFORE entering generator
     strategy_overrides = session.get('strategy_overrides', {})
     if strategy_overrides:
         logging.info(f"[SMART SSE] Using strategy overrides for {len(strategy_overrides)} files")
+    
+    # Clear strategy overrides from session now (before generator starts)
+    session.pop('strategy_overrides', None)
     
     logging.info("[SMART SSE] Client connected to /api/smart_processing_progress")
 
@@ -876,75 +879,104 @@ def api_smart_processing_progress():
             
             logging.info(f"[SMART SSE] After overrides: {len(single_docs)} single documents, {len(batch_scans)} batch scans")
             
-            # Better progress tracking with weighted phases
-            # Analysis: 20%, Batch Processing: 80% (since it includes heavy OCR + AI work)
-            analysis_weight = 20
-            processing_weight = 80
-            processing_batches = (1 if single_docs else 0) + (1 if batch_scans else 0)
-            total_progress = analysis_weight + (processing_weight * processing_batches)
+            # Simple progress tracking: total documents to process
+            total_documents = len(single_docs) + len(batch_scans)
+            total_progress = total_documents
+            current_progress = 0
             
             # Send processing start update  
-            yield f"data: {json.dumps({'progress': analysis_weight, 'total': total_progress, 'message': f'Analysis complete. Creating batches for {len(single_docs)} single docs + {len(batch_scans)} batch scans...', 'current_file': None})}\n\n"
+            yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'Analysis complete. Processing {len(single_docs)} single docs + {len(batch_scans)} batch scans...', 'current_file': None})}\n\n"
             
-            current_progress = analysis_weight
-            
-            # Process all single documents as ONE batch
+            # Process all single documents as ONE batch with real-time progress
             if single_docs:
                 yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'Creating batch for {len(single_docs)} single documents... (OCR + AI processing)', 'current_file': None})}\n\n"
-                from .processing import _process_single_documents_as_batch
+                from .processing import _process_single_documents_as_batch_with_progress
                 
-                logging.info(f"[SMART SSE] Starting batch creation for {len(single_docs)} single documents...")
-                batch_id = _process_single_documents_as_batch(single_docs)
-                logging.info(f"[SMART SSE] Batch creation function returned batch_id: {batch_id}")
+                logging.info(f"[SMART SSE] Starting batch processing for {len(single_docs)} single documents...")
                 
-                # Wait a moment and verify the batch is actually complete
-                if batch_id:
-                    import time
-                    time.sleep(2)  # Give any async operations time to complete
+                # Process documents with progress tracking
+                doc_processed = 0
+                batch_id = None
+                for progress_update in _process_single_documents_as_batch_with_progress(single_docs):
+                    if 'batch_id' in progress_update:
+                        batch_id = progress_update['batch_id']
+                        logging.info(f"[SMART SSE] Created batch {batch_id}")
+                        continue
                     
-                    # Verify the batch actually has documents
-                    try:
-                        conn = get_db_connection()
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT COUNT(*) FROM single_documents WHERE batch_id = ?", (batch_id,))
-                        doc_count = cursor.fetchone()[0]
-                        conn.close()
-                        logging.info(f"[SMART SSE] Verified batch {batch_id} contains {doc_count} documents")
+                    if 'document_complete' in progress_update:
+                        doc_processed += 1
+                        current_progress = doc_processed  # Simple 1:1 document count
+                        filename = progress_update.get('filename', 'Unknown')
+                        category = progress_update.get('category', 'Unknown')
+                        ai_name = progress_update.get('ai_name', 'Unknown')
                         
-                        if doc_count == len(single_docs):
-                            current_progress += processing_weight // processing_batches
-                            _processing_state['message'] = f'✓ Created single documents batch: {batch_id} with {doc_count} documents'
-                            yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'✓ Created single documents batch: {batch_id} with {doc_count} documents', 'current_file': None})}\n\n"
-                        else:
-                            _processing_state['message'] = f'⚠ Batch {batch_id} created but only {doc_count}/{len(single_docs)} documents processed'
-                            yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'⚠ Batch {batch_id} created but only {doc_count}/{len(single_docs)} documents processed', 'current_file': None})}\n\n"
-                    except Exception as verify_error:
-                        logging.error(f"[SMART SSE] Error verifying batch completion: {verify_error}")
-                        current_progress += processing_weight // processing_batches
-                        yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'✓ Created single documents batch: {batch_id} (verification failed)', 'current_file': None})}\n\n"
+                        yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'✓ Processed ({doc_processed}/{len(single_docs)}): {filename} - {category}', 'current_file': filename})}\n\n"
+                        last_progress_time = time.time()
+                        
+                        # Log detailed progress
+                        logging.info(f"[SMART SSE] Document {doc_processed}/{len(single_docs)} complete: {filename} -> {category}: {ai_name}")
+                    
+                    elif 'document_start' in progress_update:
+                        filename = progress_update.get('filename', 'Unknown')
+                        # Show progress as we start each document
+                        yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'Processing ({doc_processed + 1}/{len(single_docs)}): {filename}...', 'current_file': filename})}\n\n"
+                        last_progress_time = time.time()
+                        
+                    elif 'error' in progress_update:
+                        error_msg = progress_update['error']
+                        filename = progress_update.get('filename', 'Unknown')
+                        logging.error(f"[SMART SSE] Error processing {filename}: {error_msg}")
+                        yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'⚠ Error processing {filename}: {error_msg}', 'current_file': filename})}\n\n"
+                        last_progress_time = time.time()
+                
+                # Final update for single documents batch
+                if batch_id and doc_processed > 0:
+                    _processing_state['message'] = f'✓ Completed single documents batch: {batch_id} with {doc_processed} documents'
+                    yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'✓ Completed single documents batch: {batch_id} with {doc_processed} documents', 'current_file': None})}\n\n"
                 else:
                     _processing_state['message'] = '✗ Failed to create single documents batch'
                     yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': '✗ Failed to create single documents batch', 'current_file': None})}\n\n"
             
-            # Process batch scans using modern single document workflow 
+            # Process batch scans using modern single document workflow with progress tracking
             if batch_scans:
                 yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'Creating batch for {len(batch_scans)} batch scan documents... (OCR + AI processing)', 'current_file': None})}\n\n"
                 logging.info(f"🔄 Processing {len(batch_scans)} batch scans as single documents using modern workflow")
-                from .processing import _process_single_documents_as_batch
-                batch_id = _process_single_documents_as_batch(batch_scans)
-                current_progress += processing_weight // processing_batches
-                if batch_id:
-                    _processing_state['message'] = f'✓ Created batch {batch_id} for {len(batch_scans)} batch scan documents'
-                    yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'✓ Created batch {batch_id} for {len(batch_scans)} batch scan documents', 'current_file': None})}\n\n"
+                from .processing import _process_single_documents_as_batch_with_progress
+                
+                # Process batch scan documents with progress tracking
+                doc_processed_in_batch_scans = 0
+                batch_id = None
+                for progress_update in _process_single_documents_as_batch_with_progress(batch_scans):
+                    if 'batch_id' in progress_update:
+                        batch_id = progress_update['batch_id']
+                        logging.info(f"[SMART SSE] Created batch scan batch {batch_id}")
+                        continue
+                    
+                    if 'document_complete' in progress_update:
+                        doc_processed_in_batch_scans += 1
+                        current_progress = len(single_docs) + doc_processed_in_batch_scans  # Add to single docs count
+                        filename = progress_update.get('filename', 'Unknown')
+                        category = progress_update.get('category', 'Unknown')
+                        
+                        yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'✓ Processed batch scan ({doc_processed_in_batch_scans}/{len(batch_scans)}): {filename} - {category}', 'current_file': filename})}\n\n"
+                        last_progress_time = time.time()
+                        
+                    elif 'document_start' in progress_update:
+                        filename = progress_update.get('filename', 'Unknown')
+                        yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'Processing batch scan ({doc_processed_in_batch_scans + 1}/{len(batch_scans)}): {filename}...', 'current_file': filename})}\n\n"
+                        last_progress_time = time.time()
+                
+                # Final update for batch scan documents
+                if batch_id and doc_processed_in_batch_scans > 0:
+                    _processing_state['message'] = f'✓ Completed batch {batch_id} for {len(batch_scans)} batch scan documents'
+                    yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'✓ Completed batch {batch_id} for {len(batch_scans)} batch scan documents', 'current_file': None})}\n\n"
                 else:
                     _processing_state['message'] = f'✗ Failed to create batch for {len(batch_scans)} batch scan documents'
                     yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'✗ Failed to create batch for {len(batch_scans)} batch scan documents', 'current_file': None})}\n\n"
             
-            # Clear strategy overrides from session
-            session.pop('strategy_overrides', None)
-            
-            # Force a final progress update before completion
-            yield f"data: {json.dumps({'progress': total_progress, 'total': total_progress, 'message': 'Processing complete! Redirecting...', 'current_file': None})}\n\n"
+            # Force a final progress update before completion (should be equal to total documents)
+            final_progress = len(single_docs) + len(batch_scans)
+            yield f"data: {json.dumps({'progress': final_progress, 'total': total_progress, 'message': 'Processing complete! Redirecting...', 'current_file': None})}\n\n"
             
             # Send final completion message with explicit logging
             logging.info("[SMART SSE] Sending completion message to client")

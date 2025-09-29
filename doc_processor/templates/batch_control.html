@@ -19,6 +19,7 @@
     .btn-view-docs { background-color: #20c997; } /* Brighter Teal for View Docs */
     .btn-revisit { background-color: #6c757d; } /* Gray */
     .btn-reset { background-color: #dc3545; } /* Red */
+    .btn-secondary { background-color: #6c757d; } /* Gray for Edit Again */
 
     /* Style for a disabled-looking link/button */
     .action-btn.disabled {
@@ -79,6 +80,7 @@
 
                 {% elif batch.status == 'Exported' %}
                     <a href="{{ url_for('view_documents_page', batch_id=batch.id) }}" class="action-btn btn-view-docs">View Documents</a>
+                    <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Batch</a>
 
                 {% elif batch.status == 'ready_for_manipulation' %}
                     {% if batch.has_been_manipulated %}
@@ -92,7 +94,7 @@
                 
                 {% elif batch.status == 'ready_for_export' %}
                     <form action="{{ url_for('finalize_single_documents_batch_action', batch_id=batch.id) }}" method="post" style="display:inline;">
-                        <button type="submit" class="action-btn btn-group" onclick="return confirm('Export all single documents to category folders?');">🎯 Export Single Documents</button>
+                        <button type="submit" class="action-btn btn-group" id="export-btn-{{ batch.id }}">🎯 Export Single Documents</button>
                     </form>
                     <a href="{{ url_for('manipulate_batch_page', batch_id=batch.id) }}" class="action-btn btn-secondary">Edit Again</a>
                     <a href="{{ url_for('view_documents_page', batch_id=batch.id) }}" class="action-btn btn-view-docs">View PDFs</a>
@@ -101,7 +103,7 @@
                     <a href="{{ url_for('revisit_batch_page', batch_id=batch.id) }}" class="action-btn btn-revisit">Revisit Batch</a>
                 {% endif %}
 
-                {% if batch.status != 'pending_verification' and batch.status != 'Exported' %}
+                {% if batch.status != 'pending_verification' %}
                     <form action="{{ url_for('reset_batch_action', batch_id=batch.id) }}" method="post" style="display: inline;" onsubmit="return confirm('Are you sure you want to completely reset this batch? All grouping and ordering will be lost.');">
                         <button type="submit" class="action-btn btn-reset">Reset Batch</button>
                     </form>

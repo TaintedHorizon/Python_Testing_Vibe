@@ -1005,6 +1005,152 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
         return None
 
 
+def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentAnalysis]):
+    """
+    Process multiple single documents using the improved workflow with progress tracking.
+    
+    This is a generator function that yields progress updates for real-time tracking.
+    
+    Args:
+        single_docs: List of DocumentAnalysis objects for files identified as single documents
+        
+    Yields:
+        dict: Progress updates with keys like 'batch_id', 'document_start', 'document_complete', 'error'
+    """
+    if not single_docs:
+        return
+        
+    logging.info(f"Processing {len(single_docs)} single documents with progress tracking...")
+    
+    try:
+        with database_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Create ONE batch for all single documents
+            cursor.execute(
+                "INSERT INTO batches (status) VALUES (?)",
+                (app_config.STATUS_READY_FOR_MANIPULATION,)  # New status for single doc workflow
+            )
+            batch_id = cursor.lastrowid
+            conn.commit()
+            
+            logging.info(f"Created single documents batch: {batch_id}")
+            yield {'batch_id': batch_id}
+            
+            # Set up directories
+            batch_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
+            searchable_dir = os.path.join(batch_dir, "searchable_pdfs")
+            os.makedirs(searchable_dir, exist_ok=True)
+            
+            # Process each single document with improved workflow
+            total_documents_processed = 0
+            for i, analysis in enumerate(single_docs, 1):
+                filename = os.path.basename(analysis.file_path)
+                base_name = os.path.splitext(filename)[0]
+                
+                try:
+                    # Signal document processing start
+                    yield {
+                        'document_start': True,
+                        'filename': filename,
+                        'document_number': i,
+                        'total_documents': len(single_docs)
+                    }
+                    
+                    logging.info(f"Processing {filename} with improved single document workflow...")
+                    
+                    # Step 1: Create searchable PDF with OCR
+                    searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
+                    ocr_text, ocr_confidence, ocr_status = create_searchable_pdf(
+                        analysis.file_path, searchable_pdf_path
+                    )
+                    
+                    if ocr_status != "success":
+                        error_msg = f"Failed to create searchable PDF: {ocr_status}"
+                        logging.error(f"Failed to create searchable PDF for {filename}: {ocr_status}")
+                        yield {
+                            'error': error_msg,
+                            'filename': filename,
+                            'document_number': i,
+                            'total_documents': len(single_docs)
+                        }
+                        continue
+                    
+                    # Step 2: Get AI suggestions for category and filename
+                    ai_category, ai_filename, ai_confidence, ai_summary = _get_ai_suggestions_for_document(
+                        ocr_text, filename, analysis.page_count, analysis.file_size_mb
+                    )
+                    
+                    # Step 3: Store in single_documents table
+                    cursor.execute("""
+                        INSERT INTO single_documents (
+                            batch_id, original_filename, original_pdf_path, searchable_pdf_path,
+                            page_count, file_size_bytes, ocr_text, ocr_confidence_avg,
+                            ai_suggested_category, ai_suggested_filename, ai_confidence,
+                            ai_summary, status
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        batch_id, filename, analysis.file_path, searchable_pdf_path,
+                        analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
+                        ocr_text, ocr_confidence, ai_category, ai_filename,
+                        ai_confidence, ai_summary, "ready_for_manipulation"
+                    ))
+                    
+                    total_documents_processed += 1
+                    logging.info(f"✓ Processed {filename} - Category: {ai_category}, Name: {ai_filename}")
+                    
+                    # Signal document completion
+                    yield {
+                        'document_complete': True,
+                        'filename': filename,
+                        'category': ai_category,
+                        'ai_name': ai_filename,
+                        'confidence': ai_confidence,
+                        'document_number': i,
+                        'total_documents': len(single_docs),
+                        'documents_completed': total_documents_processed
+                    }
+                    
+                except Exception as e:
+                    error_msg = f"Error processing document: {str(e)}"
+                    logging.error(f"Error processing {analysis.file_path}: {e}")
+                    yield {
+                        'error': error_msg,
+                        'filename': filename,
+                        'document_number': i,
+                        'total_documents': len(single_docs)
+                    }
+                    continue
+            
+            conn.commit()
+            
+            # Log the batch creation
+            safe_log_interaction(
+                batch_id=batch_id,
+                document_id=None,
+                user_id=get_current_user_id(),
+                event_type="single_documents_batch_created",
+                step="smart_processing",
+                content=json.dumps({
+                    "documents_processed": total_documents_processed,
+                    "workflow": "improved_single_document_with_progress",
+                    "status": "ready_for_manipulation"
+                }),
+                notes=f"Improved single document workflow with progress - {total_documents_processed} documents ready"
+            )
+            
+            logging.info(f"✓ Successfully created batch {batch_id} with {total_documents_processed} documents ready for manipulation")
+            
+    except Exception as e:
+        logging.error(f"Error creating single documents batch: {e}")
+        yield {
+            'error': f"Batch creation failed: {str(e)}",
+            'filename': None,
+            'document_number': 0,
+            'total_documents': len(single_docs)
+        }
+
+
 def _get_ai_suggestions_for_document(ocr_text: str, filename: str, page_count: int, 
                                    file_size_mb: float) -> tuple[str, str, float, str]:
     """

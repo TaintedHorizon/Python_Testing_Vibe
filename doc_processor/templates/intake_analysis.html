@@ -433,6 +433,14 @@ function startAnalysis() {
         btn.classList.add('btn-secondary');
     });
     
+    // Also disable the Force Re-Analysis button during analysis
+    const forceReanalysisBtn = document.getElementById('force-reanalysis-btn');
+    if (forceReanalysisBtn) {
+        forceReanalysisBtn.disabled = true;
+        forceReanalysisBtn.classList.remove('btn-secondary');
+        forceReanalysisBtn.classList.add('btn-outline-secondary');
+    }
+    
     // Show loading state with progress bar
     document.getElementById('loading-state').style.display = 'block';
     document.getElementById('results-state').style.display = 'none';
@@ -516,6 +524,14 @@ function resetStartButton() {
         btn.classList.remove('btn-secondary');
         btn.classList.add('btn-primary');
     });
+    
+    // Also re-enable the Force Re-Analysis button
+    const forceReanalysisBtn = document.getElementById('force-reanalysis-btn');
+    if (forceReanalysisBtn) {
+        forceReanalysisBtn.disabled = false;
+        forceReanalysisBtn.classList.remove('btn-outline-secondary');
+        forceReanalysisBtn.classList.add('btn-secondary');
+    }
 }
 
 function updateLoadingProgress(data) {
@@ -543,15 +559,24 @@ function updateLoadingProgress(data) {
 }
 
 function handleForceReAnalysis(form, event) {
-    // Show loading state for force re-analysis
+    // Disable the Force Re-Analysis button immediately
     const btn = form.querySelector('#force-reanalysis-btn');
     const originalText = btn.innerHTML;
     
     // Update button to show processing state
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Clearing Cache...';
     btn.classList.remove('btn-secondary');
-    btn.classList.add('btn-primary');
+    btn.classList.add('btn-outline-secondary');
+    
+    // Also disable the Start Analysis button
+    const startBtns = document.querySelectorAll('[onclick="startAnalysis()"]');
+    startBtns.forEach(startBtn => {
+        startBtn.disabled = true;
+        startBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+        startBtn.classList.remove('btn-primary');
+        startBtn.classList.add('btn-secondary');
+    });
     
     // Show loading message
     document.getElementById('loading-state').style.display = 'block';

@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2025-09-29] - Export Button UI Fixes & Workflow Consistency
+### Added
+- **Flash Message System**: Implemented comprehensive flash message display in base template with success/error/info styling
+- **Export Button Visual Feedback**: Added "Processing..." state with spinner animation during export operations
+- **Batch Workflow Consistency**: Extended "Revisit Batch" and "Reset Batch" functionality to exported single document batches
+- **Missing CSS Classes**: Added `.btn-secondary` styling for previously invisible "Edit Again" buttons
+
+### Changed
+- **Export Button Behavior**: Removed conflicting JavaScript that prevented form submission in Simple Browser
+- **Button Spacing**: Fixed large gaps between action buttons with proper inline styling
+- **Flash Message Integration**: All export operations now show clear success/error feedback to users
+- **Exported Batch Actions**: "Exported" status now shows same action buttons as "complete" batches (View Documents, Revisit Batch, Reset Batch)
+
+### Fixed
+- **Export Button Functionality**: Resolved issue where export button appeared to do nothing due to JavaScript conflicts
+- **Invisible UI Elements**: Fixed "Edit Again" button that was present but invisible due to missing CSS styling
+- **Form Submission Blocking**: Removed confirmation dialog and conflicting JavaScript that prevented form submission
+- **Browser Compatibility**: Export functionality now works properly in VS Code Simple Browser environment
+- **User Feedback Gap**: Export operations now provide clear visual feedback and status updates
+
+### Developer / Infrastructure
+- **Base Template Enhancement**: Added flash message handling with categorized styling (success/error/info)
+- **JavaScript Cleanup**: Removed conflicting event handlers that interfered with form submission
+- **CSS Standardization**: Ensured all action buttons have proper styling classes defined
+- **Template Consistency**: Unified action button patterns across all batch statuses
+
+### UX Improvements
+- **Clear Export Feedback**: Users now see confirmation when export operations complete successfully
+- **Consistent Button Visibility**: All action buttons are now visible and properly styled
+- **Workflow Parity**: Exported single document batches have same management options as traditional batches
+- **Simple Browser Support**: All functionality works correctly in VS Code's Simple Browser without external developer tools
+
 ## [2025-09-26-2] - Single Document Workflow Enhancement
 ### Added
 - **AI-Powered Filename Generation**: Implemented intelligent filename suggestions based on document content analysis

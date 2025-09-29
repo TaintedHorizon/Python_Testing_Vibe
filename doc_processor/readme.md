@@ -9,6 +9,14 @@
 
 ## Recent Changes (September 2025)
 
+- **Export Button UI Fixes & Workflow Consistency (September 29):**
+    - Implemented comprehensive flash message system with success/error feedback for all operations
+    - Fixed export button functionality that appeared unresponsive due to JavaScript conflicts
+    - Added visual feedback ("Processing..." states) for export operations in Simple Browser environment
+    - Extended batch management consistency - exported single document batches now show same options as traditional batches
+    - Fixed invisible "Edit Again" buttons by adding missing CSS styling classes
+    - Resolved button spacing issues and ensured all action buttons are properly visible
+
 - **Single Document Workflow Enhancement:**
     - Implemented AI-powered filename generation based on document content analysis
     - Enhanced manipulation interface with category dropdowns and three filename options

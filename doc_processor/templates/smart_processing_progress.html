@@ -151,13 +151,13 @@ function startSmartProcessing() {
         messageEl.textContent = 'Connecting to server...';
     }
     
-    // Set up client-side timeout for stuck connections
+    // Set up client-side timeout for stuck connections - increase timeout for document processing
     let lastUpdateTime = Date.now();
-    const CLIENT_TIMEOUT = 60000; // 60 seconds
+    const CLIENT_TIMEOUT = 300000; // 5 minutes (increased from 60 seconds for document processing)
     
     const timeoutCheck = setInterval(() => {
         if (Date.now() - lastUpdateTime > CLIENT_TIMEOUT) {
-            console.log('Client timeout - no updates for 60 seconds');
+            console.log('Client timeout - no updates for 5 minutes');
             clearInterval(timeoutCheck);
             eventSource.close();
             // Check if we should redirect to batch control
@@ -171,7 +171,7 @@ function startSmartProcessing() {
                     showError('Connection timeout. Processing may have completed - check Batch Control.');
                 });
         }
-    }, 5000); // Check every 5 seconds
+    }, 10000); // Check every 10 seconds (reduced frequency)
     
     // Use Server-Sent Events for real-time progress
     console.log('Creating EventSource for /api/smart_processing_progress');
@@ -205,11 +205,12 @@ function startSmartProcessing() {
                 eventSource.close();
                 if (data.success) {
                     showSuccess(data.message);
-                    // Auto-redirect after success
+                    // Auto-redirect after success - delay slightly to show success message
                     if (data.redirect) {
                         setTimeout(() => {
+                            console.log('Processing complete, redirecting to:', data.redirect);
                             window.location.href = data.redirect;
-                        }, 2000);
+                        }, 3000); // 3 second delay to show success message
                     }
                 } else {
                     showError(data.error || 'Processing failed');
@@ -322,12 +323,16 @@ function updateProgress(data) {
         messageEl.textContent = data.message;
     }
     
-    // Add processing log entry
-    if (data.message && data.current_file !== undefined) {
-        addProcessingLog(data.message, data.current_file);
+    // Add processing log entry with enhanced detail
+    if (data.message) {
+        let logMessage = data.message;
+        if (data.current_file) {
+            logMessage = `${data.message} [File: ${data.current_file}]`;
+        }
+        addProcessingLog(logMessage, data.current_file);
     }
     
-    console.log(`Progress: ${progressText} (${progressPercent}%)`);
+    console.log(`Progress: ${progressText} (${progressPercent}%) - ${data.message || 'Processing...'}`);
 }
 
 function addProcessingLog(message, currentFile) {
