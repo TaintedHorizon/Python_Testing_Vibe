@@ -2237,6 +2237,10 @@ def export_batch_action(batch_id):
     conn.commit()
     conn.close()
 
+    # Clean up empty batch directories after successful export
+    from .processing import cleanup_batch_on_completion
+    cleanup_batch_on_completion(batch_id, "traditional_export")
+
     # The user is returned to the main dashboard.
     return redirect(url_for("batch_control_page"))
 
@@ -2266,6 +2270,10 @@ def finalize_single_documents_batch_action(batch_id):
                 logging.info("✅ File safety verification passed - no PDFs lost during single document export")
             else:
                 logging.error(f"⚠️ File safety verification failed: {safety_report}")
+            
+            # Clean up empty batch directories after successful export
+            from .processing import cleanup_batch_on_completion
+            cleanup_batch_on_completion(batch_id, "single_documents_export")
             
             flash('Single documents batch exported successfully!', 'success')
         else:
@@ -2468,6 +2476,70 @@ def manipulate_batch_page(batch_id):
     categories = get_active_categories()
     
     return render_template('manipulate.html', batch_id=batch_id, documents=documents, categories=categories)
+
+
+@app.route("/api/rotate_document/<int:doc_id>", methods=['POST'])
+def rotate_document_api(doc_id):
+    """
+    API endpoint to apply rotation to a single document and reprocess with OCR.
+    """
+    try:
+        data = request.get_json()
+        rotation = data.get('rotation', 0)
+        
+        if rotation not in [0, 90, 180, 270]:
+            return jsonify({"success": False, "error": "Invalid rotation angle. Must be 0, 90, 180, or 270."})
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get document details
+        cursor.execute("""
+            SELECT original_pdf_path, searchable_pdf_path, original_filename 
+            FROM single_documents 
+            WHERE id = ?
+        """, (doc_id,))
+        
+        result = cursor.fetchone()
+        if not result:
+            return jsonify({"success": False, "error": "Document not found"})
+        
+        original_path, searchable_path, filename = result
+        
+        if rotation == 0:
+            return jsonify({"success": True, "message": "No rotation needed"})
+        
+        logging.info(f"Applying {rotation}° rotation to document {filename}")
+        
+        # Recreate searchable PDF with rotation
+        from .processing import create_searchable_pdf
+        new_ocr_text, new_confidence, status = create_searchable_pdf(original_path, searchable_path)
+        
+        if status.startswith("Error"):
+            return jsonify({"success": False, "error": f"Failed to reprocess with rotation: {status}"})
+        
+        # Update database with new OCR text and confidence
+        cursor.execute("""
+            UPDATE single_documents 
+            SET ocr_text = ?, ocr_confidence_avg = ?
+            WHERE id = ?
+        """, (new_ocr_text, new_confidence, doc_id))
+        
+        conn.commit()
+        conn.close()
+        
+        logging.info(f"✓ Applied {rotation}° rotation to {filename} - OCR confidence: {new_confidence:.1f}%")
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Applied {rotation}° rotation and updated OCR",
+            "new_confidence": new_confidence,
+            "suggest_rescan": new_confidence > 70  # Suggest rescan if OCR improved significantly
+        })
+        
+    except Exception as e:
+        logging.error(f"Error applying rotation to document {doc_id}: {e}")
+        return jsonify({"success": False, "error": str(e)})
 
 
 @app.route("/api/rescan_document/<int:doc_id>", methods=['POST'])

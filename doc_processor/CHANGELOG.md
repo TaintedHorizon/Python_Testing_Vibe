@@ -5,6 +5,71 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2025-09-29-2] - Document Detection Enhancement & Rotation Support & Cleanup Automation
+### Added
+- **Multi-Point Document Sampling**: Enhanced document detection to sample first, middle, and last pages for better batch scan detection
+  - 1 page: samples page 1 only
+  - 2 pages: samples first + last page  
+  - 3+ pages: samples first + middle + last page
+- **Automatic Rotation Detection**: Implemented OCR confidence-based rotation detection for single documents
+  - Tests all 4 orientations (0°, 90°, 180°, 270°) during processing
+  - Uses OCR confidence scores and text length heuristics to determine optimal rotation
+  - Automatically applies best rotation during document processing
+- **Manual Rotation Controls**: Added comprehensive rotation interface to single document workflow
+  - Visual rotation buttons (Rotate Left, Rotate Right, Reset) in manipulation interface
+  - Real-time rotation status tracking with pending/applied states
+  - Apply button for confirming rotation changes
+  - Integration with existing single document manipulation workflow
+- **Document Boundary Detection**: Enhanced LLM prompts to detect multiple documents scanned together
+  - Identifies format inconsistencies between sample pages
+  - Detects company/letterhead changes across pages
+  - Recognizes topic discontinuity and document type transitions
+- **Batch Directory Cleanup**: Automated cleanup of empty batch directories after export completion
+  - Recursive empty directory detection with safety checks
+  - Automatic cleanup after successful batch exports
+  - Manual cleanup tool for maintenance: `dev_tools/cleanup_empty_batch_directories.py`
+  - Audit logging of all cleanup actions
+
+### Enhanced
+- **Document Detection Accuracy**: Multi-point sampling prevents misclassification of batch scans as single documents
+  - Example: 9-page file with Invoice A + Invoice B + Personal Letter now correctly detected as batch scan
+  - LLM receives samples from multiple pages to identify document boundaries
+- **Single Document Processing**: Added rotation detection to processing pipeline
+  - Integrated into `create_searchable_pdf()` function
+  - Logs rotation decisions and confidence scores
+  - Preserves original files while applying optimal orientation for OCR
+- **OCR Quality**: Automatic rotation significantly improves text extraction accuracy for sideways documents
+- **API Endpoints**: Added `/api/rotate_document/<doc_id>` for manual rotation application
+  - Reprocesses PDF with new orientation
+  - Updates OCR text and confidence scores
+  - Returns suggestions for AI re-analysis
+
+### Changed
+- **Document Detection Logic**: Replaced single-page sampling with strategic multi-point analysis
+- **LLM Analysis Prompt**: Enhanced to handle multiple page samples and detect document boundaries
+- **Processing Pipeline**: Integrated automatic rotation detection into single document workflow
+- **Batch Completion**: Added cleanup step to remove empty directories after successful export
+
+### Fixed
+- **Document Detection Blind Spot**: Multi-document batch scans starting with professional documents now correctly classified
+- **Sideways PDF Issue**: Single document workflow now handles rotated documents automatically and manually
+- **Directory Cleanup**: Empty batch directories are now properly cleaned up after export completion
+- **OCR Accuracy**: Optimal rotation detection improves text extraction quality for better AI analysis
+
+### Developer / Infrastructure
+- **Multi-Point Sampling Function**: `_detect_best_rotation()` for automatic orientation detection
+- **Cleanup Functions**: `cleanup_empty_batch_directory()` and `cleanup_batch_on_completion()`
+- **Enhanced Processing**: Updated `create_searchable_pdf()` with rotation detection integration
+- **Safety Mechanisms**: Comprehensive directory safety checks prevent accidental deletion
+- **Audit Trail**: All rotation and cleanup actions logged to interaction_log table
+
+### UX Improvements
+- **Better Document Classification**: Reduced false single-document classifications for batch scans
+- **Rotation Workflow**: Familiar rotation controls borrowed from batch workflow
+- **Clear Status Feedback**: Rotation status and confidence scores displayed to users
+- **Automatic Processing**: Most rotation issues resolved automatically without user intervention
+- **Clean Workspace**: Batch directories automatically cleaned up, reducing storage usage
+
 ## [2025-09-29] - Export Button UI Fixes & Workflow Consistency
 ### Added
 - **Flash Message System**: Implemented comprehensive flash message display in base template with success/error/info styling

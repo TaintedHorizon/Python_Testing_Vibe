@@ -90,6 +90,7 @@ from .document_detector import get_detector, DocumentAnalysis
 def create_searchable_pdf(original_pdf_path: str, output_path: str) -> tuple[str, float, str]:
     """
     Create a searchable PDF by adding OCR text as an invisible overlay.
+    Includes automatic rotation detection for optimal text extraction.
     
     Args:
         original_pdf_path: Path to the original PDF file
@@ -103,6 +104,7 @@ def create_searchable_pdf(original_pdf_path: str, output_path: str) -> tuple[str
         doc = fitz.open(original_pdf_path)
         ocr_text_pages = []
         confidence_scores = []
+        rotation_info = []
         
         logging.info(f"Creating searchable PDF for {os.path.basename(original_pdf_path)}...")
         
@@ -115,50 +117,85 @@ def create_searchable_pdf(original_pdf_path: str, output_path: str) -> tuple[str
             pix = page.get_pixmap(matrix=mat)
             img_data = pix.tobytes("png")
             
-            # Convert to PIL Image for OCR
+            # Convert to PIL Image for OCR and rotation detection
             from PIL import Image
             import io
             img = Image.open(io.BytesIO(img_data))
             
-            # Perform OCR using PIL Image
-            from PIL import Image
-            
             try:
-                # Get OCR data with confidence scores
                 if not app_config.DEBUG_SKIP_OCR:
-                    ocr_data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+                    # Save temporary image for rotation detection
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                        img.save(temp_file.name)
+                        temp_path = temp_file.name
                     
-                    # Extract text and calculate confidence
-                    page_text = pytesseract.image_to_string(img)
-                    confidences = [int(conf) for conf in ocr_data['conf'] if int(conf) > 0]
-                    page_confidence = sum(confidences) / len(confidences) if confidences else 0
-                    
-                    ocr_text_pages.append(page_text)
-                    confidence_scores.append(page_confidence)
-                    
-                    # Add invisible text overlay to PDF for searchability
-                    if page_text.strip():
-                        _add_invisible_text_overlay(page, page_text)
+                    try:
+                        # Detect optimal rotation
+                        best_rotation, rotation_confidence, rotated_text = _detect_best_rotation(temp_path)
+                        rotation_info.append({
+                            'page': page_num + 1,
+                            'rotation': best_rotation,
+                            'confidence': rotation_confidence
+                        })
+                        
+                        if best_rotation != 0:
+                            logging.info(f"  Page {page_num + 1}: Auto-detected rotation {best_rotation}° (confidence: {rotation_confidence:.3f})")
+                            # Apply detected rotation
+                            img = img.rotate(-best_rotation, expand=True)
+                        
+                        # Perform OCR with optimal rotation
+                        ocr_data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+                        page_text = pytesseract.image_to_string(img)
+                        confidences = [int(conf) for conf in ocr_data['conf'] if int(conf) > 0]
+                        page_confidence = sum(confidences) / len(confidences) if confidences else 0
+                        
+                        ocr_text_pages.append(page_text)
+                        confidence_scores.append(page_confidence)
+                        
+                        # Add invisible text overlay to PDF for searchability
+                        if page_text.strip():
+                            _add_invisible_text_overlay(page, page_text)
+                            
+                    finally:
+                        # Clean up temporary file
+                        try:
+                            os.unlink(temp_path)
+                        except:
+                            pass
                 else:
                     ocr_text_pages.append(f"[DEBUG MODE - OCR SKIPPED FOR PAGE {page_num + 1}]")
                     confidence_scores.append(100.0)
+                    rotation_info.append({'page': page_num + 1, 'rotation': 0, 'confidence': 1.0})
                     
             except Exception as ocr_error:
                 logging.warning(f"OCR failed for page {page_num + 1}: {ocr_error}")
                 ocr_text_pages.append(f"[OCR FAILED FOR PAGE {page_num + 1}]")
                 confidence_scores.append(0.0)
+                rotation_info.append({'page': page_num + 1, 'rotation': 0, 'confidence': 0.0})
         
         # Save the searchable PDF
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         doc.save(output_path)
         doc.close()
         
+        # Log rotation detection summary
+        rotated_pages = [info for info in rotation_info if info['rotation'] != 0]
+        if rotated_pages:
+            logging.info(f"  📐 Auto-rotation applied to {len(rotated_pages)} pages:")
+            for info in rotated_pages:
+                logging.info(f"    Page {info['page']}: {info['rotation']}° (confidence: {info['confidence']:.3f})")
+        
         # Combine results
         full_text = "\n\n".join(ocr_text_pages)
         avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0
         
+        status_msg = "success"
+        if rotated_pages:
+            status_msg += f" (auto-rotated {len(rotated_pages)} pages)"
+        
         logging.info(f"✓ Created searchable PDF: {output_path} (avg confidence: {avg_confidence:.1f}%)")
-        return full_text, avg_confidence, "success"
+        return full_text, avg_confidence, status_msg
         
     except Exception as e:
         logging.error(f"Error creating searchable PDF: {e}")
@@ -1149,6 +1186,192 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
             'document_number': 0,
             'total_documents': len(single_docs)
         }
+
+
+def cleanup_empty_batch_directory(batch_id: int) -> bool:
+    """
+    Clean up empty batch directories after processing is complete.
+    
+    This function safely removes empty batch directories and their subdirectories
+    from the processed directory (WIP) after a batch has been exported/completed.
+    
+    Args:
+        batch_id (int): The batch ID to clean up
+        
+    Returns:
+        bool: True if cleanup was successful or not needed, False if error occurred
+    """
+    try:
+        batch_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
+        
+        if not os.path.exists(batch_dir):
+            logging.debug(f"Batch directory {batch_dir} doesn't exist - no cleanup needed")
+            return True
+            
+        logging.info(f"Checking for cleanup of batch directory: {batch_dir}")
+        
+        # Check if directory and all subdirectories are empty
+        def is_directory_empty_recursive(path):
+            """Check if directory and all subdirectories are empty."""
+            try:
+                if not os.path.isdir(path):
+                    return False
+                    
+                for item in os.listdir(path):
+                    item_path = os.path.join(path, item)
+                    if os.path.isfile(item_path):
+                        return False  # Found a file
+                    elif os.path.isdir(item_path):
+                        if not is_directory_empty_recursive(item_path):
+                            return False  # Subdirectory is not empty
+                return True
+            except Exception:
+                return False
+        
+        if is_directory_empty_recursive(batch_dir):
+            # Safe to remove - directory and all subdirectories are empty
+            import shutil
+            shutil.rmtree(batch_dir)
+            logging.info(f"✓ Cleaned up empty batch directory: {batch_dir}")
+            return True
+        else:
+            # Directory contains files - don't remove
+            files_found = []
+            for root, dirs, files in os.walk(batch_dir):
+                for file in files:
+                    files_found.append(os.path.relpath(os.path.join(root, file), batch_dir))
+            
+            logging.info(f"⚠️  Batch directory {batch_dir} not empty - keeping it")
+            logging.debug(f"  Files found: {files_found[:5]}{'...' if len(files_found) > 5 else ''}")
+            return True
+            
+    except Exception as e:
+        logging.error(f"Error during batch directory cleanup for batch {batch_id}: {e}")
+        return False
+
+
+def cleanup_batch_on_completion(batch_id: int, completion_type: str = "export") -> bool:
+    """
+    Perform cleanup operations when a batch is completed.
+    
+    Args:
+        batch_id (int): The batch ID that was completed
+        completion_type (str): Type of completion ('export', 'finalize', etc.)
+        
+    Returns:
+        bool: True if cleanup was successful
+    """
+    try:
+        logging.info(f"Starting batch completion cleanup for batch {batch_id} ({completion_type})")
+        
+        # Clean up empty directories
+        cleanup_success = cleanup_empty_batch_directory(batch_id)
+        
+        # Log cleanup action for audit trail
+        log_interaction(
+            batch_id=batch_id,
+            document_id=None,
+            user_id=get_current_user_id(),
+            event_type="batch_cleanup",
+            step="completion",
+            content=f"Cleanup performed after {completion_type}",
+            notes=f"Directory cleanup: {'success' if cleanup_success else 'failed'}"
+        )
+        
+        return cleanup_success
+        
+    except Exception as e:
+        logging.error(f"Error in batch completion cleanup: {e}")
+        return False
+
+
+def _detect_best_rotation(image_path: str) -> tuple[int, float, str]:
+    """
+    Automatically detect the best rotation for an image by testing OCR confidence at different rotations.
+    
+    Args:
+        image_path (str): Path to the image file
+        
+    Returns:
+        tuple: (best_rotation_angle, confidence_score, ocr_text)
+    """
+    if not os.path.exists(image_path):
+        logging.warning(f"Image not found for rotation detection: {image_path}")
+        return 0, 0.0, ""
+        
+    try:
+        from PIL import Image
+        import numpy as np
+        
+        # Test rotations: 0, 90, 180, 270 degrees
+        rotations_to_test = [0, 90, 180, 270]
+        best_rotation = 0
+        best_confidence = 0.0
+        best_text = ""
+        results = {}
+        
+        with Image.open(image_path) as img:
+            reader = EasyOCRSingleton.get_reader()
+            
+            for rotation in rotations_to_test:
+                try:
+                    # Rotate image for testing
+                    if rotation == 0:
+                        test_img = img
+                    else:
+                        test_img = img.rotate(-rotation, expand=True)
+                    
+                    # Run OCR and get results with confidence scores
+                    ocr_results = reader.readtext(np.array(test_img))
+                    
+                    if ocr_results:
+                        # Calculate average confidence and extract text
+                        confidences = [conf for (_, _, conf) in ocr_results]
+                        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+                        text = " ".join([text for (_, text, _) in ocr_results])
+                        
+                        # Additional heuristics for better detection
+                        text_length = len(text.strip())
+                        word_count = len(text.split())
+                        
+                        # Boost score for longer, more readable text
+                        adjusted_confidence = avg_confidence
+                        if text_length > 50:  # Reasonable amount of text
+                            adjusted_confidence *= 1.1
+                        if word_count > 10:  # Good word count
+                            adjusted_confidence *= 1.05
+                            
+                        results[rotation] = {
+                            'confidence': adjusted_confidence,
+                            'text': text,
+                            'raw_confidence': avg_confidence,
+                            'text_length': text_length
+                        }
+                        
+                        logging.debug(f"Rotation {rotation}°: confidence={avg_confidence:.3f}, adjusted={adjusted_confidence:.3f}, text_len={text_length}")
+                        
+                        if adjusted_confidence > best_confidence:
+                            best_confidence = adjusted_confidence
+                            best_rotation = rotation
+                            best_text = text
+                    else:
+                        results[rotation] = {'confidence': 0.0, 'text': '', 'raw_confidence': 0.0, 'text_length': 0}
+                        
+                except Exception as rotation_error:
+                    logging.warning(f"Failed to test rotation {rotation}°: {rotation_error}")
+                    results[rotation] = {'confidence': 0.0, 'text': '', 'raw_confidence': 0.0, 'text_length': 0}
+        
+        # Log results for debugging
+        logging.info(f"Rotation detection results for {os.path.basename(image_path)}:")
+        for rot, res in results.items():
+            logging.info(f"  {rot}°: confidence={res['raw_confidence']:.3f}, text_length={res['text_length']}")
+        logging.info(f"  → Best rotation: {best_rotation}° (confidence: {best_confidence:.3f})")
+        
+        return best_rotation, best_confidence, best_text
+        
+    except Exception as e:
+        logging.error(f"Error in rotation detection: {e}")
+        return 0, 0.0, ""
 
 
 def _get_ai_suggestions_for_document(ocr_text: str, filename: str, page_count: int, 

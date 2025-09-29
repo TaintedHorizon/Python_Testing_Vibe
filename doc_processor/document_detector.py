@@ -93,79 +93,73 @@ class DocumentTypeDetector:
             # Open PDF to get page count and sample content
             with fitz.open(file_path) as doc:
                 page_count = len(doc)
-                # Extract first page text sample for analysis
+                # Extract multi-point text samples for enhanced analysis
                 content_sample = ""
                 if page_count > 0:
-                    first_page = doc[0]
-                    try:
-                        # Extract text from first page for LLM analysis - handle PyMuPDF API variations
-                        if hasattr(first_page, 'get_text'):
-                            content_sample = getattr(first_page, 'get_text')()
-                        elif hasattr(first_page, 'getText'):
-                            content_sample = getattr(first_page, 'getText')()
-                        else:
-                            self.logger.warning(f"No text extraction method available in PyMuPDF for {file_path}")
-                        
-                        # If no embedded text found, try light OCR for scanned PDFs
-                        if not content_sample or len(content_sample.strip()) < 50:
-                            self.logger.info(f"📄 No embedded text in {os.path.basename(file_path)}, attempting OCR extraction...")
-                            try:
-                                # Convert first page to image and run OCR
-                                from pdf2image import convert_from_path
-                                import pytesseract
-                                from .config_manager import app_config
-                                
-                                if not app_config.DEBUG_SKIP_OCR:
-                                    # Convert just the first page
-                                    self.logger.debug(f"📄 Converting PDF to image for OCR: {os.path.basename(file_path)}")
+                    # Determine which pages to sample based on page count
+                    pages_to_sample = []
+                    if page_count == 1:
+                        pages_to_sample = [0]  # Just first page
+                    elif page_count == 2:
+                        pages_to_sample = [0, 1]  # First and last
+                    else:  # 3 or more pages
+                        middle_page = page_count // 2
+                        pages_to_sample = [0, middle_page, page_count - 1]  # First, middle, last
+                    
+                    self.logger.info(f"📄 Multi-point sampling for {os.path.basename(file_path)}: {page_count} pages, sampling pages {[p+1 for p in pages_to_sample]}")
+                    
+                    # Extract text from selected pages
+                    page_samples = []
+                    for page_idx in pages_to_sample:
+                        try:
+                            page = doc[page_idx]
+                            page_text = ""
+                            
+                            # Extract text from page - handle PyMuPDF API variations
+                            if hasattr(page, 'get_text'):
+                                page_text = getattr(page, 'get_text')()
+                            elif hasattr(page, 'getText'):
+                                page_text = getattr(page, 'getText')()
+                            else:
+                                self.logger.warning(f"No text extraction method available in PyMuPDF for {file_path}")
+                            
+                            # If no embedded text found, try OCR for this page
+                            if not page_text or len(page_text.strip()) < 50:
+                                self.logger.debug(f"📄 No embedded text on page {page_idx+1}, attempting OCR...")
+                                try:
+                                    from pdf2image import convert_from_path
+                                    import pytesseract
+                                    from .config_manager import app_config
                                     
-                                    # Try multiple pages if first page is blank, up to first 3 pages or total pages (whichever is less)
-                                    max_pages_to_try = min(3, page_count)
-                                    ocr_text = ""
-                                    pages_tried = 0
-                                    
-                                    for page_num in range(1, max_pages_to_try + 1):
-                                        try:
-                                            pages = convert_from_path(file_path, first_page=page_num, last_page=page_num, dpi=150)
-                                            if pages:
-                                                self.logger.debug(f"📄 Successfully converted PDF page {page_num}, image size: {pages[0].size}")
-                                                # Run OCR on this page
-                                                page_ocr_text = pytesseract.image_to_string(pages[0])
-                                                pages_tried += 1
-                                                self.logger.debug(f"📄 OCR page {page_num} output length: {len(page_ocr_text)} characters")
-                                                
-                                                if page_ocr_text and len(page_ocr_text.strip()) > 10:
-                                                    # Found usable text on this page
-                                                    ocr_text = page_ocr_text
-                                                    self.logger.info(f"📄 ✅ OCR extracted {len(ocr_text)} characters from page {page_num} of {os.path.basename(file_path)}")
-                                                    if page_num > 1:
-                                                        self.logger.info(f"📄 Note: Page 1 was blank/minimal, found content on page {page_num}")
-                                                    break
-                                                else:
-                                                    self.logger.debug(f"📄 Page {page_num} has minimal/no text, trying next page...")
-                                        except Exception as page_error:
-                                            self.logger.warning(f"📄 Failed to process page {page_num}: {page_error}")
-                                            continue
-                                    
-                                    if ocr_text and len(ocr_text.strip()) > 10:
-                                        content_sample = ocr_text
-                                        self.logger.info(f"📄 ✅ Final OCR result: {len(content_sample)} characters from {os.path.basename(file_path)} (tried {pages_tried} pages)")
+                                    if not app_config.DEBUG_SKIP_OCR:
+                                        # Convert specific page to image and run OCR
+                                        pages = convert_from_path(file_path, first_page=page_idx+1, last_page=page_idx+1, dpi=150)
+                                        if pages:
+                                            page_text = pytesseract.image_to_string(pages[0])
+                                            if page_text and len(page_text.strip()) > 10:
+                                                self.logger.info(f"📄 ✅ OCR extracted {len(page_text)} characters from page {page_idx+1}")
+                                            else:
+                                                self.logger.debug(f"📄 Page {page_idx+1} OCR returned minimal text")
                                     else:
-                                        self.logger.warning(f"📄 ❌ No usable OCR text found after checking {pages_tried} pages of {os.path.basename(file_path)} - may be truly blank or unreadable")
-                                else:
-                                    content_sample = f"[DEBUG MODE - Sample content for {os.path.basename(file_path)}]"
-                                    self.logger.debug(f"📄 DEBUG mode: using sample content for {os.path.basename(file_path)}")
-                            except Exception as ocr_error:
-                                self.logger.warning(f"📄 OCR extraction failed for {os.path.basename(file_path)}: {ocr_error}")
-                        
-                        if content_sample and len(content_sample.strip()) > 10:
-                            self.logger.info(f"📄 ✅ Final content ready: {len(content_sample)} characters from {os.path.basename(file_path)}")
-                        else:
-                            content_reason = "no embedded text and OCR failed/returned minimal content"
-                            self.logger.warning(f"📄 ❌ No usable content for LLM analysis from {os.path.basename(file_path)} - {content_reason}")
-                    except Exception as text_error:
-                        self.logger.warning(f"Failed to extract text from {file_path}: {text_error}")
-                        content_sample = ""
+                                        page_text = f"[DEBUG MODE - Sample content for page {page_idx+1}]"
+                                except Exception as ocr_error:
+                                    self.logger.warning(f"📄 OCR failed for page {page_idx+1}: {ocr_error}")
+                            
+                            if page_text and len(page_text.strip()) > 10:
+                                # Truncate each page sample to reasonable length
+                                page_sample = page_text.strip()[:1000]
+                                page_samples.append(f"=== PAGE {page_idx+1} SAMPLE ===\n{page_sample}")
+                            
+                        except Exception as page_error:
+                            self.logger.warning(f"Failed to extract from page {page_idx+1}: {page_error}")
+                    
+                    # Combine all page samples into content for LLM analysis
+                    if page_samples:
+                        content_sample = "\n\n".join(page_samples)
+                        self.logger.info(f"📄 ✅ Multi-point content ready: {len(content_sample)} characters from {len(page_samples)} pages of {os.path.basename(file_path)}")
+                    else:
+                        content_reason = "no usable text found on any sampled pages"
+                        self.logger.warning(f"📄 ❌ No usable content for LLM analysis from {os.path.basename(file_path)} - {content_reason}")
             
             reasoning.append(f"File size: {file_size_mb:.1f}MB, Pages: {page_count}")
             

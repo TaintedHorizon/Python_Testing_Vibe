@@ -9,6 +9,14 @@
 
 ## Recent Changes (September 2025)
 
+- **Document Detection Enhancement & Rotation Support & Cleanup Automation (September 29 - Update 2):**
+    - **Multi-Point Document Sampling**: Enhanced document detection to sample first, middle, and last pages for accurate batch scan identification, preventing misclassification of multi-document files
+    - **Automatic Rotation Detection**: Implemented OCR confidence-based rotation detection that tests all orientations and automatically applies optimal rotation during single document processing
+    - **Manual Rotation Controls**: Added comprehensive rotation interface to single document workflow with visual controls (Rotate Left/Right, Reset, Apply) borrowed from batch workflow
+    - **Document Boundary Detection**: Enhanced LLM analysis to detect multiple documents scanned together by identifying format inconsistencies, company changes, and topic transitions
+    - **Batch Directory Cleanup**: Automated cleanup of empty batch directories after export completion with safety checks and manual cleanup tools
+    - **Processing Pipeline Integration**: Rotation detection integrated into `create_searchable_pdf()` function with detailed logging of decisions and confidence scores
+
 - **Export Button UI Fixes & Workflow Consistency (September 29):**
     - Implemented comprehensive flash message system with success/error feedback for all operations
     - Fixed export button functionality that appeared unresponsive due to JavaScript conflicts
@@ -63,9 +71,13 @@ This project has recently completed Module 5, which finalizes the document proce
 
 *   **End-to-end Document Pipeline**: Intake → OCR → AI Classification → Human Verification → Grouping → Ordering → Export
 *   **Enhanced Single Document Workflow**: Streamlined processing with AI-powered category and filename suggestions, manipulation interface, and individual document rescan capabilities
+*   **Intelligent Document Detection**: Multi-point sampling analyzes first, middle, and last pages to accurately distinguish single documents from batch scans
+*   **Automatic Rotation Detection**: OCR confidence-based rotation testing automatically corrects sideways documents during processing
+*   **Manual Rotation Controls**: Visual rotation interface in single document workflow with real-time feedback and apply functionality
 *   **AI-Powered Filename Generation**: Intelligent content-based filename suggestions using document analysis and OCR text
 *   **Interactive Manipulation Interface**: Edit AI suggestions with category dropdowns (matching verify workflow) and three filename options: Original, AI-Generated, and Custom
 *   **Individual Document Rescan**: Re-analyze specific documents for improved AI results with loading states and error handling
+*   **Automated Cleanup**: Empty batch directories automatically removed after export completion with safety checks and manual cleanup tools
 *   **Full Audit Trail**: Every AI prompt/response, human correction, rotation update, category change, and status transition is logged with complete traceability
 *   **RAG-Ready Architecture**: All OCR text, AI outputs, human decisions, and taxonomy evolution are stored for future retrieval-augmented workflows
 *   **AI-Powered Classification**: Uses a local Large Language Model (via Ollama) with intelligent fallback to OCR for scanned documents
@@ -73,7 +85,7 @@ This project has recently completed Module 5, which finalizes the document proce
 *   **Category Governance**: Add, rename (with historical trace), soft delete/restore, annotate categories with full database persistence
 *   **Modern Flask Web UI**: Guided workflow with batch control, verification, review, grouping, ordering, finalization, and audit views
 *   **Rotation-Safe OCR**: Re-run OCR with in-memory rotation (non-destructive) while persisting logical rotation angles
-*   **Smart Document Detection**: Automatically distinguishes single documents from batch scans using LLM analysis
+*   **Smart Document Detection**: Automatically distinguishes single documents from batch scans using LLM analysis with enhanced boundary detection
 *   **Export Formats**: Each document exported as non-searchable PDF, searchable PDF (OCR layer), and structured Markdown logs
 *   **Structured Logging**: JSON-based logging with emoji identifiers for easy troubleshooting and system monitoring
 

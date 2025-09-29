@@ -11,7 +11,45 @@ def get_ai_document_type_analysis(file_path: str, content_sample: str, filename:
     
     try:
         prompt = (
-            f"""You are a document analysis expert. Analyze this document and determine if it should be processed as a SINGLE_DOCUMENT or BATCH_SCAN.\n\nFILE DETAILS:\n- Filename: {filename}\n- Page Count: {page_count}\n- File Size: {file_size_mb:.1f} MB\n\nDOCUMENT CONTENT SAMPLE:\n{content_sample[:2000]}\n\nANALYSIS TASK:\nClassify as SINGLE_DOCUMENT or BATCH_SCAN based on:\n- Content structure and formatting consistency\n- Document flow and topic coherence\n- Presence of multiple document headers/footers\n- Format changes and scan artifacts\n\nRESPONSE FORMAT:\nCLASSIFICATION: [SINGLE_DOCUMENT or BATCH_SCAN]\nCONFIDENCE: [0-100]\nREASONING: [Detailed explanation of your analysis]\n\nProvide your analysis now:"""
+            f"""You are a document analysis expert. Analyze this document and determine if it should be processed as a SINGLE_DOCUMENT or BATCH_SCAN.
+
+FILE DETAILS:
+- Filename: {filename}
+- Page Count: {page_count}
+- File Size: {file_size_mb:.1f} MB
+
+DOCUMENT CONTENT SAMPLES:
+{content_sample[:4000]}
+
+ANALYSIS TASK:
+Classify as SINGLE_DOCUMENT or BATCH_SCAN based on:
+
+FOR SINGLE_DOCUMENT (one coherent document):
+- Consistent formatting, headers, and style across all sampled pages
+- Logical content flow and topic continuity
+- Same company/organization throughout
+- Sequential page numbering or logical progression
+- No abrupt topic/format changes between pages
+
+FOR BATCH_SCAN (multiple documents scanned together):
+- Different company headers/letterheads between pages
+- Abrupt topic changes (invoice → personal letter → receipt)
+- Inconsistent formatting styles between pages
+- Multiple document types mixed together
+- Content that doesn't logically connect between pages
+
+CRITICAL: Pay special attention to transitions between page samples. Look for signs of document boundaries like:
+- Company name changes
+- Format style shifts
+- Topic discontinuity
+- Different document types
+
+RESPONSE FORMAT:
+CLASSIFICATION: [SINGLE_DOCUMENT or BATCH_SCAN]
+CONFIDENCE: [0-100]
+REASONING: [Detailed explanation focusing on consistency/discontinuity between pages]
+
+Provide your analysis now:"""
         )
         
         logging.info(f"🤖 Sending request to Ollama for {filename}")
