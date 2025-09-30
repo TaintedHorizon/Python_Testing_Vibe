@@ -7,6 +7,13 @@ All notable changes to this project will be documented in this file.
 
 ## [2025-09-30] - Complete Filename Standardization
 ### Fixed
+- **AI Filename Generation Spacing**: Fixed critical bug in `get_ai_suggested_filename()` where spaces were completely removed instead of converted to underscores
+  - Issue: `"Letter From Jane And Brian McCaleb"` became `"LetterFromJaneAndBrianMcCalebToCitibank"` (spaces stripped)
+  - Solution: Spaces now properly converted to underscores: `"Letter_From_Jane_And_Brian_McCaleb_To_Citibank"`
+  - Updated regex processing to convert spaces and hyphens to underscores before removing other characters
+  - Improved conversational prefix removal from AI responses
+  - Ensures AI-generated filenames match security.sanitize_filename() behavior
+
 - **Complete Filename Consistency**: Updated filename sanitization to use underscores exclusively for all special characters (including hyphens)
   - Previous: Mixed naming with both hyphens and underscores (`Accelerated-Reader-Award-Certificate` vs `PatriciaMcCalebHonorRoll`)
   - Current: Consistent underscore-only naming (`Accelerated_Reader_Award_Certificate` for all files)

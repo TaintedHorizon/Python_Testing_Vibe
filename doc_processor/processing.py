@@ -1792,13 +1792,16 @@ END DOCUMENT TEXT:
         return f"{current_date}_AI-Error-Generating-Name"
 
     # Clean up the AI's response to be a safe filename
-    # Remove common conversational prefixes
-    ai_title = re.sub(r'^\s*Here.+?:?\s*', '', ai_title, flags=re.IGNORECASE)
-    # Remove any characters that are not alphanumeric, hyphen, or underscore
-    sanitized_title = re.sub(r'[^\w\-_]', '', ai_title).strip('-')
+    # Remove common conversational prefixes more comprehensively
+    ai_title = re.sub(r'^\s*(Here\s+is.*?:\s*|Based\s+on.*?:\s*|A\s+good.*?:\s*)', '', ai_title, flags=re.IGNORECASE)
+    
+    # Convert spaces and hyphens to underscores for consistency with security.sanitize_filename()
+    ai_title = re.sub(r'[\s\-]+', '_', ai_title)  # Convert whitespace and hyphens to underscores
+    # Remove any characters that are not alphanumeric or underscore
+    sanitized_title = re.sub(r'[^\w_]', '', ai_title).strip('_')
 
     if not sanitized_title:
-        sanitized_title = "Untitled-Document"
+        sanitized_title = "Untitled_Document"
 
     return f"{current_date}_{sanitized_title}"
 
