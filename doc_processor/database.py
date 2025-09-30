@@ -900,3 +900,301 @@ def get_detection_performance_analytics():
     finally:
         if conn:
             conn.close()
+
+
+# --- DOCUMENT TAGS UTILITIES ---
+def store_document_tags(document_id, extracted_tags, llm_source='ollama'):
+    """
+    Store extracted tags for a document in the database.
+    
+    Args:
+        document_id (int): The ID of the document in single_documents table
+        extracted_tags (dict): Dictionary with tag categories as keys and lists of tag values
+        llm_source (str): The LLM source that extracted the tags (default: 'ollama')
+    
+    Returns:
+        int: Number of tags successfully stored
+    """
+    if not extracted_tags:
+        return 0
+    
+    conn = get_db_connection()
+    tags_stored = 0
+    
+    try:
+        with conn:
+            cursor = conn.cursor()
+            
+            # Clear existing tags for this document to avoid duplicates
+            cursor.execute("DELETE FROM document_tags WHERE document_id = ?", (document_id,))
+            
+            # Insert new tags
+            for category, tag_values in extracted_tags.items():
+                if not tag_values:
+                    continue
+                    
+                for tag_value in tag_values:
+                    if tag_value and str(tag_value).strip():
+                        try:
+                            cursor.execute("""
+                                INSERT INTO document_tags 
+                                (document_id, tag_category, tag_value, llm_source)
+                                VALUES (?, ?, ?, ?)
+                            """, (document_id, category, str(tag_value).strip(), llm_source))
+                            tags_stored += 1
+                        except sqlite3.IntegrityError:
+                            # Skip duplicate tags (unique constraint violation)
+                            pass
+            
+            logging.info(f"🏷️  Stored {tags_stored} tags for document {document_id} in database")
+            
+    except sqlite3.Error as e:
+        logging.error(f"💥 Database error storing tags for document {document_id}: {e}")
+        tags_stored = 0
+    finally:
+        if conn:
+            conn.close()
+    
+    return tags_stored
+
+
+def get_document_tags(document_id):
+    """
+    Retrieve all tags for a specific document.
+    
+    Args:
+        document_id (int): The document ID to fetch tags for
+        
+    Returns:
+        dict: Dictionary with tag categories as keys and lists of tag values
+    """
+    conn = get_db_connection()
+    
+    try:
+        cursor = conn.cursor()
+        results = cursor.execute("""
+            SELECT tag_category, tag_value, extraction_confidence, created_at
+            FROM document_tags 
+            WHERE document_id = ?
+            ORDER BY tag_category, tag_value
+        """, (document_id,)).fetchall()
+        
+        # Organize tags by category
+        tags_dict = {
+            'people': [],
+            'organizations': [],
+            'places': [],
+            'dates': [],
+            'document_types': [],
+            'keywords': [],
+            'amounts': [],
+            'reference_numbers': []
+        }
+        
+        for row in results:
+            category, value, confidence, created_at = row
+            if category in tags_dict:
+                tags_dict[category].append(value)
+        
+        return tags_dict
+        
+    except sqlite3.Error as e:
+        logging.error(f"💥 Database error fetching tags for document {document_id}: {e}")
+        return {}
+    finally:
+        if conn:
+            conn.close()
+
+
+def find_similar_documents_by_tags(extracted_tags, limit=10, min_tag_matches=2):
+    """
+    Find documents with similar tag patterns for RAG context.
+    
+    Args:
+        extracted_tags (dict): Tags to search for similarity
+        limit (int): Maximum number of similar documents to return
+        min_tag_matches (int): Minimum number of matching tags required
+        
+    Returns:
+        list: List of similar documents with metadata
+    """
+    if not extracted_tags:
+        return []
+    
+    conn = get_db_connection()
+    
+    try:
+        cursor = conn.cursor()
+        similar_docs = []
+        
+        # Build query to find documents with matching tags
+        for category, values in extracted_tags.items():
+            if not values:
+                continue
+                
+            # Create placeholders for the IN clause
+            placeholders = ','.join(['?' for _ in values])
+            
+            # Find documents with matching tags in this category
+            query = f"""
+                SELECT DISTINCT 
+                    d.id, d.final_category, d.final_filename, d.ai_suggested_category,
+                    d.created_at, COUNT(t.tag_value) as tag_matches,
+                    GROUP_CONCAT(t.tag_value, ', ') as matching_tags
+                FROM single_documents d
+                JOIN document_tags t ON d.id = t.document_id
+                WHERE t.tag_category = ? AND t.tag_value IN ({placeholders})
+                GROUP BY d.id
+                HAVING tag_matches >= ?
+                ORDER BY tag_matches DESC, d.created_at DESC
+                LIMIT ?
+            """
+            
+            results = cursor.execute(query, [category] + values + [min_tag_matches, limit]).fetchall()
+            
+            for row in results:
+                doc_id, final_category, final_filename, ai_suggested_category, created_at, tag_matches, matching_tags = row
+                similar_docs.append({
+                    'document_id': doc_id,
+                    'final_category': final_category,
+                    'final_filename': final_filename,
+                    'ai_suggested_category': ai_suggested_category,
+                    'tag_category': category,
+                    'tag_matches': tag_matches,
+                    'matching_tags': matching_tags.split(', ') if matching_tags else [],
+                    'created_at': created_at
+                })
+        
+        # Deduplicate and sort by relevance
+        unique_docs = {}
+        for doc in similar_docs:
+            doc_id = doc['document_id']
+            if doc_id not in unique_docs or doc['tag_matches'] > unique_docs[doc_id]['tag_matches']:
+                unique_docs[doc_id] = doc
+        
+        # Return top results sorted by tag matches
+        return sorted(unique_docs.values(), key=lambda x: x['tag_matches'], reverse=True)[:limit]
+        
+    except sqlite3.Error as e:
+        logging.error(f"💥 Database error finding similar documents by tags: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_tag_usage_stats(category=None, limit=50):
+    """
+    Get statistics about tag usage patterns.
+    
+    Args:
+        category (str, optional): Specific tag category to analyze
+        limit (int): Maximum number of results to return
+        
+    Returns:
+        list: Tag usage statistics
+    """
+    conn = get_db_connection()
+    
+    try:
+        cursor = conn.cursor()
+        
+        if category:
+            results = cursor.execute("""
+                SELECT * FROM tag_usage_stats 
+                WHERE tag_category = ?
+                ORDER BY usage_count DESC
+                LIMIT ?
+            """, (category, limit)).fetchall()
+        else:
+            results = cursor.execute("""
+                SELECT * FROM tag_usage_stats 
+                ORDER BY usage_count DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
+        
+        return [dict(row) for row in results]
+        
+    except sqlite3.Error as e:
+        logging.error(f"💥 Database error fetching tag usage stats: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def analyze_tag_classification_patterns():
+    """
+    Analyze which tag patterns correlate with successful classifications.
+    
+    Returns:
+        dict: Analysis of tag patterns and their classification accuracy
+    """
+    conn = get_db_connection()
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Find strong tag-to-category correlations
+        patterns = cursor.execute("""
+            SELECT 
+                d.final_category,
+                t.tag_category,
+                t.tag_value,
+                COUNT(*) as frequency,
+                COUNT(CASE WHEN d.ai_suggested_category = d.final_category THEN 1 END) as ai_correct,
+                COUNT(CASE WHEN d.ai_suggested_category != d.final_category THEN 1 END) as ai_incorrect,
+                AVG(d.ai_confidence) as avg_ai_confidence
+            FROM single_documents d
+            JOIN document_tags t ON d.id = t.document_id
+            WHERE d.final_category IS NOT NULL 
+            AND d.ai_suggested_category IS NOT NULL
+            GROUP BY d.final_category, t.tag_category, t.tag_value
+            HAVING frequency >= 3
+            ORDER BY frequency DESC
+        """).fetchall()
+        
+        strong_patterns = []
+        for row in patterns:
+            final_cat, tag_cat, tag_val, freq, correct, incorrect, avg_conf = row
+            total_predictions = correct + incorrect
+            
+            if total_predictions > 0:
+                accuracy = correct / total_predictions
+                if accuracy >= 0.8 and freq >= 5:  # High accuracy with sufficient sample size
+                    strong_patterns.append({
+                        'tag_category': tag_cat,
+                        'tag_value': tag_val,
+                        'predicted_category': final_cat,
+                        'accuracy': accuracy,
+                        'sample_size': freq,
+                        'avg_confidence': avg_conf
+                    })
+        
+        # Category-level tag analysis
+        category_patterns = cursor.execute("""
+            SELECT 
+                d.final_category,
+                COUNT(DISTINCT d.id) as document_count,
+                COUNT(t.id) as total_tags,
+                COUNT(DISTINCT t.tag_value) as unique_tags,
+                AVG(CASE WHEN d.ai_suggested_category = d.final_category THEN 1.0 ELSE 0.0 END) as classification_accuracy
+            FROM single_documents d
+            LEFT JOIN document_tags t ON d.id = t.document_id
+            WHERE d.final_category IS NOT NULL
+            GROUP BY d.final_category
+            ORDER BY document_count DESC
+        """).fetchall()
+        
+        return {
+            'strong_tag_patterns': strong_patterns,
+            'category_analysis': [dict(row) for row in category_patterns],
+            'pattern_count': len(strong_patterns)
+        }
+        
+    except sqlite3.Error as e:
+        logging.error(f"💥 Database error analyzing tag classification patterns: {e}")
+        return {'strong_tag_patterns': [], 'category_analysis': [], 'pattern_count': 0}
+    finally:
+        if conn:
+            conn.close()

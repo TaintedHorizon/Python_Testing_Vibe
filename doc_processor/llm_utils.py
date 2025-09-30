@@ -1,6 +1,161 @@
 import logging
-from typing import Optional
-from .config_manager import app_config
+from typing import Optional, Dict, List
+
+try:
+    from .config_manager import app_config
+except ImportError:
+    # Handle direct script execution
+    from config_manager import app_config
+
+
+def extract_document_tags(ocr_text: str, document_name: str = "") -> Optional[Dict[str, List[str]]]:
+    """
+    Extracts structured tags from document text using LLM analysis.
+    Returns categorized tags for enhanced searchability and RAG enrichment.
+    
+    Args:
+        ocr_text: Full OCR text from the document
+        document_name: Optional document name for context
+        
+    Returns:
+        Dictionary with categorized tags or None if extraction fails
+        Format: {
+            'people': ['John Doe', 'Jane Smith'],
+            'organizations': ['Acme Corp', 'ABC Bank'],
+            'places': ['New York', 'Main Street'],
+            'dates': ['2023-12-15', 'December 2023'],
+            'document_types': ['invoice', 'contract'],
+            'keywords': ['payment', 'agreement', 'finance'],
+            'amounts': ['$1,200.00', '$500'],
+            'reference_numbers': ['INV-2023-001', 'REF123']
+        }
+    """
+    logging.info(f"🏷️  Extracting tags for document: {document_name or 'unnamed'}")
+    
+    if not ocr_text or len(ocr_text.strip()) < 50:
+        logging.warning(f"🏷️  Insufficient text for tag extraction: {len(ocr_text)} characters")
+        return None
+    
+    try:
+        prompt = f"""Analyze this document text and extract relevant tags for search and categorization.
+
+DOCUMENT: {document_name}
+
+TEXT TO ANALYZE:
+{ocr_text[:6000]}
+
+EXTRACT THE FOLLOWING TAG CATEGORIES:
+
+**PEOPLE**: Full names of individuals mentioned (avoid titles, extract: "John Smith" not "Mr. Smith")
+**ORGANIZATIONS**: Company names, institutions, agencies, banks (full legal names when possible)
+**PLACES**: Cities, states, countries, addresses, landmarks (be specific: "123 Main St, Boston MA" not just "Main St")
+**DATES**: Specific dates, months, years found in text (format as found: "Dec 15, 2023" or "2023-12-15")
+**DOCUMENT_TYPES**: What type of document this appears to be (invoice, contract, letter, report, etc.)
+**KEYWORDS**: Important subject matter terms (industry terms, topics, legal terms, financial terms)
+**AMOUNTS**: Dollar amounts, quantities, percentages (include currency symbol: "$1,200.00")
+**REFERENCE_NUMBERS**: Account numbers, invoice numbers, case numbers, ID numbers (format as found)
+
+RULES:
+1. Only extract tags that are explicitly mentioned in the text
+2. Be precise - avoid generic terms like "company" or "person"
+3. For amounts, include the full value with currency/units
+4. For places, include full addresses when available
+5. For dates, preserve the original format found in the document
+6. Maximum 8 items per category
+7. If a category has no relevant items, return an empty list
+
+RESPONSE FORMAT (JSON-like structure):
+PEOPLE: [name1, name2, ...]
+ORGANIZATIONS: [org1, org2, ...]
+PLACES: [place1, place2, ...]
+DATES: [date1, date2, ...]
+DOCUMENT_TYPES: [type1, type2, ...]
+KEYWORDS: [keyword1, keyword2, ...]
+AMOUNTS: [amount1, amount2, ...]
+REFERENCE_NUMBERS: [ref1, ref2, ...]
+
+Extract tags now:"""
+        
+        logging.debug(f"🏷️  Sending tag extraction request for {document_name}")
+        response = _query_ollama(
+            prompt, 
+            timeout=app_config.OLLAMA_TIMEOUT, 
+            context_window=app_config.OLLAMA_CTX_TITLE_GENERATION,  # Use title generation context size
+            task_name="tag_extraction"
+        )
+        
+        if not response:
+            logging.warning(f"🏷️  No response from LLM for tag extraction: {document_name}")
+            return None
+            
+        # Parse the response into structured tags
+        tags = {
+            'people': [],
+            'organizations': [],
+            'places': [],
+            'dates': [],
+            'document_types': [],
+            'keywords': [],
+            'amounts': [],
+            'reference_numbers': []
+        }
+        
+        lines = response.strip().split('\n')
+        current_category = None
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Check for category headers
+            for category in tags.keys():
+                category_upper = category.upper().replace('_', '_')
+                if line.startswith(f"{category_upper}:") or line.startswith(f"**{category_upper}**:"):
+                    current_category = category
+                    # Extract items from the same line if present
+                    content = line.split(':', 1)[1].strip() if ':' in line else ''
+                    if content and content not in ['[]', '[ ]']:
+                        # Parse list format: [item1, item2, item3]
+                        if content.startswith('[') and content.endswith(']'):
+                            content = content[1:-1]
+                        items = [item.strip().strip('"\'') for item in content.split(',') if item.strip()]
+                        tags[category].extend([item for item in items if item and len(item) > 1])
+                    break
+            else:
+                # If we're in a category and this line contains items
+                if current_category and line and not line.startswith(('PEOPLE:', 'ORGANIZATIONS:', 'PLACES:', 'DATES:', 'DOCUMENT_TYPES:', 'KEYWORDS:', 'AMOUNTS:', 'REFERENCE_NUMBERS:')):
+                    # Handle continuation lines or list items
+                    if line.startswith(('[', '-', '•')):
+                        items = line.strip('[]- •').split(',')
+                        items = [item.strip().strip('"\'') for item in items if item.strip()]
+                        tags[current_category].extend([item for item in items if item and len(item) > 1])
+        
+        # Clean up and limit tags
+        for category in tags:
+            # Remove duplicates while preserving order
+            seen = set()
+            tags[category] = [item for item in tags[category] if item not in seen and not seen.add(item)]
+            # Limit to 8 items per category
+            tags[category] = tags[category][:8]
+        
+        # Count total tags extracted
+        total_tags = sum(len(tag_list) for tag_list in tags.values())
+        
+        if total_tags > 0:
+            logging.info(f"✅ Tag extraction SUCCESS for {document_name}: {total_tags} total tags")
+            logging.debug(f"✅ Extracted tags: {tags}")
+            return tags
+        else:
+            logging.warning(f"⚠️  No tags extracted from document: {document_name}")
+            logging.debug(f"⚠️  LLM response was: {response[:300]}...")
+            return None
+            
+    except Exception as e:
+        logging.error(f"💥 Error extracting tags for {document_name}: {e}")
+        import traceback
+        logging.debug(f"💥 Full traceback: {traceback.format_exc()}")
+        return None
 def get_ai_document_type_analysis(file_path: str, content_sample: str, filename: str, page_count: int, file_size_mb: float) -> Optional[dict]:
     """
     Uses LLM to analyze document type based on content and metadata.

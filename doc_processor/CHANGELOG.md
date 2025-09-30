@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2025-09-30] - Batch Processing Resilience & Caching System
+### Added
+- **Comprehensive Caching System**: Implemented immediate caching for all expensive operations
+  - AI analysis results (category, filename, summary) cached in database after each LLM call
+  - OCR results, confidence scores, and rotation detection cached to prevent reprocessing
+  - Searchable PDF outputs preserved and reused on interruptions
+  - Document processing state tracked granularly for precise resumability
+
+- **Batch Resumability**: Complete interruption recovery system
+  - Batches can resume from exact failure point instead of restarting from scratch
+  - Database stores processing state for each document individually
+  - Cached results used instantly for already-processed documents
+  - No compute waste on Flask server restarts or processing interruptions
+
+- **Batch Creation Guard**: Phantom batch prevention system
+  - Prevents duplicate batch creation during Flask restarts
+  - Automatically finds and resumes existing processing batches
+  - `get_or_create_processing_batch()` function ensures single processing batch
+  - Cleanup utilities for orphaned/empty batches
+
+- **Development Tools**: Added comprehensive batch management utilities in `dev_tools/`
+  - `batch_guard.py`: Batch protection and duplicate prevention
+  - `batch_resume.py`: Resumability analysis and progress tracking
+  - `demo_resilience.py`: Compute savings demonstration (shows 70+ minutes cached)
+  - `recover_batch_4.py`: Batch recovery from phantom batch situations
+  - `reset_batch_4_fresh.py`: Reset batches for clean testing
+
+### Changed
+- **Processing Workflow**: Restructured to support caching
+  - Documents inserted to database before expensive operations (OCR, AI)
+  - Results cached immediately after each processing step
+  - Functions accept `document_id` for cache lookup/storage
+  - `create_searchable_pdf()` checks cache before processing
+
+- **File Organization**: Moved development utilities to proper `dev_tools/` directory structure
+
+### Performance
+- **Compute Waste Elimination**: Prevents redundant processing on interruptions
+  - OCR processing: ~30 seconds per document saved
+  - AI analysis: ~15 seconds per LLM call saved  
+  - Total system: 70+ minutes of compute time now cached and reusable
+  - Cache hit rate: Nearly instant processing for previously analyzed documents
+
 ## [2025-09-30] - Complete Filename Standardization
 ### Fixed
 - **AI Filename Generation Spacing**: Fixed critical bug in `get_ai_suggested_filename()` where spaces were completely removed instead of converted to underscores

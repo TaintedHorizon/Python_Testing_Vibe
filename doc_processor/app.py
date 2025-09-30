@@ -85,7 +85,7 @@ import logging
 import json
 from logging.handlers import RotatingFileHandler
 # --- LOGGING CONFIGURATION ---
-LOG_DIR = os.getenv("LOG_DIR", os.path.join(os.path.dirname(__file__), "..", "logs"))
+LOG_DIR = os.getenv("LOG_DIR", os.path.join(os.path.dirname(__file__), "logs"))
 os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
@@ -2226,7 +2226,7 @@ def export_batch_action(batch_id):
             notes='Final filename set during export.'
         )
         update_document_final_filename(doc_id, final_name_base)
-        export_document(pages, final_name_base, category)
+        export_document(pages, final_name_base, category, document_id=doc_id)
 
     # Verify no files were lost during export
     from .processing import verify_no_file_loss
@@ -2240,9 +2240,9 @@ def export_batch_action(batch_id):
     # batch (like the intermediate PNGs) are deleted to save space.
     cleanup_batch_files(batch_id)
 
-    # The batch is marked as 'Exported', its final status.
+    # The batch is marked as exported, its final status.
     conn = get_db_connection()
-    conn.execute("UPDATE batches SET status = 'Exported' WHERE id = ?", (batch_id,))
+    conn.execute("UPDATE batches SET status = ? WHERE id = ?", (app_config.STATUS_EXPORTED, batch_id))
     conn.commit()
     conn.close()
 
@@ -2268,7 +2268,7 @@ def finalize_single_documents_batch_action(batch_id):
         if success:
             # Update batch status to exported
             conn = get_db_connection()
-            conn.execute("UPDATE batches SET status = 'Exported' WHERE id = ?", (batch_id,))
+            conn.execute("UPDATE batches SET status = ? WHERE id = ?", (app_config.STATUS_EXPORTED, batch_id))
             conn.commit()
             conn.close()
             

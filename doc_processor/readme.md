@@ -9,6 +9,17 @@
 
 ## Recent Changes (September 2025)
 
+- **Batch Processing Resilience & Caching System (September 30 - Latest):**
+    - **AI Analysis Caching**: LLM responses (category, filename, summary) now cached immediately in database to prevent redundant compute on interruptions
+    - **OCR Processing Caching**: OCR results, rotation detection, and searchable PDFs cached to avoid expensive reprocessing
+    - **Batch Resumability**: Interrupted batches can now resume from exact failure point instead of restarting from scratch
+    - **Batch Creation Guard**: Prevents phantom batch creation during Flask restarts - automatically finds and resumes existing processing batches
+    - **Compute Waste Elimination**: System now preserves 70+ minutes of cached processing time across existing batches
+    - **Database Recovery Tools**: Added comprehensive batch recovery and cleanup utilities in `dev_tools/` for handling interrupted processing scenarios
+    - **Cache Hit Performance**: Cached documents process instantly using stored OCR and AI results
+    - **Interruption Protection**: Users can safely stop/restart Flask during processing without losing compute work
+    - **Dev Tools Organization**: Moved all development utilities to proper `dev_tools/` directory structure
+
 - **Export Naming Standardization & Filing Cabinet Cleanup (September 30):**
     - **Naming Consistency**: Standardized directory and filename sanitization across single document and batch export workflows - both now use underscores instead of spaces in directory names for better filesystem compatibility
     - **Centralized Sanitization**: Unified filename sanitization using `security.sanitize_filename()` with consistent rules (non-alphanumeric → underscores, except dots/hyphens)

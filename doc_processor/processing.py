@@ -82,24 +82,62 @@ from PIL import Image
 from .config_manager import app_config
 from .exceptions import FileProcessingError, OCRError, AIServiceError
 from .security import validate_path, sanitize_filename
-from .database import get_all_categories, log_interaction
-from .llm_utils import _query_ollama
+from .database import get_all_categories, log_interaction, store_document_tags
+from .llm_utils import _query_ollama, extract_document_tags
+from .dev_tools.batch_guard import get_or_create_processing_batch
 from .document_detector import get_detector, DocumentAnalysis
 
 # --- PDF MANIPULATION FUNCTIONS ---
-def create_searchable_pdf(original_pdf_path: str, output_path: str) -> tuple[str, float, str]:
+def create_searchable_pdf(original_pdf_path: str, output_path: str, document_id: Optional[int] = None) -> tuple[str, float, str]:
     """
     Create a searchable PDF by adding OCR text as an invisible overlay.
     Includes automatic rotation detection for optimal text extraction.
     
+    Checks cache first to avoid expensive OCR reprocessing.
+    
     Args:
         original_pdf_path: Path to the original PDF file
         output_path: Path where the searchable PDF will be saved
+        document_id: Optional document ID to check for cached OCR results
         
     Returns:
         tuple: (full_ocr_text, average_confidence, status_message)
     """
     try:
+        # Check cache first if document_id provided
+        if document_id:
+            try:
+                with database_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT ocr_text, ocr_confidence_avg, searchable_pdf_path 
+                        FROM single_documents 
+                        WHERE id = ? AND ocr_text IS NOT NULL AND searchable_pdf_path IS NOT NULL
+                    """, (document_id,))
+                    cached_result = cursor.fetchone()
+                    
+                    if cached_result:
+                        ocr_text, confidence, cached_searchable_path = cached_result
+                        
+                        # Check if the cached searchable PDF exists
+                        if cached_searchable_path and os.path.exists(cached_searchable_path):
+                            # Copy cached file to new location if different
+                            if cached_searchable_path != output_path:
+                                import shutil
+                                shutil.copy2(cached_searchable_path, output_path)
+                                logging.info(f"📋 Copied cached searchable PDF for document {document_id}")
+                            
+                            logging.info(f"✅ Using cached OCR results for document {document_id} (confidence: {confidence:.3f})")
+                            return ocr_text, confidence or 0.0, "success (cached)"
+                        else:
+                            # Cached entry exists but file is missing - will regenerate
+                            logging.info(f"🔄 Cached OCR found but file missing for document {document_id}, regenerating...")
+            except Exception as cache_error:
+                logging.warning(f"Error checking OCR cache: {cache_error}")
+        
+        # No cache found or cache invalid, proceed with full OCR processing
+        logging.info(f"🔍 Processing OCR for {os.path.basename(original_pdf_path)}...")
+        
         # Open the original PDF
         doc = fitz.open(original_pdf_path)
         ocr_text_pages = []
@@ -193,6 +231,21 @@ def create_searchable_pdf(original_pdf_path: str, output_path: str) -> tuple[str
         status_msg = "success"
         if rotated_pages:
             status_msg += f" (auto-rotated {len(rotated_pages)} pages)"
+        
+        # Save OCR results to cache if document_id provided
+        if document_id:
+            try:
+                with database_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE single_documents SET 
+                            ocr_text = ?, ocr_confidence_avg = ?, searchable_pdf_path = ?
+                        WHERE id = ?
+                    """, (full_text, avg_confidence, output_path, document_id))
+                    conn.commit()
+                    logging.info(f"💾 Cached OCR results for document {document_id} (confidence: {avg_confidence:.1f}%)")
+            except Exception as cache_error:
+                logging.warning(f"Failed to cache OCR results: {cache_error}")
         
         logging.info(f"✓ Created searchable PDF: {output_path} (avg confidence: {avg_confidence:.1f}%)")
         return full_text, avg_confidence, status_msg
@@ -589,7 +642,7 @@ def process_single_document(file_path: str, suggested_strategy: str = "single_do
             # Create a single-document batch
             cursor.execute(
                 "INSERT INTO batches (status) VALUES (?)",
-                ("complete",)  # Single docs go straight to complete
+                (app_config.STATUS_EXPORTED,)  # Single docs go straight to exported
             )
             batch_id = cursor.lastrowid
             conn.commit()
@@ -926,15 +979,10 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
         with database_connection() as conn:
             cursor = conn.cursor()
             
-            # Create ONE batch for all single documents
-            cursor.execute(
-                "INSERT INTO batches (status) VALUES (?)",
-                (app_config.STATUS_READY_FOR_MANIPULATION,)  # New status for single doc workflow
-            )
-            batch_id = cursor.lastrowid
-            conn.commit()
+            # Get or create processing batch (prevents duplicates)
+            batch_id = get_or_create_processing_batch()
             
-            logging.info(f"Created single documents batch: {batch_id}")
+            logging.info(f"Using batch {batch_id} for single documents processing")
             
             # Set up directories
             batch_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
@@ -949,35 +997,43 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                     base_name = os.path.splitext(filename)[0]
                     logging.info(f"Processing {filename} with improved single document workflow...")
                     
-                    # Step 1: Create searchable PDF with OCR
+                    # Step 1: Insert document first with basic info (no OCR yet)
+                    cursor.execute("""
+                        INSERT INTO single_documents (
+                            batch_id, original_filename, original_pdf_path,
+                            page_count, file_size_bytes, status
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        batch_id, filename, analysis.file_path,
+                        analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
+                        "processing"
+                    ))
+                    doc_id = cursor.lastrowid
+                    conn.commit()  # Commit immediately to save progress
+                    
+                    # Step 2: Create searchable PDF with OCR (with caching)
                     searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
                     ocr_text, ocr_confidence, ocr_status = create_searchable_pdf(
-                        analysis.file_path, searchable_pdf_path
+                        analysis.file_path, searchable_pdf_path, doc_id
                     )
                     
-                    if ocr_status != "success":
+                    if ocr_status != "success" and not ocr_status.startswith("success"):
                         logging.error(f"Failed to create searchable PDF for {filename}: {ocr_status}")
                         continue
                     
-                    # Step 2: Get AI suggestions for category and filename
+                    # Step 3: Get AI suggestions (with caching)
                     ai_category, ai_filename, ai_confidence, ai_summary = _get_ai_suggestions_for_document(
-                        ocr_text, filename, analysis.page_count, analysis.file_size_mb
+                        ocr_text, filename, analysis.page_count, analysis.file_size_mb, doc_id
                     )
                     
-                    # Step 3: Store in single_documents table
+                    # Step 4: Update document with AI analysis results
                     cursor.execute("""
-                        INSERT INTO single_documents (
-                            batch_id, original_filename, original_pdf_path, searchable_pdf_path,
-                            page_count, file_size_bytes, ocr_text, ocr_confidence_avg,
-                            ai_suggested_category, ai_suggested_filename, ai_confidence,
-                            ai_summary, status
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        batch_id, filename, analysis.file_path, searchable_pdf_path,
-                        analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
-                        ocr_text, ocr_confidence, ai_category, ai_filename,
-                        ai_confidence, ai_summary, "ready_for_manipulation"
-                    ))
+                        UPDATE single_documents SET 
+                            ai_suggested_category = ?, ai_suggested_filename = ?,
+                            ai_confidence = ?, ai_summary = ?, status = ?
+                        WHERE id = ?
+                    """, (ai_category, ai_filename, ai_confidence, ai_summary, "ready_for_manipulation", doc_id))
+                    conn.commit()  # Commit AI results immediately
                     
                     total_documents_processed += 1
                     logging.info(f"✓ Processed {filename} - Category: {ai_category}, Name: {ai_filename}")
@@ -1002,6 +1058,13 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                 }),
                 notes=f"Improved single document workflow - {total_documents_processed} documents ready"
             )
+            
+            # Update batch status to ready_for_manipulation now that processing is complete
+            cursor.execute(
+                "UPDATE batches SET status = ? WHERE id = ?",
+                (app_config.STATUS_READY_FOR_MANIPULATION, batch_id)
+            )
+            conn.commit()
             
             logging.info(f"✓ Successfully created batch {batch_id} with {total_documents_processed} documents ready for manipulation")
             return batch_id
@@ -1032,15 +1095,10 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
         with database_connection() as conn:
             cursor = conn.cursor()
             
-            # Create ONE batch for all single documents
-            cursor.execute(
-                "INSERT INTO batches (status) VALUES (?)",
-                (app_config.STATUS_READY_FOR_MANIPULATION,)  # New status for single doc workflow
-            )
-            batch_id = cursor.lastrowid
-            conn.commit()
+            # Get or create processing batch (prevents duplicates)
+            batch_id = get_or_create_processing_batch()
             
-            logging.info(f"Created single documents batch: {batch_id}")
+            logging.info(f"Using batch {batch_id} for single documents with progress tracking")
             yield {'batch_id': batch_id}
             
             # Set up directories
@@ -1065,13 +1123,27 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                     
                     logging.info(f"Processing {filename} with improved single document workflow...")
                     
-                    # Step 1: Create searchable PDF with OCR
+                    # Step 1: Insert document first with basic info (no OCR yet)
+                    cursor.execute("""
+                        INSERT INTO single_documents (
+                            batch_id, original_filename, original_pdf_path,
+                            page_count, file_size_bytes, status
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        batch_id, filename, analysis.file_path,
+                        analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
+                        "processing"
+                    ))
+                    doc_id = cursor.lastrowid
+                    conn.commit()  # Commit immediately to save progress
+                    
+                    # Step 2: Create searchable PDF with OCR (with caching)
                     searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
                     ocr_text, ocr_confidence, ocr_status = create_searchable_pdf(
-                        analysis.file_path, searchable_pdf_path
+                        analysis.file_path, searchable_pdf_path, doc_id
                     )
                     
-                    if ocr_status != "success":
+                    if ocr_status != "success" and not ocr_status.startswith("success"):
                         error_msg = f"Failed to create searchable PDF: {ocr_status}"
                         logging.error(f"Failed to create searchable PDF for {filename}: {ocr_status}")
                         yield {
@@ -1082,25 +1154,19 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                         }
                         continue
                     
-                    # Step 2: Get AI suggestions for category and filename
+                    # Step 3: Get AI suggestions (with caching)
                     ai_category, ai_filename, ai_confidence, ai_summary = _get_ai_suggestions_for_document(
-                        ocr_text, filename, analysis.page_count, analysis.file_size_mb
+                        ocr_text, filename, analysis.page_count, analysis.file_size_mb, doc_id
                     )
                     
-                    # Step 3: Store in single_documents table
+                    # Step 4: Update document with AI analysis results
                     cursor.execute("""
-                        INSERT INTO single_documents (
-                            batch_id, original_filename, original_pdf_path, searchable_pdf_path,
-                            page_count, file_size_bytes, ocr_text, ocr_confidence_avg,
-                            ai_suggested_category, ai_suggested_filename, ai_confidence,
-                            ai_summary, status
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        batch_id, filename, analysis.file_path, searchable_pdf_path,
-                        analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
-                        ocr_text, ocr_confidence, ai_category, ai_filename,
-                        ai_confidence, ai_summary, "ready_for_manipulation"
-                    ))
+                        UPDATE single_documents SET 
+                            ai_suggested_category = ?, ai_suggested_filename = ?,
+                            ai_confidence = ?, ai_summary = ?, status = ?
+                        WHERE id = ?
+                    """, (ai_category, ai_filename, ai_confidence, ai_summary, "ready_for_manipulation", doc_id))
+                    conn.commit()  # Commit AI results immediately
                     
                     total_documents_processed += 1
                     logging.info(f"✓ Processed {filename} - Category: {ai_category}, Name: {ai_filename}")
@@ -1144,6 +1210,13 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                 }),
                 notes=f"Improved single document workflow with progress - {total_documents_processed} documents ready"
             )
+            
+            # Update batch status to ready_for_manipulation now that processing is complete
+            cursor.execute(
+                "UPDATE batches SET status = ? WHERE id = ?",
+                (app_config.STATUS_READY_FOR_MANIPULATION, batch_id)
+            )
+            conn.commit()
             
             logging.info(f"✓ Successfully created batch {batch_id} with {total_documents_processed} documents ready for manipulation")
             
@@ -1344,20 +1417,42 @@ def _detect_best_rotation(image_path: str) -> tuple[int, float, str]:
 
 
 def _get_ai_suggestions_for_document(ocr_text: str, filename: str, page_count: int, 
-                                   file_size_mb: float) -> tuple[str, str, float, str]:
+                                   file_size_mb: float, document_id: Optional[int] = None) -> tuple[str, str, float, str]:
     """
     Get AI suggestions for document category, filename, and summary.
+    
+    First checks database cache, only makes LLM calls if needed.
     
     Args:
         ocr_text: Extracted OCR text from the document
         filename: Original filename
         page_count: Number of pages in the document
         file_size_mb: File size in megabytes
+        document_id: Optional document ID to check for cached results
         
     Returns:
         tuple: (category, suggested_filename, confidence, summary)
     """
     try:
+        # Check cache first if document_id provided
+        if document_id:
+            with database_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT ai_suggested_category, ai_suggested_filename, ai_confidence, ai_summary 
+                    FROM single_documents 
+                    WHERE id = ? AND ai_suggested_category IS NOT NULL
+                """, (document_id,))
+                cached_result = cursor.fetchone()
+                
+                if cached_result:
+                    category, suggested_filename, confidence, summary = cached_result
+                    logging.info(f"✅ Using cached AI analysis for document {document_id}: {category}")
+                    return category, suggested_filename, confidence or 0.8, summary or ""
+        
+        # No cache found, proceed with LLM analysis
+        logging.info(f"🤖 Generating new AI analysis for document: {filename}")
+        
         # Get available categories from database
         with database_connection() as conn:
             cursor = conn.cursor()
@@ -1431,12 +1526,30 @@ Respond in this exact JSON format:
                         else:
                             ai_filename = f"{category}_Document"
                     
-                    return (
+                    result = (
                         parsed.get("category", "Uncategorized"),
                         ai_filename,
                         float(parsed.get("confidence", 0.5)),
                         parsed.get("summary", "AI analysis completed")
                     )
+                    
+                    # Save to database cache if document_id provided
+                    if document_id:
+                        try:
+                            with database_connection() as conn:
+                                cursor = conn.cursor()
+                                cursor.execute("""
+                                    UPDATE single_documents SET 
+                                        ai_suggested_category = ?, ai_suggested_filename = ?,
+                                        ai_confidence = ?, ai_summary = ?
+                                    WHERE id = ?
+                                """, (result[0], result[1], result[2], result[3], document_id))
+                                conn.commit()
+                                logging.info(f"💾 Cached AI analysis for document {document_id}")
+                        except Exception as cache_error:
+                            logging.warning(f"Failed to cache AI analysis: {cache_error}")
+                    
+                    return result
                     
             except Exception as e:
                 logging.warning(f"Failed to parse AI response as JSON: {e}")
@@ -1762,18 +1875,21 @@ def get_ai_suggested_order(pages: List[Dict]) -> List[int]:
 def get_ai_suggested_filename(document_text: str, category: str) -> str:
     """Asks the AI to generate a descriptive filename for the document."""
     prompt = f"""
-You are a file naming expert. Your ONLY task is to create a filename-safe title from the document text provided.
+You are a file naming expert. Create a descriptive filename using ONLY these characters:
+- Letters (a-z, A-Z)  
+- Numbers (0-9)
+- Underscores (_)
 
-RULES:
+REQUIRED FORMAT: Use_Underscores_Between_Words
+GOOD: loan_settlement_statement_mccaleb
+BAD: loan-settlement-statement-mccaleb  
+BAD: LoanSettlementStatementMcCaleb
+BAD: loan settlement statement mccaleb
 
-GOOD EXAMPLE: Brian-McCaleb-Tire-Service-Invoice
-BAD EXAMPLE: Based on the text, a good title would be: Brian-McCaleb-Tire-Service-Invoice
-
-Your ENTIRE response MUST be ONLY the filename title.
+Your response must be ONLY the filename with underscores.
 
 DOCUMENT TEXT (Category: '{category}'):
 {document_text[:6000]}
-END DOCUMENT TEXT:
 """
     ai_title = _query_ollama(prompt, timeout=90, context_window=app_config.OLLAMA_CTX_TITLE_GENERATION, task_name="title_generation")
     # Log AI filename suggestion
@@ -1807,7 +1923,7 @@ END DOCUMENT TEXT:
 
 
 def export_document(
-    pages: List[Dict], final_name_base: str, category: str
+    pages: List[Dict], final_name_base: str, category: str, document_id: Optional[int] = None
 ) -> bool:
     """Exports a final document to the filing cabinet in multiple formats:
     1. A standard, multi-page PDF from the images.
@@ -1895,16 +2011,63 @@ def export_document(
                 doc.save(searchable_pdf_path, garbage=4, deflate=True)
                 logging.info(f"  - Saved Searchable PDF: {searchable_pdf_path}")
 
-        # --- 3. Markdown Log File ---
+        # --- 3. Markdown Log File with Optional Tag Extraction ---
         markdown_path = os.path.join(destination_dir, f"{final_name_base}_log.md")
+        
+        # Extract tags using LLM if enabled
+        extracted_tags = None
+        if app_config.ENABLE_TAG_EXTRACTION:
+            try:
+                logging.info(f"🏷️  Starting tag extraction for document: {final_name_base}")
+                extracted_tags = extract_document_tags(full_ocr_text, final_name_base)
+                if extracted_tags:
+                    total_tags = sum(len(tag_list) for tag_list in extracted_tags.values())
+                    logging.info(f"✅ Tag extraction SUCCESS: {total_tags} tags extracted for {final_name_base}")
+                    logging.debug(f"🏷️  Tag breakdown: {[(cat, len(tags)) for cat, tags in extracted_tags.items() if tags]}")
+                    
+                    # Store tags in database if document_id is provided
+                    if document_id:
+                        try:
+                            tags_stored = store_document_tags(document_id, extracted_tags)
+                            logging.info(f"🏷️  Stored {tags_stored} tags in database for document {document_id}")
+                        except Exception as db_e:
+                            logging.error(f"💥 Failed to store tags in database for document {document_id}: {db_e}")
+                    else:
+                        logging.debug(f"🏷️  No document_id provided - tags stored in markdown only")
+                else:
+                    logging.warning(f"⚠️  Tag extraction returned no results for {final_name_base}")
+            except Exception as e:
+                logging.error(f"💥 Tag extraction FAILED for {final_name_base}: {e}")
+                extracted_tags = None
+        else:
+            logging.debug(f"🏷️  Tag extraction DISABLED by configuration for {final_name_base}")
+        
         log_content = f"""# Document Export Log
 
 - **Final Filename**: `{final_name_base}`
 - **Category**: `{category}`
 - **Export Timestamp**: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`
 - **Total Pages**: {len(pages)}
+"""
 
-## Processing Metadata
+        # Add extracted tags section if available
+        if extracted_tags:
+            log_content += "\n## Extracted Tags\n\n"
+            
+            for tag_category, tag_list in extracted_tags.items():
+                if tag_list:  # Only include categories that have tags
+                    category_name = tag_category.replace('_', ' ').title()
+                    log_content += f"**{category_name}**: {', '.join(tag_list)}\n\n"
+            
+            # Add a summary for quick reference
+            all_tags = []
+            for tag_list in extracted_tags.values():
+                all_tags.extend(tag_list)
+            
+            if all_tags:
+                log_content += f"**All Tags** ({len(all_tags)} total): {', '.join(all_tags)}\n\n"
+
+        log_content += """## Processing Metadata
 
 | Page ID | Source File         | Original Page # | AI Suggestion                 |
 |---------|---------------------|-----------------|-------------------------------|
@@ -1988,11 +2151,55 @@ def finalize_single_documents_batch(batch_id: int) -> bool:
         dest_searchable = os.path.join(category_dir, f"{filename_base}_searchable.pdf")
         dest_markdown = os.path.join(category_dir, f"{filename_base}.md")
         
-        # Create markdown file first (safest operation)
+        # Create markdown file with tag extraction
         try:
+            # Extract tags if enabled
+            extracted_tags = None
+            if app_config.ENABLE_TAG_EXTRACTION and ocr_text:
+                try:
+                    logging.info(f"🏷️  Starting tag extraction for single document: {filename_base}")
+                    extracted_tags = extract_document_tags(ocr_text, filename_base)
+                    if extracted_tags:
+                        total_tags = sum(len(tag_list) for tag_list in extracted_tags.values())
+                        logging.info(f"✅ Tag extraction SUCCESS: {total_tags} tags extracted for {filename_base}")
+                        
+                        # Store tags in database
+                        try:
+                            tags_stored = store_document_tags(doc_id, extracted_tags)
+                            logging.info(f"🏷️  Stored {tags_stored} tags in database for single document {doc_id}")
+                        except Exception as db_e:
+                            logging.error(f"💥 Failed to store tags in database for single document {doc_id}: {db_e}")
+                    else:
+                        logging.warning(f"⚠️  Tag extraction returned no results for {filename_base}")
+                except Exception as e:
+                    logging.error(f"💥 Tag extraction FAILED for {filename_base}: {e}")
+                    extracted_tags = None
+            
+            # Create enhanced markdown content
+            markdown_content = f"# {filename_base}\n\n**Category:** {category}\n\n"
+            
+            # Add extracted tags section if available
+            if extracted_tags:
+                markdown_content += "## Extracted Tags\n\n"
+                
+                for tag_category, tag_list in extracted_tags.items():
+                    if tag_list:  # Only include categories that have tags
+                        category_name = tag_category.replace('_', ' ').title()
+                        markdown_content += f"**{category_name}**: {', '.join(tag_list)}\n\n"
+                
+                # Add a summary for quick reference
+                all_tags = []
+                for tag_list in extracted_tags.values():
+                    all_tags.extend(tag_list)
+                
+                if all_tags:
+                    markdown_content += f"**All Tags** ({len(all_tags)} total): {', '.join(all_tags)}\n\n"
+            
+            markdown_content += f"## OCR Content\n\n{ocr_text}"
+            
             with open(dest_markdown, 'w', encoding='utf-8') as f:
-                f.write(f"# {filename_base}\n\n**Category:** {category}\n\n## OCR Content\n\n{ocr_text}")
-            logging.debug(f"✓ Created markdown: {dest_markdown}")
+                f.write(markdown_content)
+            logging.debug(f"✓ Created enhanced markdown with tags: {dest_markdown}")
         except Exception as e:
             logging.error(f"Failed to create markdown for doc {doc_id}: {e}")
             success = False

@@ -37,6 +37,7 @@ class AppConfig:
 
     # --- Debugging and Feature Flags ---
     DEBUG_SKIP_OCR: bool = False
+    ENABLE_TAG_EXTRACTION: bool = True  # Enable LLM-powered tag extraction during export
 
     # --- Status Constants ---
     # These are application-level constants and are not meant to be configured
@@ -127,6 +128,7 @@ class AppConfig:
                 
                 # Debugging and Feature Flags
                 DEBUG_SKIP_OCR=get_env("DEBUG_SKIP_OCR", str(cls.DEBUG_SKIP_OCR)).lower() in ("true", "1", "t"),
+                ENABLE_TAG_EXTRACTION=get_env("ENABLE_TAG_EXTRACTION", str(cls.ENABLE_TAG_EXTRACTION)).lower() in ("true", "1", "t"),
                 
                 # Status Constants (these are not loaded from environment)
                 STATUS_PENDING_VERIFICATION=cls.STATUS_PENDING_VERIFICATION,
