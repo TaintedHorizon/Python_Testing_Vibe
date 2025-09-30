@@ -84,7 +84,7 @@ from .exceptions import FileProcessingError, OCRError, AIServiceError
 from .security import validate_path, sanitize_filename
 from .database import get_all_categories, log_interaction, store_document_tags
 from .llm_utils import _query_ollama, extract_document_tags
-from .dev_tools.batch_guard import get_or_create_processing_batch
+from .batch_guard import get_or_create_processing_batch
 from .document_detector import get_detector, DocumentAnalysis
 
 # --- PDF MANIPULATION FUNCTIONS ---
