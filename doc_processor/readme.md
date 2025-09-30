@@ -9,6 +9,17 @@
 
 ## Recent Changes (September 2025)
 
+- **Export Naming Standardization & Filing Cabinet Cleanup (September 30):**
+    - **Naming Consistency**: Standardized directory and filename sanitization across single document and batch export workflows - both now use underscores instead of spaces in directory names for better filesystem compatibility
+    - **Centralized Sanitization**: Unified filename sanitization using `security.sanitize_filename()` with consistent rules (non-alphanumeric → underscores, except dots/hyphens)
+    - **User Input Sanitization**: Added sanitization to all user input routes (`/api/set_name`, finalize form) ensuring consistency from input to output
+    - **Filing Cabinet Cleanup Tool**: New comprehensive utility (`dev_tools/cleanup_filing_cabinet_names.py`) to standardize existing directory and file names in the filing cabinet
+        - Preview mode (dry-run) to see changes before applying
+        - Automatic backup creation with rollback capability  
+        - Smart conflict resolution with directory merging and timestamp suffixes
+        - Comprehensive logging and operation tracking
+        - Successfully processed 11 operations: 8 directory renames and 3 file renames with intelligent content merging
+
 - **Document Detection Enhancement & Rotation Support & Cleanup Automation (September 29 - Update 2):**
     - **Multi-Point Document Sampling**: Enhanced document detection to sample first, middle, and last pages for accurate batch scan identification, preventing misclassification of multi-document files
     - **Automatic Rotation Detection**: Implemented OCR confidence-based rotation detection that tests all orientations and automatically applies optimal rotation during single document processing
@@ -232,6 +243,8 @@ All admin/dev scripts for setup, maintenance, and diagnostics:
 - `diagnose_grouping_block.py`: Diagnose grouping issues in the DB
 - `force_reset_batch.py`: Force reset a batch to initial state
 - `inspect_batch1_state.py`: Inspect all DB state for batch 1
+- `cleanup_filing_cabinet_names.py`: Standardize directory and file names in filing cabinet (preview, backup, rollback)
+- `cleanup_empty_batch_directories.py`: Remove empty batch directories from work-in-progress folder
 
 ### `tests/`
 All automated tests (pytest). Add new tests here to cover routes, processing, and database logic. Example: `test_app.py` checks the home route and UI text.

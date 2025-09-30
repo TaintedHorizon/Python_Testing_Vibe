@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2025-09-30] - Export Naming Standardization
+### Fixed
+- **Export Naming Consistency**: Standardized directory and filename sanitization across single document and batch export workflows
+  - Both export types now use underscores instead of spaces in directory names for better filesystem compatibility
+  - Consistent filename sanitization using `security.sanitize_filename()` for all user inputs
+  - Directory names: spaces → underscores, only alphanumeric + hyphens/underscores allowed
+  - Filenames: non-alphanumeric characters → underscores (except dots and hyphens)
+  - Applied sanitization to user input routes (`/api/set_name`, finalize form) for consistency
+  - Removed duplicate internal `_sanitize_filename()` function in favor of centralized security module
+
+### Added
+- **Filing Cabinet Cleanup Tool**: New utility to standardize existing directory and file names in the filing cabinet
+  - `dev_tools/cleanup_filing_cabinet_names.py` - Comprehensive cleanup utility with preview, backup, and rollback features
+  - Dry-run mode to preview changes before applying them
+  - Automatic backup creation before making any modifications
+  - Conflict resolution for duplicate names after sanitization
+  - Rollback capability to undo all changes if needed
+  - Detailed logging and operation tracking
+  - See `dev_tools/FILING_CABINET_CLEANUP.md` for usage instructions
+
 ## [2025-09-29-2] - Document Detection Enhancement & Rotation Support & Cleanup Automation
 ### Added
 - **Multi-Point Document Sampling**: Enhanced document detection to sample first, middle, and last pages for better batch scan detection

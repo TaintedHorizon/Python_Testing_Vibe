@@ -422,37 +422,6 @@ def _validate_file_type(file_path: str) -> bool:
         logging.error(f"Error validating file {file_path}: {e}")
         return False
 
-def _sanitize_filename(filename: str) -> str:
-    """
-    Sanitizes a string to be safe for use as a filename base.
-    
-    Args:
-        filename (str): Original filename to sanitize
-        
-    Returns:
-        str: Sanitized filename
-    """
-    # Remove any directory components
-    filename = os.path.basename(filename)
-    
-    # Keep only alphanumeric characters, hyphens, and underscores
-    sanitized = "".join(
-        [c for c in os.path.splitext(filename)[0] if c.isalnum() or c in ("-", "_")]
-    ).rstrip()
-    
-    # If the sanitization results in an empty string, default to "document"
-    # Add timestamp for uniqueness
-    if not sanitized:
-        sanitized = f"document_{int(datetime.now().timestamp())}"
-        
-    # Enforce maximum length
-    MAX_FILENAME_LENGTH = 255
-    if len(sanitized) > MAX_FILENAME_LENGTH:
-        sanitized = sanitized[:MAX_FILENAME_LENGTH]
-        
-    return sanitized
-
-
 def _sanitize_category(category: str) -> str:
     """Sanitizes a category name to be safe for use as a directory name."""
     # Replace spaces with underscores for better compatibility
@@ -612,7 +581,7 @@ def process_single_document(file_path: str, suggested_strategy: str = "single_do
     
     try:
         filename = os.path.basename(file_path)
-        sanitized_name = _sanitize_filename(filename)
+        sanitized_name = sanitize_filename(filename)
         
         with database_connection() as conn:
             cursor = conn.cursor()
@@ -1563,7 +1532,7 @@ def _process_batch_traditional(pdf_files_paths: List[str]) -> bool:
             for file_path in pdf_files_paths:
                 filename = os.path.basename(file_path)
                 logging.info(f"Processing batch scan file: {filename}")
-                sanitized_filename = _sanitize_filename(filename)
+                sanitized_filename = sanitize_filename(filename)
 
                 # Convert PDF to individual page images (traditional workflow)
                 images = convert_from_path(
@@ -1841,6 +1810,10 @@ def export_document(
     1. A standard, multi-page PDF from the images.
     2. A searchable, multi-page PDF with the OCR text embedded.
     3. A Markdown file containing the full OCR text and metadata."""
+    
+    # Sanitize inputs for filesystem safety and consistency
+    final_name_base = sanitize_filename(final_name_base)
+    
     logging.info(f"--- EXPORTING Document: {final_name_base} ---")
     # Log export event (status_change: finalize/export) after destination_dir is defined
     try:
@@ -2000,9 +1973,12 @@ def finalize_single_documents_batch(batch_id: int) -> bool:
         # Use final category/filename if available, otherwise fall back to AI suggestions
         category = doc[3] or doc[5] or "Uncategorized"
         filename_base = doc[4] or doc[6] or f"document_{doc_id}"
+        # Sanitize filename for filesystem safety and consistency
+        filename_base = sanitize_filename(filename_base)
         ocr_text = doc[7] or ""
-        # Destination folder
-        category_dir = os.path.join(app_config.FILING_CABINET_DIR, category)
+        # Destination folder - sanitize category name for consistency with single export
+        category_dir_name = _sanitize_category(category)
+        category_dir = os.path.join(app_config.FILING_CABINET_DIR, category_dir_name)
         os.makedirs(category_dir, exist_ok=True)
         # Prepare all destination paths
         dest_original = os.path.join(category_dir, f"{filename_base}_original.pdf")

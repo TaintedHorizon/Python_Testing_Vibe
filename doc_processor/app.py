@@ -348,7 +348,12 @@ def apply_name_api(document_id):
     filename = data.get("filename", "").strip()
     if not filename:
         return jsonify({"success": False, "error": "Filename cannot be empty."}), 400
-    update_document_final_filename(document_id, filename)
+    
+    # Sanitize filename for consistency and safety
+    from doc_processor.security import sanitize_filename
+    sanitized_filename = sanitize_filename(filename)
+    
+    update_document_final_filename(document_id, sanitized_filename)
     return jsonify({"success": True})
 
 # --- API: SUGGEST DOCUMENT NAME ---
@@ -2200,6 +2205,10 @@ def export_batch_action(batch_id):
     # The form submits parallel lists of document IDs and their corresponding
     # final filenames. We zip them together to process them one by one.
     for doc_id, final_name in zip(doc_ids, final_filenames):
+        # Sanitize filename for consistency and safety
+        from doc_processor.security import sanitize_filename
+        final_name = sanitize_filename(final_name.strip())
+        
         pages = get_pages_for_document(doc_id)
         if not pages:
             logging.warning(f"Skipping export for document ID {doc_id}: No pages found")
