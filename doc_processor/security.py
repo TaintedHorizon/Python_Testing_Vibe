@@ -112,8 +112,8 @@ def sanitize_filename(filename: str) -> str:
     # Remove any directory components
     filename = filename.rsplit('/', 1)[-1].rsplit('\\', 1)[-1]
     
-    # Remove any non-alphanumeric characters except for dots and hyphens
-    filename = re.sub(r'[^a-zA-Z0-9.-]', '_', filename)
+    # Remove any non-alphanumeric characters except for dots, convert to underscores for consistency
+    filename = re.sub(r'[^a-zA-Z0-9.]', '_', filename)
     
     # Ensure the filename isn't too long
     MAX_LENGTH = 255

@@ -5,13 +5,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [2025-09-30] - Export Naming Standardization
+## [2025-09-30] - Complete Filename Standardization
 ### Fixed
+- **Complete Filename Consistency**: Updated filename sanitization to use underscores exclusively for all special characters (including hyphens)
+  - Previous: Mixed naming with both hyphens and underscores (`Accelerated-Reader-Award-Certificate` vs `PatriciaMcCalebHonorRoll`)
+  - Current: Consistent underscore-only naming (`Accelerated_Reader_Award_Certificate` for all files)
+  - Updated `security.sanitize_filename()` to convert all non-alphanumeric characters (except dots) to underscores
+  - Applied cleanup to existing 93 files with inconsistent naming in filing cabinet
+  - Ensures forward compatibility - all new exports will use consistent underscore naming
+
 - **Export Naming Consistency**: Standardized directory and filename sanitization across single document and batch export workflows
   - Both export types now use underscores instead of spaces in directory names for better filesystem compatibility
   - Consistent filename sanitization using `security.sanitize_filename()` for all user inputs
   - Directory names: spaces → underscores, only alphanumeric + hyphens/underscores allowed
-  - Filenames: non-alphanumeric characters → underscores (except dots and hyphens)
+  - Filenames: ALL non-alphanumeric characters → underscores (except dots)
   - Applied sanitization to user input routes (`/api/set_name`, finalize form) for consistency
   - Removed duplicate internal `_sanitize_filename()` function in favor of centralized security module
 
