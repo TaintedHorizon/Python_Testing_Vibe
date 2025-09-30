@@ -44,27 +44,29 @@ SD card imaging utility for backup and restoration operations.
 
 ### 🗂️ Working Directories
 
-#### **Document Processing Directories**
+All document processing directories are now properly organized within `doc_processor/`:
+
+#### **Document Processing Directories** (in `doc_processor/`)
 - **`intake/`** - Incoming PDFs for processing
 - **`processed/`** - Work-in-progress document staging
 - **`archive/`** - Processed file archives
 - **`filing_cabinet/`** - Final categorized document storage
 - **`logs/`** - Application and system logs
-
-#### **Development Infrastructure**
 - **`instance/`** - Flask application instance data
-- **`.venv/`** - Python virtual environment
+- **`venv/`** - Python virtual environment
+
+#### **Repository Infrastructure**
 - **`.github/`** - GitHub workflows and repository configuration
 
 ### 📚 Legacy & Experimental
 
-#### **`Document_Scanner_Gemini_outdated/`**
-Legacy document scanner implementation using Google Gemini API.
-*Status: Archived - superseded by doc_processor*
+#### **`Document_Scanner_Gemini_outdated/`** (260KB)
+Legacy document scanner implementation using Google Gemini API.  
+*Status: Archived - superseded by doc_processor (source code only, venv removed)*
 
-#### **`Document_Scanner_Ollama_outdated/`**
-Legacy document scanner using Ollama integration.
-*Status: Archived - superseded by doc_processor*
+#### **`Document_Scanner_Ollama_outdated/`** (164KB)
+Legacy document scanner using Ollama integration.  
+*Status: Archived - superseded by doc_processor (source code only, venv removed)*
 
 ## Quick Start
 

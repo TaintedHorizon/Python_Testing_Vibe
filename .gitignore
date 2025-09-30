@@ -1,15 +1,17 @@
-# Ignore model weights and backup files
-Document_Scanner_Ollama_outdated/model_cache/*.pth
-custom_categories_backup.json
+# Python Testing Vibe Repository - Git Ignore Rules
+
+# === Python Files ===
 # Byte-compiled / optimized / DLL files
 __pycache__/
+*.py[cod]
 *.pyc
 *.pyd
 *.pyo
+*.so
 *.egg-info/
 .pytest_cache/
 
-# Distribution / packaging
+# === Distribution / Packaging ===
 .Python
 build/
 dist/
@@ -17,7 +19,7 @@ wheels/
 *.egg-info/
 *.dist-info/
 
-# Environments
+# === Virtual Environments ===
 .env
 .venv
 env/
@@ -26,24 +28,61 @@ ENV/
 env.bak/
 venv.bak/
 
-# Editors
+# === Editors and IDEs ===
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
-# OS
+# === Operating System ===
 .DS_Store
 .Trashes
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# Logs
+# === Logs ===
 *.log
 log/
+logs/
 
-# Database files
+# === Database Files ===
 documents.db
 *.db
+*.sqlite
+*.sqlite3
 
-# Document Scanner Ollama specific
-Document_Scanner_Ollama/__pycache__/
-Document_Scanner_Ollama/.venv/
+# === Project Specific ===
+# Model weights and backup files
+model_cache/
+*.pth
+*.pkl
+custom_categories_backup.json
+
+# Document processing directories (now properly in doc_processor/)
+doc_processor/processed/*
+!doc_processor/processed/.gitkeep
+doc_processor/intake/*
+!doc_processor/intake/.gitkeep
+doc_processor/archive/*
+!doc_processor/archive/.gitkeep
+doc_processor/filing_cabinet/*
+!doc_processor/filing_cabinet/.gitkeep
+doc_processor/instance/*
+!doc_processor/instance/.gitkeep
+doc_processor/logs/*
+!doc_processor/logs/.gitkeep
+
+# Prevent duplicate nested directories
+doc_processor/doc_processor/
+
+# Prevent accidental command output files
+=*
+*=*
+
+# === Outdated Implementation Environments ===
+# These should never be committed
+Document_Scanner_*_outdated/.venv/
+Document_Scanner_*_outdated/model_cache/
 Document_Scanner_Ollama/model_cache/
