@@ -2592,7 +2592,7 @@ def rescan_document_api(doc_id):
             
             try:
                 ocr_text, ocr_confidence, status = create_searchable_pdf(
-                    doc_id, pdf_path, searchable_pdf_path
+                    pdf_path, searchable_pdf_path, doc_id
                 )
                 
                 if status != "success (cached)":  # Only update if actually re-processed
