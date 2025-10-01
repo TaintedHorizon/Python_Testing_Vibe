@@ -5,20 +5,27 @@ These directories contain files from batches that were consolidated into batch 1
 """
 
 import os
+import sys
 import shutil
 import subprocess
 from datetime import datetime
 
+# Add parent directory to path to import modules
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from config_manager import app_config
+
 def cleanup_orphaned_wip_batches():
     """Remove WIP directories for batches that no longer exist in database."""
     
-    wip_base = "/mnt/scans_processed/wip"
-    backup_dir = f"/mnt/scans_processed/wip_cleanup_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    # Use config manager for paths
+    wip_base = app_config.PROCESSED_DIR
+    backup_dir = f"{os.path.dirname(wip_base)}/wip_cleanup_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
     # These are the orphaned batch directories we identified
     orphaned_batches = [4, 5, 6, 8, 9]
     
-    print("=== WIP CLEANUP - ORPHANED BATCH DIRECTORIES ===\n")
+    print("=== WIP CLEANUP - ORPHANED BATCH DIRECTORIES ===\\n")
     
     # Create backup directory first
     print(f"Creating backup directory: {backup_dir}")

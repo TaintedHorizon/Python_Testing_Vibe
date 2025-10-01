@@ -34,7 +34,7 @@
     <div id="success-state" style="display: none;" class="alert alert-success text-center">
         <h4>✅ Processing Complete!</h4>
         <p id="success-message">Your documents have been processed as batch scans.</p>
-        <a href="/batch_control" class="btn btn-success btn-lg">📋 View Results</a>
+        <a href="{{ url_for('batch.batch_control') }}" class="btn btn-success btn-lg">📋 View Results</a>
     </div>
     
     <!-- Error State -->
@@ -42,15 +42,15 @@
         <h4>❌ Processing Failed</h4>
         <p id="error-message"></p>
         <div class="mt-3">
-            <a href="/analyze_intake" class="btn btn-primary">🔄 Try Again</a>
-            <a href="/batch_control" class="btn btn-secondary ml-2">← Back to Batch Control</a>
+            <a href="{{ url_for('intake.analyze_intake_page') }}" class="btn btn-primary">🔄 Try Again</a>
+            <a href="{{ url_for('batch.batch_control') }}" class="btn btn-secondary ml-2">← Back to Batch Control</a>
         </div>
     </div>
     
     <!-- Navigation (Hidden during processing) -->
     <div id="navigation-section" class="navigation-footer mt-5 pt-4 border-top" style="display: none;">
         <div class="text-center">
-            <a href="/batch_control" class="action-btn btn-revisit btn-center">🏠 Batch Control</a>
+            <a href="{{ url_for('batch.batch_control') }}" class="action-btn btn-revisit btn-center">🏠 Batch Control</a>
         </div>
     </div>
 </div>

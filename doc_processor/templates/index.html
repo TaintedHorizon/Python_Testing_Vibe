@@ -14,8 +14,8 @@
         <p>Click the button below to start processing all documents in the intake folder.</p>
         <br>
         
-        <!-- The form submits a POST request to the 'handle_batch_processing' endpoint. -->
-        <form id="batch-form" action="{{ url_for('handle_batch_processing') }}" method="post">
+        <!-- The form submits a POST request to the 'batch.process_new_batch' endpoint. -->
+        <form id="batch-form" action="{{ url_for('batch.process_new_batch') }}" method="post">
             <button id="start-button" type="submit" style="padding: 15px 30px; font-size: 1.2em; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer;">📁 Start New Batch</button>
         </form>
 

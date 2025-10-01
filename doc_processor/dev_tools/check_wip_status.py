@@ -5,9 +5,15 @@ Uses MD5 hashing to match files even if they've been renamed.
 """
 
 import os
+import sys
 import hashlib
 import subprocess
 from collections import defaultdict
+
+# Add parent directory to path to import modules
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from config_manager import app_config
 
 def get_md5_hash(filepath):
     """Calculate MD5 hash of a file."""
@@ -53,8 +59,9 @@ def find_pdfs_and_hash(directory):
     return pdf_hashes
 
 def main():
-    wip_dir = "/mnt/scans_processed/wip"
-    final_dir = "/mnt/scans_processed/final"
+    # Use config manager for paths
+    wip_dir = app_config.PROCESSED_DIR
+    final_dir = app_config.FILING_CABINET_DIR
     
     print("=== PDF Processing Status Check ===\n")
     

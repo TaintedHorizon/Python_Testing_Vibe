@@ -1,11 +1,5 @@
 """
-Document Manip# Import existing modules (these imports will need to be adjusted)
-from ..database import (
-    get_db_connection, get_documents_for_batch,
-    update_page_data, get_pages_for_batch, get_pages_for_document
-)
-from ..config_manager import app_config
-from ..utils.helpers import create_error_response, create_success_response Routes Blueprint
+Document Manipulation Routes Blueprint
 
 This module contains all routes related to document manipulation including:
 - Document verification and review
@@ -25,7 +19,8 @@ import os
 # Import existing modules (these imports will need to be adjusted)
 from ..database import (
     get_db_connection, get_documents_for_batch,
-    update_page_data, get_pages_for_batch, get_pages_for_document
+    update_page_data, get_pages_for_batch, get_pages_for_document,
+    update_page_rotation, log_interaction
 )
 from ..config_manager import app_config
 from ..utils.helpers import create_error_response, create_success_response
@@ -230,27 +225,30 @@ def rerun_ocr():
         return jsonify(create_error_response(f"Failed to rerun OCR: {str(e)}"))
 
 @bp.route("/update_rotation", methods=["POST"])
-def update_rotation():
-    """Update document rotation."""
+def update_rotation_api():
+    """AJAX endpoint to persist rotation without changing status/category.
+
+    Expected JSON body: { page_id: int, batch_id: int, rotation: int }
+    Returns JSON: { success: bool, error?: str }
+    """
     try:
-        document_id = request.form.get('document_id')
-        rotation = request.form.get('rotation')
-        
-        if not document_id or rotation is None:
-            return jsonify(create_error_response("Document ID and rotation are required"))
-        
-        # Update rotation in database and reprocess if needed
-        # result = update_document_rotation(document_id, int(rotation))
-        
-        return jsonify(create_success_response({
-            'message': 'Rotation updated successfully',
-            'document_id': document_id,
-            'rotation': rotation
-        }))
-        
+        data = request.get_json(force=True)
+        page_id = int(data.get("page_id"))
+        batch_id = int(data.get("batch_id"))
+        rotation = int(data.get("rotation", 0))
+    except Exception:
+        return jsonify({"success": False, "error": "Invalid input"}), 400
+    if rotation not in {0,90,180,270}:
+        return jsonify({"success": False, "error": "Invalid rotation"}), 400
+    ok = update_page_rotation(page_id, rotation)
+    if not ok:
+        return jsonify({"success": False, "error": "DB update failed"}), 500
+    # Log interaction for audit trail
+    try:
+        log_interaction(batch_id=batch_id, document_id=None, user_id=None, event_type="human_correction", step="rotation_update", content=json.dumps({"page_id":page_id,"rotation":rotation}), notes=None)
     except Exception as e:
-        logger.error(f"Error updating rotation: {e}")
-        return jsonify(create_error_response(f"Failed to update rotation: {str(e)}"))
+        logger.warning(f"Failed to log rotation interaction: {e}")
+    return jsonify({"success": True})
 
 # Batch-level manipulation operations
 @bp.route("/batch/<int:batch_id>/manipulate", methods=['GET'])

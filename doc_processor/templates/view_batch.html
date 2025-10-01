@@ -24,22 +24,22 @@
 
 <div class="pagination">
     {% if current_page_num > 1 %}
-        <a href="{{ url_for('view_batch_page', batch_id=batch_id, page=current_page_num - 1) }}">&laquo; Previous Page</a>
+        <a href="{{ url_for('manipulation.view_batch', batch_id=batch_id, page=current_page_num - 1) }}">&laquo; Previous Page</a>
     {% else %}
         <span>&laquo; Previous Page</span>
     {% endif %}
     <strong>Page {{ current_page_num }} of {{ total_pages }}</strong>
     {% if current_page_num < total_pages %}
-        <a href="{{ url_for('view_batch_page', batch_id=batch_id, page=current_page_num + 1) }}">Next Page &raquo;</a>
+        <a href="{{ url_for('manipulation.view_batch', batch_id=batch_id, page=current_page_num + 1) }}">Next Page &raquo;</a>
     {% else %}
-        <a href="{{ url_for('batch_control_page') }}" style="background-color: #17a2b8;">Finish Viewing</a>
+        <a href="{{ url_for('batch.batch_control') }}" style="background-color: #17a2b8;">Finish Viewing</a>
     {% endif %}
 </div>
 
 <div class="container">
     <div class="image-pane">
         <div class="image-wrapper">
-            <img id="pageImage" src="{{ url_for('serve_processed_file', filepath=current_page.relative_image_path) }}" alt="Scanned page">
+            <img id="pageImage" src="{{ url_for('export.serve_processed_file', filepath=current_page.relative_image_path) }}" alt="Scanned page">
         </div>
         <input type="hidden" id="rotation-input" value="{{ current_page.rotation_angle or 0 }}">
         <div class="rotate-buttons">

@@ -40,11 +40,11 @@
 
 <div class="container">
     <h1>� Intake Analysis</h1>
-    
-    <!-- Start Analysis Button -->
+    <div class="container">
+        <h1>📊 Intake Analysis</h1>
     <div class="alert alert-info text-center">
         <button id="start-analysis-btn" onclick="startAnalysis()" class="btn btn-primary">🔍 Start Analysis</button>
-        <form method="post" action="/clear_analysis_cache" style="display: inline-block; margin-left: 10px;" onsubmit="handleForceReAnalysis(this, event)">
+        <form method="post" action="{{ url_for('admin.clear_analysis_cache') }}" style="display: inline-block; margin-left: 10px;" onsubmit="handleForceReAnalysis(this, event)">
             <button type="submit" id="force-reanalysis-btn" class="btn btn-secondary">🔄 Force Re-Analysis</button>
         </form>
         <p class="mt-2">Click to analyze your intake files and determine optimal processing strategies for each document.</p>
@@ -251,7 +251,7 @@
                 <div class="card-body text-center">
                     <h5>🎯 Smart Processing</h5>
                     <p class="text-muted"><strong>Recommended:</strong> Use AI recommendations for optimal processing.</p>
-                    <form action="{{ url_for('process_batch_smart') }}" method="post">
+                    <form action="{{ url_for('batch.process_batch_smart') }}" method="post">
                         <button type="submit" class="btn btn-success btn-lg btn-block">
                             🚀 Smart Processing
                         </button>
@@ -265,7 +265,7 @@
                 <div class="card-body text-center">
                     <h5>🏃‍♂️ Speed Mode</h5>
                     <p class="text-muted">Process all files as single documents for maximum speed.</p>
-                    <form action="{{ url_for('process_batch_all_single') }}" method="post">
+                    <form action="{{ url_for('batch.process_batch_all_single') }}" method="post">
                         <button type="submit" class="btn btn-info btn-lg btn-block">
                             ⚡ All as Single Documents
                         </button>
@@ -279,7 +279,7 @@
                 <div class="card-body text-center">
                     <h5>�️ Safety Mode</h5>
                     <p class="text-muted">Process all files as batch scans for maximum control.</p>
-                    <form action="{{ url_for('process_batch_force_traditional') }}" method="post">
+                    <form action="{{ url_for('batch.process_batch_force_traditional') }}" method="post">
                         <button type="submit" class="btn btn-warning btn-lg btn-block">
                             📋 All as Batch Scans
                         </button>
@@ -342,7 +342,7 @@
 <!-- Navigation Section (Always visible at bottom) -->
 <div class="navigation-footer mt-5 pt-4 border-top">
     <div class="text-center">
-        <a href="{{ url_for('batch_control_page') }}" class="action-btn btn-revisit btn-center">🏠 Batch Control</a>
+        <a href="{{ url_for('batch.batch_control') }}" class="action-btn btn-revisit btn-center">🏠 Batch Control</a>
     </div>
 </div>
 
@@ -448,7 +448,7 @@ function startAnalysis() {
     document.getElementById('error-state').style.display = 'none';
     
     // Use Server-Sent Events for real-time progress
-    const eventSource = new EventSource('/api/analyze_intake_progress');
+    const eventSource = new EventSource('{{ url_for('intake.analyze_intake_progress') }}');
     
     eventSource.onmessage = function(event) {
         try {
@@ -890,7 +890,7 @@ function populateResults(data) {
                     <div class="card-body text-center">
                         <h5>🏃‍♂️ Speed Mode</h5>
                         <p class="text-muted">Process all files as single documents for maximum speed.</p>
-                        <form action="/process_batch_all_single" method="post">
+                        <form action="{{ url_for('batch.process_batch_all_single') }}" method="post">
                             <button type="submit" class="btn btn-info btn-lg btn-block">⚡ All as Single Documents</button>
                         </form>
                         <small class="text-muted mt-2 d-block">Fastest processing, skip verification</small>
@@ -902,7 +902,7 @@ function populateResults(data) {
                     <div class="card-body text-center">
                         <h5>🛡️ Safety Mode</h5>
                         <p class="text-muted">Process all files as batch scans for maximum control.</p>
-                        <form action="/process_batch_force_traditional" method="post">
+                        <form action="{{ url_for('batch.process_batch_force_traditional') }}" method="post">
                             <button type="submit" class="btn btn-warning btn-lg btn-block">📋 All as Batch Scans</button>
                         </form>
                         <small class="text-muted mt-2 d-block">Traditional workflow with verification</small>

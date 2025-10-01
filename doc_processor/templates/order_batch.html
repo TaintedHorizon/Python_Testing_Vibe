@@ -52,11 +52,11 @@
                 <td>
                     <!-- Provide a link to the ordering page for this specific document -->
                     {% if doc.status == 'order_set' %}
-                        <form method="post" action="{{ url_for('revisit_ordering_document_action', document_id=doc.id) }}" style="display:inline;">
+                        <form method="post" action="{{ url_for('manipulation.revisit_ordering_document', document_id=doc.id) }}" style="display:inline;">
                             <button type="submit" class="action-btn btn-revisit" onclick="event.stopPropagation();">Revisit Order</button>
                         </form>
                     {% else %}
-                        <a href="{{ url_for('order_document_page', document_id=doc.id) }}" class="action-btn btn-order">Order Pages</a>
+                        <a href="{{ url_for('manipulation.order_single_document', document_id=doc.id) }}" class="action-btn btn-order">Order Pages</a>
                     {% endif %}
                 </td>
             </tr>
@@ -70,7 +70,7 @@
     </table>
 
     <!-- Form to finish ordering and return to Batch Control -->
-    <form class="finish-form" action="{{ url_for('finish_ordering_action', batch_id=batch_id) }}" method="post">
+    <form class="finish-form" action="{{ url_for('manipulation.finish_ordering', batch_id=batch_id) }}" method="post">
         <button type="submit" class="finish-btn">Finish Ordering</button>
     </form>
     <script>

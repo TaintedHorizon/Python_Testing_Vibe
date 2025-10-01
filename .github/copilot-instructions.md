@@ -45,7 +45,7 @@ python doc_processor/database_setup.py
   - Debug flags (DEBUG_SKIP_OCR)
 
 ### Development Flow
-1. Start Flask server: `python doc_processor/app.py`
+1. Start Flask server: `cd /home/svc-scan/Python_Testing_Vibe && ./start_app.sh`
 2. Access UI at `http://localhost:5000`
 3. Place test PDFs in configured INTAKE_DIR
 4. Follow Batch Control workflow for processing

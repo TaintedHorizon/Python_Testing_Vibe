@@ -29,7 +29,7 @@
     <h1>🎯 Finalize & Export Batch #{{ batch_id }}</h1>
     <p>Review the AI-suggested filenames below. You can edit them as needed. When you are ready, click the button at the bottom to export all documents and complete the batch.</p>
 
-    <form id="export-form" class="export-form" action="{{ url_for('export_batch_action', batch_id=batch_id) }}" method="post" onsubmit="return handleExportSubmit(this);">
+    <form id="export-form" class="export-form" action="{{ url_for('export.export_batch', batch_id=batch_id) }}" method="post" onsubmit="return handleExportSubmit(this);">
         <table class="doc-table">
             <thead>
                 <tr>

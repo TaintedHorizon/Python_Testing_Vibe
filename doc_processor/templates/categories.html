@@ -31,7 +31,7 @@ form + form { margin-left:4px; }
 
 <div class="add-form">
   <h3>Add New Category</h3>
-  <form action="{{ url_for('add_category_action') }}" method="post">
+  <form action="{{ url_for('admin.add_category') }}" method="post">
     <label for="name">Name</label>
     <input type="text" id="name" name="name" placeholder="e.g. Insurance Policy" required />
     <label for="notes">Notes (optional)</label>
@@ -48,8 +48,8 @@ form + form { margin-left:4px; }
     {% set _ = args_id.update({'sort':'id'}) %}
     {% set args_name = request.args.copy().to_dict() %}
     {% set _ = args_name.update({'sort':'name'}) %}
-    <a href="{{ url_for('categories_page', **args_name) }}" class="small-btn sort-btn {% if current_sort=='name' %}active{% endif %}">Name</a>
-    <a href="{{ url_for('categories_page', **args_id) }}" class="small-btn sort-btn {% if current_sort=='id' %}active{% endif %}">ID</a>
+    <a href="{{ url_for('admin.categories', **args_name) }}" class="small-btn sort-btn {% if current_sort=='name' %}active{% endif %}">Name</a>
+    <a href="{{ url_for('admin.categories', **args_id) }}" class="small-btn sort-btn {% if current_sort=='id' %}active{% endif %}">ID</a>
   </div>
 </div>
 <table class="cat-table">
@@ -81,7 +81,7 @@ form + form { margin-left:4px; }
       <td>{{ cat.previous_name or '' }}</td>
       <td style="max-width:250px; font-size:0.85rem;">{{ cat.notes or '' }}</td>
       <td>
-        <form action="{{ url_for('rename_category_action', cat_id=cat.id) }}" method="post" class="inline-edit" style="flex-direction:column; align-items:stretch; gap:4px;">
+        <form action="{{ url_for('admin.rename_category', cat_id=cat.id) }}" method="post" class="inline-edit" style="flex-direction:column; align-items:stretch; gap:4px;">
           <div style="display:flex; gap:6px;">
             <input type="text" name="new_name" placeholder="New name" />
             <button type="submit" class="small-btn rename-btn">Rename</button>
@@ -93,11 +93,11 @@ form + form { margin-left:4px; }
       </td>
       <td>
         {% if cat.is_active %}
-          <form action="{{ url_for('delete_category_action', cat_id=cat.id) }}" method="post" class="action-form" onsubmit="return confirm('Hide (soft delete) this category? It can be restored later.');">
+          <form action="{{ url_for('admin.delete_category', cat_id=cat.id) }}" method="post" class="action-form" onsubmit="return confirm('Hide (soft delete) this category? It can be restored later.');">
             <button type="submit" class="small-btn delete-btn">Remove</button>
           </form>
         {% else %}
-          <form action="{{ url_for('restore_category_action', cat_id=cat.id) }}" method="post" class="action-form">
+          <form action="{{ url_for('admin.restore_category', cat_id=cat.id) }}" method="post" class="action-form">
             <button type="submit" class="small-btn restore-btn">Restore</button>
           </form>
         {% endif %}
@@ -110,7 +110,7 @@ form + form { margin-left:4px; }
 </table>
 
 <h2 style="margin-top:40px;">Recent Category Changes</h2>
-<form method="get" action="{{ url_for('categories_page') }}" style="margin-bottom:10px; display:flex; gap:10px; align-items:flex-end;">
+<form method="get" action="{{ url_for('admin.categories') }}" style="margin-bottom:10px; display:flex; gap:10px; align-items:flex-end;">
   <div>
     <label for="filter_category" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:#555;">Filter by Category ID</label><br>
     <input type="number" name="category_id" id="filter_category" value="{{ request.args.get('category_id','') }}" style="padding:4px 6px; width:140px;" />
@@ -121,7 +121,7 @@ form + form { margin-left:4px; }
   </div>
   <div>
     <button type="submit" class="small-btn" style="background:#2c5282;">Apply</button>
-    <a href="{{ url_for('categories_page') }}" class="small-btn" style="background:#6c757d; text-decoration:none;">Reset</a>
+    <a href="{{ url_for('admin.categories') }}" class="small-btn" style="background:#6c757d; text-decoration:none;">Reset</a>
   </div>
 </form>
 <p class="note">Showing the {{ history|length }} most recent changes (add, rename, remove, restore). Backfilled renames include pages_updated; skipped backfill shows "Renamed (no backfill)".</p>
@@ -153,6 +153,6 @@ form + form { margin-left:4px; }
 </table>
 
 <div style="text-align:center; margin-top:30px;">
-  <a href="{{ url_for('batch_control_page') }}" style="background:#6c757d; color:#fff; padding:10px 22px; border-radius:5px; text-decoration:none;">Back to Batch Control</a>
+  <a href="{{ url_for('batch.batch_control') }}" style="background:#6c757d; color:#fff; padding:10px 22px; border-radius:5px; text-decoration:none;">Back to Batch Control</a>
 </div>
 {% endblock %}

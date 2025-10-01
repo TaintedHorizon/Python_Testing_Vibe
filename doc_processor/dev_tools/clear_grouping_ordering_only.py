@@ -1,6 +1,10 @@
 import os
+import sys
 from dotenv import load_dotenv
 import sqlite3
+
+# Add parent directory to path to import modules
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Load .env from doc_processor subfolder
 dotenv_path = os.path.join("doc_processor", ".env")
@@ -9,10 +13,10 @@ if os.path.exists(dotenv_path):
 else:
 	load_dotenv()
 
-db_path = os.getenv("DATABASE_PATH")
-if not db_path:
-	db_path = "/home/svc-scan/Python_Testing_Vibe/doc_processor/documents.db"  # fallback
+# Import after path setup
+from config_manager import app_config
 
+db_path = app_config.DATABASE_PATH
 print(f"Using database: {db_path}")
 
 conn = sqlite3.connect(db_path)

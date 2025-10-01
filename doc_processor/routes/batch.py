@@ -46,23 +46,24 @@ def batch_control():
             
             # Get all batches with their status
             cursor.execute("""
-                SELECT b.id, b.name, b.status, b.created_at,
+                SELECT b.id, b.status, b.start_time,
                        COUNT(d.id) as document_count,
                        COUNT(CASE WHEN d.status = 'completed' THEN 1 END) as completed_count
                 FROM batches b
                 LEFT JOIN documents d ON b.id = d.batch_id
-                GROUP BY b.id, b.name, b.status, b.created_at
-                ORDER BY b.created_at DESC
+                GROUP BY b.id, b.status, b.start_time
+                ORDER BY b.start_time DESC
             """)
             
             batches = []
             for row in cursor.fetchall():
-                batch_id, name, status, created_at, doc_count, completed_count = row
+                batch_id, status, start_time, doc_count, completed_count = row
                 batches.append({
                     'id': batch_id,
-                    'name': name,
+                    'name': f'Batch {batch_id}',  # Generate a name since there's no name column
                     'status': status,
-                    'created_at': created_at,
+                    'start_time': start_time,  # Add start_time for template
+                    'created_at': start_time,  # Map start_time to created_at for template compatibility
                     'document_count': doc_count,
                     'completed_count': completed_count,
                     'progress_percent': (completed_count / doc_count * 100) if doc_count > 0 else 0
@@ -87,13 +88,10 @@ def process_new_batch():
         with database_connection() as conn:
             cursor = conn.cursor()
             
-            # Generate batch name
-            batch_name = f"Batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            
             cursor.execute("""
-                INSERT INTO batches (name, status, created_at)
-                VALUES (?, 'intake', datetime('now'))
-            """, (batch_name,))
+                INSERT INTO batches (status)
+                VALUES ('intake')
+            """)
             
             batch_id = cursor.lastrowid
         
@@ -138,7 +136,7 @@ def process_new_batch():
         
         return jsonify(create_success_response({
             'batch_id': batch_id,
-            'message': f'Batch {batch_name} created and processing started'
+            'message': f'Batch {batch_id} created and processing started'
         }))
         
     except Exception as e:

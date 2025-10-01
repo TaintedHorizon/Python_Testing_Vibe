@@ -37,7 +37,7 @@
     <div class="image-pane">
         <h4>Source: {{ page.source_filename }}, Page {{ page.page_number }} (DB ID: {{ page.id }})</h4>
         <div class="image-wrapper">
-            <img id="pageImage_{{ page.id }}" src="{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}?v={{ page.rotation_angle or 0 }}" alt="Scanned page">
+            <img id="pageImage_{{ page.id }}" src="{{ url_for('export.serve_processed_file', filepath=page.relative_image_path) }}?v={{ page.rotation_angle or 0 }}" alt="Scanned page">
         </div>
         <div class="rotate-buttons">
             <button type="button" onclick="rotateImage({{ page.id }}, -90)">Rotate Left ↺</button>
@@ -51,7 +51,7 @@
     <div class="info-pane">
         <!-- Box for correcting the category -->
         <div class="info-box">
-            <form action="{{ url_for('update_page') }}" method="post">
+            <form action="{{ url_for('manipulation.update_page') }}" method="post">
                 <input type="hidden" id="action-input_{{ page.id }}" name="action" value="save">
                 <input type="hidden" name="current_page_num" value="1">
                 <input type="hidden" name="total_pages" value="1">
@@ -92,7 +92,7 @@
             
             <!-- Form to re-run OCR on this page -->
             <div class="ocr-actions">
-                <form id="ocr-form-{{ page.id }}" action="{{ url_for('rerun_ocr_action') }}" method="post" onsubmit="return handleOcrSubmit(this)">
+                <form id="ocr-form-{{ page.id }}" action="{{ url_for('manipulation.rerun_ocr') }}" method="post" onsubmit="return handleOcrSubmit(this)">
                     <input type="hidden" name="page_id" value="{{ page.id }}">
                     <input type="hidden" name="batch_id" value="{{ batch_id }}">
                     <input type="hidden" id="rotation-rerun_{{ page.id }}" name="rotation" value="{{ page.rotation_angle or 0 }}">
@@ -102,7 +102,7 @@
             
             <hr>
             <!-- Form to permanently delete the page -->
-            <form action="{{ url_for('delete_page_action', page_id=page.id) }}" method="post" onsubmit="return confirm('Are you sure you want to permanently delete this page? This cannot be undone.');">
+            <form action="{{ url_for('manipulation.delete_page', page_id=page.id) }}" method="post" onsubmit="return confirm('Are you sure you want to permanently delete this page? This cannot be undone.');">
                  <input type="hidden" name="batch_id" value="{{ batch_id }}">
                 <button type="submit" class="actions btn-delete" style="width:100%;">Delete Page</button>
             </form>
@@ -116,7 +116,7 @@
 {% endfor %}
 <hr>
 <div style="text-align: center; margin-top: 20px;">
-    <a href="{{ url_for('batch_control_page') }}" class="action-btn" style="background-color: #28a745; padding: 15px 30px; font-size: 1.2em;">Finish Review</a>
+    <a href="{{ url_for('batch.batch_control') }}" class="action-btn" style="background-color: #28a745; padding: 15px 30px; font-size: 1.2em;">Finish Review</a>
 </div>
 
 <script>

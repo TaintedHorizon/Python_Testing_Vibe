@@ -123,15 +123,15 @@
         </div>
 
         <!-- The form that will submit the final page order -->
-        <form id="order-form" action="{{ url_for('order_document_page', document_id=document_id) }}" method="post">
+        <form id="order-form" action="{{ url_for('manipulation.order_single_document', document_id=document_id) }}" method="post">
             <!-- This hidden input will store the comma-separated list of page IDs in the correct order -->
             <input type="hidden" id="page-order-input" name="page_order" value="">
 
             <!-- The container for the draggable page thumbnails -->
             <ul id="sortable-pages">
                 {% for page in pages %}
-                <li class="page-item" data-id="{{ page.id }}" data-img-src="{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}">
-                    <img src="{{ url_for('serve_processed_file', filepath=page.relative_image_path) }}" alt="Page {{ page.page_number }}">
+                <li class="page-item" data-id="{{ page.id }}" data-img-src="{{ url_for('export.serve_processed_file', filepath=page.relative_image_path) }}">
+                    <img src="{{ url_for('export.serve_processed_file', filepath=page.relative_image_path) }}" alt="Page {{ page.page_number }}">
                     <div class="page-info">
                         <strong>Page ID: {{ page.id }}</strong><br>
                         ({{ page.source_filename }}, Pg {{ page.page_number }})
@@ -144,7 +144,7 @@
             <div class="actions-container">
                 <p id="status-message" class="status-message"></p>
                 <div class="actions">
-                    <a href="{{ url_for('order_batch_page', batch_id=batch_id) }}" class="btn btn-cancel">Cancel</a>
+                    <a href="{{ url_for('manipulation.order_documents', batch_id=batch_id) }}" class="btn btn-cancel">Cancel</a>
                     <button type="button" id="suggest-order-btn" class="btn btn-ai">🤖 Suggest Order</button>
                     <button type="submit" class="btn btn-save">Finish Reordering</button>
                 </div>

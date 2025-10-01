@@ -38,16 +38,61 @@ from .services.document_service import DocumentService
 from .services.batch_service import BatchService  
 from .services.export_service import ExportService
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/app.log'),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
+# Configure logging with rotation
+import os
+from logging.handlers import RotatingFileHandler
+from config_manager import app_config
+
+def setup_logging():
+    """Configure logging with rotation based on app config."""
+    # Ensure log directory exists
+    log_file_path = app_config.LOG_FILE_PATH
+    if not os.path.isabs(log_file_path):
+        # Make relative paths relative to this file's directory
+        log_file_path = os.path.join(os.path.dirname(__file__), log_file_path)
+    
+    log_dir = os.path.dirname(log_file_path)
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Configure rotating file handler
+    file_handler = RotatingFileHandler(
+        log_file_path,
+        maxBytes=app_config.LOG_MAX_BYTES,
+        backupCount=app_config.LOG_BACKUP_COUNT
+    )
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+    ))
+    
+    # Configure console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+    ))
+    
+    # Get root logger and configure it properly
+    root_logger = logging.getLogger()
+    
+    # Only clear and configure if not already configured
+    if not root_logger.handlers:
+        # Set log level
+        log_level = getattr(logging, app_config.LOG_LEVEL.upper(), logging.INFO)
+        root_logger.setLevel(log_level)
+        
+        # Add our handlers
+        root_logger.addHandler(file_handler)
+        root_logger.addHandler(console_handler)
+    
+    # Configure werkzeug to use our file handler (avoid duplicates)
+    werkzeug_logger = logging.getLogger('werkzeug')
+    if not any(isinstance(h, RotatingFileHandler) for h in werkzeug_logger.handlers):
+        werkzeug_logger.addHandler(file_handler)
+    
+    return logging.getLogger(__name__)
+
+# Initialize logging
+logger = setup_logging()
+logger.info("Logging configuration initialized with rotation")
 
 def create_app():
     """

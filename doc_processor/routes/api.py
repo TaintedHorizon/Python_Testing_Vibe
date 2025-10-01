@@ -40,33 +40,21 @@ processing_status = {}
 status_lock = threading.Lock()
 
 @bp.route("/apply_name/<int:document_id>", methods=["POST"])
-def apply_name(document_id: int):
-    """Apply a suggested name to a document."""
-    try:
-        data = request.get_json()
-        suggested_name = data.get('suggested_name')
-        
-        if not suggested_name:
-            return jsonify(create_error_response("Suggested name is required"))
-        
-        # Apply the name to the document
-        # with database_connection() as conn:
-        #     cursor = conn.cursor()
-        #     cursor.execute("""
-        #         UPDATE documents 
-        #         SET filename = ?, updated_at = datetime('now')
-        #         WHERE id = ?
-        #     """, (suggested_name, document_id))
-        
-        return jsonify(create_success_response({
-            'message': 'Document name applied successfully',
-            'document_id': document_id,
-            'new_name': suggested_name
-        }))
-        
-    except Exception as e:
-        logger.error(f"Error applying name to document {document_id}: {e}")
-        return jsonify(create_error_response(f"Failed to apply name: {str(e)}"))
+def apply_name_api(document_id):
+    """
+    API endpoint to set the document's name from the order page, via AJAX.
+    """
+    data = request.get_json()
+    filename = data.get("filename", "").strip()
+    if not filename:
+        return jsonify({"success": False, "error": "Filename cannot be empty."}), 400
+    
+    # Sanitize filename for consistency and safety
+    from ..security import sanitize_filename
+    sanitized_filename = sanitize_filename(filename)
+    
+    update_document_final_filename(document_id, sanitized_filename)
+    return jsonify({"success": True})
 
 @bp.route("/suggest_name/<int:document_id>", methods=["POST"])
 def suggest_name(document_id: int):

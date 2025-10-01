@@ -35,6 +35,12 @@ class AppConfig:
     OLLAMA_CTX_ORDERING: int = 2048
     OLLAMA_CTX_TITLE_GENERATION: int = 4096
 
+    # --- Logging Configuration ---
+    LOG_FILE_PATH: str = "logs/app.log"
+    LOG_MAX_BYTES: int = 10 * 1024 * 1024  # 10MB
+    LOG_BACKUP_COUNT: int = 5  # Keep 5 backup files
+    LOG_LEVEL: str = "INFO"
+
     # --- Debugging and Feature Flags ---
     DEBUG_SKIP_OCR: bool = False
     ENABLE_TAG_EXTRACTION: bool = True  # Enable LLM-powered tag extraction during export
@@ -126,6 +132,12 @@ class AppConfig:
                 OLLAMA_CTX_ORDERING=int(get_env("OLLAMA_CTX_ORDERING", str(cls.OLLAMA_CTX_ORDERING))),
                 OLLAMA_CTX_TITLE_GENERATION=int(get_env("OLLAMA_CTX_TITLE_GENERATION", str(cls.OLLAMA_CTX_TITLE_GENERATION))),
                 
+                # Logging Configuration
+                LOG_FILE_PATH=get_env("LOG_FILE_PATH", cls.LOG_FILE_PATH),
+                LOG_MAX_BYTES=int(get_env("LOG_MAX_BYTES", str(cls.LOG_MAX_BYTES))),
+                LOG_BACKUP_COUNT=int(get_env("LOG_BACKUP_COUNT", str(cls.LOG_BACKUP_COUNT))),
+                LOG_LEVEL=get_env("LOG_LEVEL", cls.LOG_LEVEL),
+
                 # Debugging and Feature Flags
                 DEBUG_SKIP_OCR=get_env("DEBUG_SKIP_OCR", str(cls.DEBUG_SKIP_OCR)).lower() in ("true", "1", "t"),
                 ENABLE_TAG_EXTRACTION=get_env("ENABLE_TAG_EXTRACTION", str(cls.ENABLE_TAG_EXTRACTION)).lower() in ("true", "1", "t"),

@@ -34,11 +34,30 @@ def categories():
     """Display category management page."""
     try:
         # Get all categories from database
-        # with database_connection() as conn:
-        #     cursor = conn.cursor()
-        #     categories = get_all_categories(include_deleted=True)
+        conn = get_db_connection()
+        cursor = conn.cursor()
         
-        categories = []  # Placeholder
+        # Get all categories including inactive ones
+        cursor.execute("""
+            SELECT id, name, is_active, previous_name, notes 
+            FROM categories 
+            ORDER BY name ASC
+        """)
+        
+        categories_data = cursor.fetchall()
+        conn.close()
+        
+        # Convert to list of dictionaries for template use
+        categories = []
+        for row in categories_data:
+            categories.append({
+                'id': row['id'],
+                'name': row['name'],
+                'is_active': bool(row['is_active']),
+                'previous_name': row['previous_name'],
+                'notes': row['notes']
+            })
+        
         return render_template('categories.html', categories=categories)
         
     except Exception as e:
@@ -51,21 +70,25 @@ def add_category():
     """Add a new category."""
     try:
         category_name = request.form.get('name')
+        category_notes = request.form.get('notes', '')
+        
         if not category_name:
             return jsonify(create_error_response("Category name is required"))
         
         # Add category to database
-        # with database_connection() as conn:
-        #     cursor = conn.cursor()
-        #     cursor.execute("""
-        #         INSERT INTO categories (name, active, created_at)
-        #         VALUES (?, 1, datetime('now'))
-        #     """, (category_name,))
-        #     category_id = cursor.lastrowid
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO categories (name, is_active, notes)
+            VALUES (?, 1, ?)
+        """, (category_name, category_notes))
+        category_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
         
         return jsonify(create_success_response({
             'message': f'Category "{category_name}" added successfully',
-            'category_id': 1,  # Placeholder
+            'category_id': category_id,
             'category_name': category_name
         }))
         
@@ -82,13 +105,27 @@ def rename_category(cat_id: int):
             return jsonify(create_error_response("New category name is required"))
         
         # Update category in database
-        # with database_connection() as conn:
-        #     cursor = conn.cursor()
-        #     cursor.execute("""
-        #         UPDATE categories 
-        #         SET name = ?, updated_at = datetime('now')
-        #         WHERE id = ?
-        #     """, (new_name, cat_id))
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get current name for history
+        cursor.execute("SELECT name FROM categories WHERE id = ?", (cat_id,))
+        current_result = cursor.fetchone()
+        if not current_result:
+            conn.close()
+            return jsonify(create_error_response("Category not found"))
+        
+        current_name = current_result['name']
+        
+        # Update with new name and store previous name
+        cursor.execute("""
+            UPDATE categories 
+            SET name = ?, previous_name = ?
+            WHERE id = ?
+        """, (new_name, current_name, cat_id))
+        
+        conn.commit()
+        conn.close()
         
         return jsonify(create_success_response({
             'message': f'Category renamed to "{new_name}" successfully',
@@ -105,13 +142,16 @@ def delete_category(cat_id: int):
     """Soft delete a category."""
     try:
         # Soft delete category
-        # with database_connection() as conn:
-        #     cursor = conn.cursor()
-        #     cursor.execute("""
-        #         UPDATE categories 
-        #         SET active = 0, deleted_at = datetime('now')
-        #         WHERE id = ?
-        #     """, (cat_id,))
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE categories 
+            SET is_active = 0
+            WHERE id = ?
+        """, (cat_id,))
+        
+        conn.commit()
+        conn.close()
         
         return jsonify(create_success_response({
             'message': 'Category deleted successfully',
@@ -127,13 +167,16 @@ def restore_category(cat_id: int):
     """Restore a deleted category."""
     try:
         # Restore category
-        # with database_connection() as conn:
-        #     cursor = conn.cursor()
-        #     cursor.execute("""
-        #         UPDATE categories 
-        #         SET active = 1, deleted_at = NULL, updated_at = datetime('now')
-        #         WHERE id = ?
-        #     """, (cat_id,))
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE categories 
+            SET is_active = 1
+            WHERE id = ?
+        """, (cat_id,))
+        
+        conn.commit()
+        conn.close()
         
         return jsonify(create_success_response({
             'message': 'Category restored successfully',
@@ -146,25 +189,29 @@ def restore_category(cat_id: int):
 
 @bp.route("/clear_analysis_cache", methods=["POST"])
 def clear_analysis_cache():
-    """Clear the analysis cache for fresh processing."""
+    """Clear the cached analysis results to force re-analysis."""
     try:
-        # Clear any cached analysis data
-        # This might involve clearing Redis cache, temporary files, etc.
+        import tempfile
+        # Clear the same cache file that the original used
+        cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
+            logger.info("Cleared analysis cache")
         
-        # Clear file-based cache if it exists
-        cache_dir = '/tmp/analysis_cache'  # This should come from config
+        # Also clear any other cache directories that might exist
+        cache_dir = '/tmp/analysis_cache'
         if os.path.exists(cache_dir):
             import shutil
             shutil.rmtree(cache_dir)
             os.makedirs(cache_dir)
         
-        return jsonify(create_success_response({
-            'message': 'Analysis cache cleared successfully'
-        }))
+        # Redirect back to the intake analysis page like the original
+        return redirect(url_for('intake.analyze_intake_page'))
         
     except Exception as e:
-        logger.error(f"Error clearing analysis cache: {e}")
-        return jsonify(create_error_response(f"Failed to clear cache: {str(e)}"))
+        logger.error(f"Failed to clear analysis cache: {e}")
+        # On error, still redirect back to intake page
+        return redirect(url_for('intake.analyze_intake_page'))
 
 @bp.route("/configuration")
 def configuration():

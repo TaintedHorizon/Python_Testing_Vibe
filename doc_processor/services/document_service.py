@@ -195,16 +195,10 @@ class DocumentService:
         with database_connection() as conn:
             cursor = conn.cursor()
             
-            if not batch_name:
-                # Generate default batch name
-                cursor.execute("SELECT COUNT(*) FROM batches")
-                count = cursor.fetchone()[0]
-                batch_name = f"Batch_{count + 1}"
-            
             cursor.execute("""
-                INSERT INTO batches (name, status, created_at)
-                VALUES (?, 'intake', datetime('now'))
-            """, (batch_name,))
+                INSERT INTO batches (status)
+                VALUES ('intake')
+            """)
             
             return cursor.lastrowid or 0
     
@@ -224,7 +218,7 @@ class DocumentService:
                 
                 # Get batch info
                 cursor.execute("""
-                    SELECT id, name, status, created_at
+                    SELECT id, status, start_time
                     FROM batches WHERE id = ?
                 """, (batch_id,))
                 
@@ -256,9 +250,9 @@ class DocumentService:
                     'success': True,
                     'batch': {
                         'id': batch_row[0],
-                        'name': batch_row[1],
-                        'status': batch_row[2],
-                        'created_at': batch_row[3],
+                        'name': f'Batch {batch_row[0]}',  # Generate name since column doesn't exist
+                        'status': batch_row[1],
+                        'created_at': batch_row[2],  # start_time mapped to created_at
                         'total_pages': total_pages,
                         'status_counts': status_counts
                     }

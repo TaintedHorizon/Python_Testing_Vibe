@@ -113,7 +113,7 @@
 <h1>🛠️ Manipulate Single Documents</h1>
 <p>Review and edit the AI suggestions for category and filename for each document. Choose from existing categories or create new ones.</p>
 
-<form method="post" action="{{ url_for('manipulate_batch_page', batch_id=batch_id) }}">
+<form method="post" action="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch_id) }}">
     {% for doc in documents %}
     <div class="document-card">
         <div class="document-header">
