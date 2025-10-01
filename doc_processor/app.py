@@ -2482,18 +2482,18 @@ def manipulate_batch_page(batch_id, doc_num=1):
                 conn.close()
                 return redirect(url_for('manipulate_batch_page', batch_id=batch_id, doc_num=doc_num + 1))
             else:
-                # Last document - mark batch as ready for export
-                cursor.execute("UPDATE batches SET status = 'ready_for_export' WHERE id = ?", (batch_id,))
+                # Last document - mark batch as manipulated (but keep status as ready_for_manipulation)
+                cursor.execute("UPDATE batches SET has_been_manipulated = 1 WHERE id = ?", (batch_id,))
                 conn.commit()
                 conn.close()
-                flash('All documents processed. Batch ready for export.', 'success')
+                flash('All documents reviewed. Ready for export.', 'success')
                 return redirect(url_for('batch_control_page'))
         elif action == 'save_and_finish':
-            # Mark batch as ready for export regardless of position
-            cursor.execute("UPDATE batches SET status = 'ready_for_export' WHERE id = ?", (batch_id,))
+            # Mark batch as manipulated (but keep status as ready_for_manipulation)
+            cursor.execute("UPDATE batches SET has_been_manipulated = 1 WHERE id = ?", (batch_id,))
             conn.commit()
             conn.close()
-            flash('Changes saved. Batch ready for export.', 'success')
+            flash('Changes saved. Ready for export.', 'success')
             return redirect(url_for('batch_control_page'))
         
         conn.close()
