@@ -82,9 +82,9 @@ and a content block that child templates will override.
 <!-- The main navigation bar. It is consistent across all pages. -->
 <div class="navbar">
     <!-- Primary workflow entry point - analyze intake first -->
-    <a href="{{ url_for('analyze_intake_page') }}" class="{% if request.endpoint == 'analyze_intake_page' %}active{% endif %}">📋 Analyze Intake</a>
-    <a href="{{ url_for('batch_control_page') }}" class="{% if request.endpoint == 'batch_control_page' %}active{% endif %}">📊 Batch Control</a>
-    <a href="{{ url_for('categories_page') }}" class="{% if request.endpoint == 'categories_page' %}active{% endif %}">📂 Categories</a>
+    <a href="{{ url_for('intake.analyze_intake_page') }}" class="{% if request.endpoint == 'intake.analyze_intake_page' %}active{% endif %}">📋 Analyze Intake</a>
+    <a href="{{ url_for('batch.batch_control') }}" class="{% if request.endpoint == 'batch.batch_control' %}active{% endif %}">📊 Batch Control</a>
+    <a href="{{ url_for('admin.categories') }}" class="{% if request.endpoint == 'admin.categories' %}active{% endif %}">📂 Categories</a>
 </div>
 
 <!-- The main content area. -->

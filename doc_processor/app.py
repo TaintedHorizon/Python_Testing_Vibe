@@ -72,10 +72,13 @@ def create_app():
     #     # Continue anyway - some routes might still work
     
     # Initialize services (singleton instances)
-    # TODO: Fix service initialization
-    # app.document_service = DocumentService()
-    # app.batch_service = BatchService()
-    # app.export_service = ExportService()
+    from .services.document_service import DocumentService
+    from .services.batch_service import BatchService
+    from .services.export_service import ExportService
+    
+    app.document_service = DocumentService()
+    app.batch_service = BatchService()
+    app.export_service = ExportService()
     
     # Register error handlers
     register_error_handlers(app)
