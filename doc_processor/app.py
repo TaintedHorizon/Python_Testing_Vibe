@@ -2474,10 +2474,10 @@ def manipulate_batch_page(batch_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, original_filename, ai_suggested_category, ai_suggested_filename, ai_confidence, ai_summary
+        SELECT id, original_filename, ai_suggested_category, ai_suggested_filename, ai_confidence, ai_summary, ocr_text, ocr_confidence_avg
         FROM single_documents WHERE batch_id=?
     """, (batch_id,))
-    documents = [dict(zip(['id', 'original_filename', 'ai_suggested_category', 'ai_suggested_filename', 'ai_confidence', 'ai_summary'], row)) for row in cursor.fetchall()]
+    documents = [dict(zip(['id', 'original_filename', 'ai_suggested_category', 'ai_suggested_filename', 'ai_confidence', 'ai_summary', 'ocr_text', 'ocr_confidence_avg'], row)) for row in cursor.fetchall()]
     conn.close()
     
     # Get categories for dropdown (same as verify workflow)
