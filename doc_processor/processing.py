@@ -2294,3 +2294,150 @@ def verify_no_file_loss() -> dict:
         logging.error(f"File safety check failed: {e}")
     
     return report
+
+
+def finalize_single_documents_batch_with_progress(batch_id: int, progress_callback=None) -> bool:
+    """
+    Finalize and export all single documents in a batch with progress tracking.
+    
+    Args:
+        batch_id: The batch ID to export
+        progress_callback: Function to call with progress updates (current, total, message, details)
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    def update_progress(current, total, message, details=""):
+        if progress_callback:
+            progress_callback(current, total, message, details)
+    
+    success = True
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Get all documents
+    cursor.execute("SELECT id, original_pdf_path, searchable_pdf_path, final_category, final_filename, ai_suggested_category, ai_suggested_filename, ocr_text FROM single_documents WHERE batch_id=?", (batch_id,))
+    docs = cursor.fetchall()
+    
+    total_docs = len(docs)
+    update_progress(0, total_docs, "Starting export process...", "Preparing to export documents")
+    
+    for i, doc in enumerate(docs):
+        doc_id = doc[0]
+        original_pdf = doc[1]
+        searchable_pdf = doc[2]
+        
+        # Use final category/filename if available, otherwise fall back to AI suggestions
+        category = doc[3] or doc[5] or "Uncategorized"
+        filename_base = doc[4] or doc[6] or f"document_{doc_id}"
+        
+        update_progress(i, total_docs, f"Exporting: {filename_base}", f"Processing document {i+1} of {total_docs}")
+        
+        # Sanitize filename for filesystem safety and consistency
+        filename_base = sanitize_filename(filename_base)
+        ocr_text = doc[7] or ""
+        
+        # Destination folder - sanitize category name
+        category_dir_name = _sanitize_category(category)
+        category_dir = os.path.join(app_config.FILING_CABINET_DIR, category_dir_name)
+        os.makedirs(category_dir, exist_ok=True)
+        
+        # Prepare all destination paths
+        dest_original = os.path.join(category_dir, f"{filename_base}_original.pdf")
+        dest_searchable = os.path.join(category_dir, f"{filename_base}_searchable.pdf")
+        dest_markdown = os.path.join(category_dir, f"{filename_base}.md")
+        
+        try:
+            # Extract tags if enabled
+            extracted_tags = None
+            if app_config.ENABLE_TAG_EXTRACTION and ocr_text:
+                update_progress(i, total_docs, f"Extracting tags: {filename_base}", "Analyzing document content for tags")
+                try:
+                    logging.info(f"🏷️  Starting tag extraction for single document: {filename_base}")
+                    extracted_tags = extract_document_tags(ocr_text, filename_base)
+                    if extracted_tags:
+                        total_tags = sum(len(tag_list) for tag_list in extracted_tags.values())
+                        logging.info(f"✅ Tag extraction SUCCESS: {total_tags} tags extracted for {filename_base}")
+                        
+                        # Store tags in database
+                        try:
+                            tags_stored = store_document_tags(doc_id, extracted_tags)
+                            logging.info(f"🏷️  Stored {tags_stored} tags in database for single document {doc_id}")
+                        except Exception as db_e:
+                            logging.error(f"💥 Failed to store tags in database for single document {doc_id}: {db_e}")
+                    else:
+                        logging.warning(f"⚠️  Tag extraction returned no results for {filename_base}")
+                except Exception as tag_e:
+                    logging.error(f"💥 Tag extraction FAILED for {filename_base}: {tag_e}")
+                    extracted_tags = None
+            
+            update_progress(i, total_docs, f"Creating markdown: {filename_base}", "Generating markdown file")
+            
+            # Create enhanced markdown content
+            markdown_content = _create_single_document_markdown_content(
+                original_filename=filename_base,
+                category=category,
+                ocr_text=ocr_text,
+                extracted_tags=extracted_tags
+            )
+            
+            # Write markdown file
+            with open(dest_markdown, 'w', encoding='utf-8') as f:
+                f.write(markdown_content)
+            
+            update_progress(i, total_docs, f"Copying files: {filename_base}", "Moving PDF files to category folder")
+            
+            # Copy files (don't move original files, copy them for safety)
+            if original_pdf and os.path.exists(original_pdf):
+                shutil.copy2(original_pdf, dest_original)
+                logging.info(f"📄 Copied original PDF: {original_pdf} → {dest_original}")
+            
+            if searchable_pdf and os.path.exists(searchable_pdf):
+                shutil.copy2(searchable_pdf, dest_searchable)
+                logging.info(f"📄 Copied searchable PDF: {searchable_pdf} → {dest_searchable}")
+            
+            logging.info(f"✅ Successfully exported document {doc_id} to {category_dir}")
+            
+        except Exception as e:
+            logging.error(f"❌ Failed to export single document {doc_id} ({filename_base}): {e}")
+            success = False
+            continue
+    
+    # Final progress update
+    if success:
+        update_progress(total_docs, total_docs, "Export completed successfully!", f"All {total_docs} documents exported to category folders")
+    else:
+        update_progress(total_docs, total_docs, "Export completed with some errors", "Check logs for details")
+    
+    conn.close()
+    return success
+
+
+def _create_single_document_markdown_content(original_filename, category, ocr_text, extracted_tags=None):
+    """Create enhanced markdown content for a single document."""
+    import datetime
+    
+    # Start with basic metadata
+    content = f"""# {original_filename}
+
+**Category:** {category}  
+**Export Date:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+"""
+    
+    # Add tags section if available
+    if extracted_tags:
+        content += "## 🏷️ Extracted Tags\n\n"
+        for tag_type, tags in extracted_tags.items():
+            if tags:
+                content += f"**{tag_type.title()}:** {', '.join(tags)}  \n"
+        content += "\n"
+    
+    # Add OCR content
+    content += "## 📄 Document Content\n\n"
+    if ocr_text:
+        content += f"```\n{ocr_text}\n```\n"
+    else:
+        content += "*No text content extracted*\n"
+    
+    return content

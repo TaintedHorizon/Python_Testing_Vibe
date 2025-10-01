@@ -61,13 +61,13 @@
 <!-- Pagination controls -->
 <div class="pagination">
     {% if current_doc_num > 1 %}
-        <a href="{{ url_for('manipulate_batch_page', batch_id=batch_id, doc_num=current_doc_num - 1) }}">&laquo; Previous Document</a>
+        <a href="#" onclick="navigateToDocument({{ current_doc_num - 1 }})">&laquo; Previous Document</a>
     {% else %}
         <span>&laquo; Previous Document</span>
     {% endif %}
     <strong>Document {{ current_doc_num }} of {{ total_docs }}</strong>
     {% if current_doc_num < total_docs %}
-        <a href="{{ url_for('manipulate_batch_page', batch_id=batch_id, doc_num=current_doc_num + 1) }}">Next Document &raquo;</a>
+        <a href="#" onclick="navigateToDocument({{ current_doc_num + 1 }})">Next Document &raquo;</a>
     {% else %}
         <span>Next Document &raquo;</span>
     {% endif %}
@@ -110,7 +110,49 @@
     <div class="info-pane">
         <form method="post" action="{{ url_for('manipulate_batch_page', batch_id=batch_id, doc_num=current_doc_num) }}">
             <input type="hidden" name="doc_id" value="{{ current_doc.id }}">
-            <input type="hidden" id="action-input" name="action" value="save_and_next">
+            <input type="hidden" id="action-input" name="action" value="finish_batch">
+            
+            <!-- OCR Analysis Box -->
+            <div class="info-box">
+                <div class="info-header">
+                    <h3>🔍 OCR Analysis</h3>
+                    <div>
+                        <button type="button" class="btn-rescan" data-doc-id="{{ current_doc.id }}" 
+                                onclick="rescanOCR({{ current_doc.id }})" title="Re-extract text and re-analyze">
+                            🔍 Rescan OCR
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="ocr-stats">
+                    <span>
+                        <strong>Confidence:</strong>
+                        {% if current_doc.ocr_confidence_avg %}
+                            {% if current_doc.ocr_confidence_avg >= 80 %}
+                                <span class="confidence-high">{{ '%.1f%%'|format(current_doc.ocr_confidence_avg) }}</span>
+                            {% elif current_doc.ocr_confidence_avg >= 50 %}
+                                <span class="confidence-medium">{{ '%.1f%%'|format(current_doc.ocr_confidence_avg) }}</span>
+                            {% else %}
+                                <span class="confidence-low">{{ '%.1f%%'|format(current_doc.ocr_confidence_avg) }}</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="confidence-low">N/A</span>
+                        {% endif %}
+                    </span>
+                    <span>
+                        <strong>Text Length:</strong> {{ current_doc.ocr_text|length if current_doc.ocr_text else 0 }} chars
+                    </span>
+                </div>
+                
+                {% if current_doc.ocr_text %}
+                    <div class="ocr-box">{{ current_doc.ocr_text }}</div>
+                {% else %}
+                    <div class="ocr-box" style="color: #dc3545; text-align: center; font-style: italic;">
+                        ⚠️ No OCR text extracted
+                        <br><small>This may indicate OCR failure, blank document, or image-only content</small>
+                    </div>
+                {% endif %}
+            </div>
             
             <!-- AI Analysis Box -->
             <div class="info-box">
@@ -120,10 +162,6 @@
                         <button type="button" class="btn-rescan" data-doc-id="{{ current_doc.id }}" 
                                 onclick="rescanLLM({{ current_doc.id }})" title="Re-analyze with AI">
                             🤖 Rescan LLM
-                        </button>
-                        <button type="button" class="btn-rescan" data-doc-id="{{ current_doc.id }}" 
-                                onclick="rescanOCR({{ current_doc.id }})" title="Re-extract text and re-analyze">
-                            🔍 Rescan OCR
                         </button>
                     </div>
                 </div>
@@ -182,46 +220,12 @@
                 </div>
             </div>
             
-            <!-- OCR Analysis Box -->
-            <div class="info-box">
-                <h3>🔍 OCR Analysis</h3>
-                <div class="ocr-stats">
-                    <span>
-                        <strong>Confidence:</strong>
-                        {% if current_doc.ocr_confidence_avg %}
-                            {% if current_doc.ocr_confidence_avg >= 80 %}
-                                <span class="confidence-high">{{ '%.1f%%'|format(current_doc.ocr_confidence_avg) }}</span>
-                            {% elif current_doc.ocr_confidence_avg >= 50 %}
-                                <span class="confidence-medium">{{ '%.1f%%'|format(current_doc.ocr_confidence_avg) }}</span>
-                            {% else %}
-                                <span class="confidence-low">{{ '%.1f%%'|format(current_doc.ocr_confidence_avg) }}</span>
-                            {% endif %}
-                        {% else %}
-                            <span class="confidence-low">N/A</span>
-                        {% endif %}
-                    </span>
-                    <span>
-                        <strong>Text Length:</strong> {{ current_doc.ocr_text|length if current_doc.ocr_text else 0 }} chars
-                    </span>
-                </div>
-                
-                {% if current_doc.ocr_text %}
-                    <div class="ocr-box">{{ current_doc.ocr_text }}</div>
-                {% else %}
-                    <div class="ocr-box" style="color: #dc3545; text-align: center; font-style: italic;">
-                        ⚠️ No OCR text extracted
-                        <br><small>This may indicate OCR failure, blank document, or image-only content</small>
-                    </div>
-                {% endif %}
-            </div>
-            
-            <!-- Action Buttons -->
+            <!-- Action Buttons - Only show on last document -->
+            {% if current_doc_num == total_docs %}
             <div class="actions">
-                {% if current_doc_num < total_docs %}
-                    <button type="submit" data-action="save_and_next" class="btn-save-next">Save & Next Document</button>
-                {% endif %}
-                <button type="submit" data-action="save_and_finish" class="btn-save-finish">Save & Finish Batch</button>
+                <button type="submit" data-action="finish_batch" class="btn-save-finish">✅ Save & Finish Batch</button>
             </div>
+            {% endif %}
         </form>
     </div>
 </div>
@@ -252,6 +256,59 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+
+// Auto-save navigation function
+function navigateToDocument(docNum) {
+    // Auto-save current form data before navigation
+    const form = document.querySelector('form');
+    if (form) {
+        // Create a temporary form data object to check if anything was changed
+        const formData = new FormData(form);
+        
+        // Create a hidden form to submit data via POST for auto-save
+        const autoSaveForm = document.createElement('form');
+        autoSaveForm.method = 'POST';
+        autoSaveForm.style.display = 'none';
+        
+        // Copy form data
+        for (let [key, value] of formData.entries()) {
+            if (key !== 'action') { // Don't copy action
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = key;
+                input.value = value;
+                autoSaveForm.appendChild(input);
+            }
+        }
+        
+        // Add auto-save action
+        const actionInput = document.createElement('input');
+        actionInput.type = 'hidden';
+        actionInput.name = 'action';
+        actionInput.value = 'auto_save';
+        autoSaveForm.appendChild(actionInput);
+        
+        document.body.appendChild(autoSaveForm);
+        
+        // Submit auto-save and then navigate
+        fetch(window.location.href, {
+            method: 'POST',
+            body: new FormData(autoSaveForm)
+        }).then(() => {
+            // Navigate to the new document
+            window.location.href = `/batch/{{ batch_id }}/manipulate/${docNum}`;
+        }).catch((error) => {
+            console.error('Auto-save failed:', error);
+            // Navigate anyway
+            window.location.href = `/batch/{{ batch_id }}/manipulate/${docNum}`;
+        }).finally(() => {
+            document.body.removeChild(autoSaveForm);
+        });
+    } else {
+        // No form, just navigate
+        window.location.href = `/batch/{{ batch_id }}/manipulate/${docNum}`;
+    }
+}
 
 function rotateDocument(docId, degrees) {
     // Update rotation state

@@ -720,6 +720,14 @@ def smart_processing_progress():
     logging.info("[SMART] Rendering smart_processing_progress page")
     return render_template("smart_processing_progress.html")
 
+@app.route("/export_progress")
+def export_progress():
+    """
+    Show the export progress page.
+    """
+    logging.info("[EXPORT] Rendering export_progress page")
+    return render_template("export_progress.html")
+
 @app.route("/api/smart_processing_progress")
 def api_smart_processing_progress():
     """
@@ -1000,6 +1008,45 @@ def api_smart_processing_progress():
     response.headers['X-Accel-Buffering'] = 'no'
     return response
 
+@app.route("/api/export_progress")
+def api_export_progress():
+    """
+    Server-Sent Events endpoint for export progress updates.
+    """
+    from flask import Response
+    
+    def generate_export_events():
+        import json
+        import time
+        
+        logging.info("[EXPORT SSE] Client connected to /api/export_progress")
+        
+        while True:
+            try:
+                # Send current export state
+                yield f"data: {json.dumps(_export_state)}\\n\\n"
+                
+                # Break if export is complete
+                if _export_state.get('complete', False):
+                    logging.info("[EXPORT SSE] Export complete, closing connection")
+                    break
+                
+                time.sleep(1)  # Update every second
+                
+            except GeneratorExit:
+                logging.info("[EXPORT SSE] Client disconnected from export progress")
+                break
+            except Exception as e:
+                logging.error(f"[EXPORT SSE] Error in export progress stream: {e}")
+                break
+    
+    response = Response(generate_export_events(), mimetype='text/plain')
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['Connection'] = 'keep-alive'
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['X-Accel-Buffering'] = 'no'
+    return response
+
 # Global variable to track processing state for polling fallback
 _processing_state = {
     'active': False,
@@ -1009,6 +1056,20 @@ _processing_state = {
     'complete': False,
     'success': False,
     'error': None,
+    'redirect': None
+}
+
+# Global export state tracking
+_export_state = {
+    'in_progress': False,
+    'batch_id': None,
+    'progress': 0,
+    'message': 'Initializing export...',
+    'current_document': 0,
+    'total_documents': 0,
+    'details': '',
+    'complete': False,
+    'success': False,
     'redirect': None
 }
 
@@ -1376,24 +1437,10 @@ def batch_control_page():
 
     # Render the main dashboard template, passing the prepared list of batches
     # to be displayed in a table.
-    # Add audit trail links for each batch and check manipulation status for single document batches
-    conn = get_db_connection()
+    # Add audit trail links for each batch
     for batch in all_batches:
         batch["audit_url"] = url_for("batch_audit_view", batch_id=batch["id"])
-        
-        # For single document batches, check if they have been manipulated
-        if batch["status"] == "ready_for_manipulation":
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT COUNT(*) FROM single_documents 
-                WHERE batch_id=? AND (
-                    final_category IS NOT NULL OR 
-                    final_filename IS NOT NULL
-                )
-            """, (batch["id"],))
-            manipulated_count = cursor.fetchone()[0]
-            batch["has_been_manipulated"] = manipulated_count > 0
-    conn.close()
+        # has_been_manipulated is already set from the database query above
     
     return render_template("batch_control.html", batches=all_batches)
 
@@ -2257,13 +2304,98 @@ def export_batch_action(batch_id):
 @app.route("/finalize_single_documents_batch/<int:batch_id>", methods=["POST"])
 def finalize_single_documents_batch_action(batch_id):
     """
-    Finalize and export all single documents in a batch.
-    This moves PDFs from their temporary locations to the proper category folders
-    along with OCR text and markdown files.
+    START the export process for a batch and redirect to progress page.
+    The actual export runs in a background thread.
     """
+    global _export_state
+    
+    # Check if export is already in progress
+    if _export_state['in_progress']:
+        flash('Export already in progress', 'warning')
+        return redirect(url_for('export_progress'))
+    
+    # Initialize export state
+    _export_state.update({
+        'in_progress': True,
+        'batch_id': batch_id,
+        'progress': 0,
+        'message': 'Starting export process...',
+        'current_document': 0,
+        'total_documents': 0,
+        'details': 'Preparing documents for export...',
+        'complete': False,
+        'success': False,
+        'redirect': None
+    })
+    
+    # Start export in background thread
+    import threading
+    export_thread = threading.Thread(target=run_export_process, args=(batch_id,))
+    export_thread.daemon = True
+    export_thread.start()
+    
+    # Redirect to progress page
+    return redirect(url_for('export_progress'))
+
+
+@app.route('/reset_export_state')
+def reset_export_state():
+    """
+    Reset the export state if it gets stuck.
+    """
+    global _export_state
+    _export_state.update({
+        'in_progress': False,
+        'batch_id': None,
+        'progress': 0,
+        'message': 'Export state reset',
+        'current_document': 0,
+        'total_documents': 0,
+        'details': '',
+        'complete': False,
+        'success': False,
+        'redirect': None
+    })
+    flash('Export state has been reset. You can now try exporting again.', 'info')
+    return redirect(url_for('batch_control_page'))
+
+
+def run_export_process(batch_id):
+    """
+    Run the actual export process in a background thread with progress updates.
+    """
+    import time
+    global _export_state
+    
     try:
-        from .processing import finalize_single_documents_batch
-        success = finalize_single_documents_batch(batch_id)
+        # Get document count
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM single_documents WHERE batch_id = ?", (batch_id,))
+        total_docs = cursor.fetchone()[0]
+        conn.close()
+        
+        _export_state.update({
+            'total_documents': total_docs,
+            'message': f'Exporting {total_docs} documents...',
+            'details': 'Creating category folders and organizing files...'
+        })
+        
+        # Import and run the actual export function with progress tracking
+        from .processing import finalize_single_documents_batch_with_progress
+        
+        def progress_callback(current, total, message, details=""):
+            """Callback function to update progress"""
+            _export_state.update({
+                'current_document': current,
+                'total_documents': total,
+                'progress': (current / total * 100) if total > 0 else 0,
+                'message': message,
+                'details': details
+            })
+        
+        # Run export with real progress tracking
+        success = finalize_single_documents_batch_with_progress(batch_id, progress_callback)
         
         if success:
             # Update batch status to exported
@@ -2284,15 +2416,33 @@ def finalize_single_documents_batch_action(batch_id):
             from .processing import cleanup_batch_on_completion
             cleanup_batch_on_completion(batch_id, "single_documents_export")
             
-            flash('Single documents batch exported successfully!', 'success')
+            _export_state.update({
+                'complete': True,
+                'success': True,
+                'progress': 100,
+                'message': 'Export completed successfully!',
+                'details': f'All {total_docs} documents have been organized into category folders.',
+                'redirect': '/batch_control'
+            })
         else:
-            flash('Error exporting single documents batch', 'error')
+            _export_state.update({
+                'complete': True,
+                'success': False,
+                'message': 'Export failed - please check logs for details',
+                'details': 'An error occurred during the export process.'
+            })
             
     except Exception as e:
-        logging.error(f"Error finalizing single documents batch {batch_id}: {e}")
-        flash(f'Export failed: {str(e)}', 'error')
-    
-    return redirect(url_for("batch_control_page"))
+        logging.error(f"Error in export process for batch {batch_id}: {e}")
+        _export_state.update({
+            'complete': True,
+            'success': False,
+            'message': f'Export failed: {str(e)}',
+            'details': 'An unexpected error occurred during export.'
+        })
+    finally:
+        # Reset in_progress flag
+        _export_state['in_progress'] = False
 
 
 # --- VIEW EXPORTED DOCUMENTS ROUTES ---
@@ -2427,7 +2577,7 @@ def manipulate_batch_page(batch_id, doc_num=1):
     if request.method == 'POST':
         # Handle form submission for current document
         doc_id = request.form.get('doc_id')
-        action = request.form.get('action', 'save')
+        action = request.form.get('action', 'finish_batch')
         
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -2471,30 +2621,18 @@ def manipulate_batch_page(batch_id, doc_num=1):
         """, (new_category, new_filename, doc_id))
         conn.commit()
         
-        # Get total document count
-        cursor.execute("SELECT COUNT(*) FROM single_documents WHERE batch_id=?", (batch_id,))
-        total_docs = cursor.fetchone()[0]
-        
-        # Determine next action based on button clicked and position
-        if action == 'save_and_next':
-            if doc_num < total_docs:
-                # Move to next document
-                conn.close()
-                return redirect(url_for('manipulate_batch_page', batch_id=batch_id, doc_num=doc_num + 1))
-            else:
-                # Last document - mark batch as manipulated (but keep status as ready_for_manipulation)
-                cursor.execute("UPDATE batches SET has_been_manipulated = 1 WHERE id = ?", (batch_id,))
-                conn.commit()
-                conn.close()
-                flash('All documents reviewed. Ready for export.', 'success')
-                return redirect(url_for('batch_control_page'))
-        elif action == 'save_and_finish':
-            # Mark batch as manipulated (but keep status as ready_for_manipulation)
-            cursor.execute("UPDATE batches SET has_been_manipulated = 1 WHERE id = ?", (batch_id,))
+        # Handle finish_batch and auto_save actions
+        if action == 'finish_batch':
+            cursor.execute("UPDATE batches SET status = 'ready_for_export', has_been_manipulated = 1 WHERE id = ?", (batch_id,))
             conn.commit()
             conn.close()
-            flash('Changes saved. Ready for export.', 'success')
+            flash('All changes saved. Batch ready for export.', 'success')
             return redirect(url_for('batch_control_page'))
+        elif action == 'auto_save':
+            # Auto-save during navigation - just save and return to GET
+            conn.close()
+            # Return a JSON response for AJAX call
+            return {'success': True}
         
         conn.close()
     

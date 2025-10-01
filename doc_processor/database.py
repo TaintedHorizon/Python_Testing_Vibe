@@ -946,8 +946,6 @@ def store_document_tags(document_id, extracted_tags, llm_source='ollama'):
                             # Skip duplicate tags (unique constraint violation)
                             pass
             
-            logging.info(f"🏷️  Stored {tags_stored} tags for document {document_id} in database")
-            
     except sqlite3.Error as e:
         logging.error(f"💥 Database error storing tags for document {document_id}: {e}")
         tags_stored = 0

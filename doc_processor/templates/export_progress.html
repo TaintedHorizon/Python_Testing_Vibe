@@ -1,0 +1,235 @@
+{% extends 'base.html' %}
+
+{% block title %}Export Progress{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>📦 Exporting Documents</h1>
+    
+    <!-- Processing State -->
+    <div id="processing-state" class="alert alert-primary text-center">
+        <div class="spinner-border text-primary mb-3" role="status">
+        </div>
+        <h4>⚙️ Exporting Your Documents...</h4>
+        <p id="processing-message" class="mb-3">Initializing export process...</p>
+        
+        <!-- Progress Bar -->
+        <div class="progress mb-3" style="height: 30px; max-width: 600px; margin: 0 auto;">
+            <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-info" 
+                 role="progressbar" 
+                 style="width: 0%; white-space: nowrap; font-weight: 500; font-size: 14px; line-height: 30px;"
+                 aria-valuenow="0" 
+                 aria-valuemin="0" 
+                 aria-valuemax="100">
+                0 of 0 documents
+            </div>
+        </div>
+        
+        <div id="processing-details" class="text-left" style="max-width: 600px; margin: 0 auto;">
+            <small class="text-muted">Creating category folders, generating markdown files, and organizing documents...</small>
+        </div>
+    </div>
+    
+    <!-- Success State -->
+    <div id="success-state" style="display: none;" class="alert alert-success text-center">
+        <h4>✅ Export Complete!</h4>
+        <p id="success-message">Your documents have been exported successfully to category folders.</p>
+        <a href="/batch_control" class="btn btn-success btn-lg">📋 Back to Batch Control</a>
+    </div>
+    
+    <!-- Error State -->
+    <div id="error-state" style="display: none;" class="alert alert-danger text-center">
+        <h4>❌ Export Failed</h4>
+        <p id="error-message"></p>
+        <div class="mt-3">
+            <a href="/batch_control" class="btn btn-primary">← Back to Batch Control</a>
+        </div>
+    </div>
+    
+    <!-- Navigation (Hidden during processing) -->
+    <div id="navigation-section" class="navigation-footer mt-5 pt-4 border-top" style="display: none;">
+        <div class="row text-center">
+            <div class="col-md-6">
+                <a href="/batch_control" class="btn btn-secondary btn-lg">
+                    📋 Batch Control
+                </a>
+                <p class="text-muted mt-2">Return to main dashboard</p>
+            </div>
+            <div class="col-md-6">
+                <a href="/" class="btn btn-outline-primary btn-lg">
+                    🏠 Home
+                </a>
+                <p class="text-muted mt-2">Back to main menu</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let eventSource;
+let hasCompletedSuccessfully = false;
+let hasTriedReconnect = false;
+
+function startExportProgress() {
+    console.log("Starting export progress monitoring...");
+    
+    // Start Server-Sent Events connection
+    eventSource = new EventSource('/api/export_progress');
+    
+    eventSource.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            console.log("Export progress update:", data);
+            
+            updateProgressDisplay(data);
+            
+            // Check if export is complete
+            if (data.complete) {
+                handleExportComplete(data);
+            }
+        } catch (error) {
+            console.error("Error parsing export progress data:", error);
+        }
+    };
+    
+    eventSource.onerror = function(event) {
+        console.error("Export progress EventSource failed:", event);
+        
+        // Try to reconnect once before showing error
+        if (!hasCompletedSuccessfully && !hasTriedReconnect) {
+            hasTriedReconnect = true;
+            console.log("Attempting to reconnect...");
+            setTimeout(() => {
+                if (!hasCompletedSuccessfully) {
+                    startExportProgress();
+                }
+            }, 2000);
+        } else if (!hasCompletedSuccessfully) {
+            // Only show error if we haven't already completed successfully
+            setTimeout(() => {
+                if (!hasCompletedSuccessfully) {
+                    showError("Connection lost. The export may still be running in the background. Please check the batch control page.");
+                }
+            }, 5000);
+        }
+        
+        if (eventSource) {
+            eventSource.close();
+        }
+    };
+}
+
+function updateProgressDisplay(data) {
+    // Update progress message
+    const messageElement = document.getElementById('processing-message');
+    if (data.message && messageElement) {
+        messageElement.textContent = data.message;
+    }
+    
+    // Update progress bar
+    if (data.progress !== undefined) {
+        const progressBar = document.getElementById('progress-bar');
+        const percentage = Math.round(data.progress);
+        
+        if (progressBar) {
+            progressBar.style.width = percentage + '%';
+            progressBar.setAttribute('aria-valuenow', percentage);
+            
+            // Update progress bar text
+            if (data.current_document !== undefined && data.total_documents !== undefined) {
+                progressBar.textContent = `${data.current_document} of ${data.total_documents} documents`;
+            } else {
+                progressBar.textContent = `${percentage}%`;
+            }
+        }
+    }
+    
+    // Update details
+    const detailsElement = document.getElementById('processing-details');
+    if (data.details && detailsElement) {
+        detailsElement.innerHTML = `<small class="text-muted">${data.details}</small>`;
+    }
+}
+
+function handleExportComplete(data) {
+    hasCompletedSuccessfully = true;
+    
+    if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+    }
+    
+    // Hide processing state
+    const processingState = document.getElementById('processing-state');
+    if (processingState) {
+        processingState.style.display = 'none';
+    }
+    
+    if (data.success) {
+        // Show success state
+        const successState = document.getElementById('success-state');
+        const successMessage = document.getElementById('success-message');
+        
+        if (successState) {
+            successState.style.display = 'block';
+        }
+        
+        if (successMessage && data.message) {
+            successMessage.textContent = data.message;
+        }
+    } else {
+        // Show error state
+        showError(data.message || 'Export failed for unknown reason');
+    }
+    
+    // Show navigation
+    const navigationSection = document.getElementById('navigation-section');
+    if (navigationSection) {
+        navigationSection.style.display = 'block';
+    }
+}
+
+function showError(message) {
+    // Hide processing state
+    const processingState = document.getElementById('processing-state');
+    if (processingState) {
+        processingState.style.display = 'none';
+    }
+    
+    // Show error state
+    const errorState = document.getElementById('error-state');
+    const errorMessage = document.getElementById('error-message');
+    
+    if (errorState) {
+        errorState.style.display = 'block';
+    }
+    
+    if (errorMessage) {
+        errorMessage.textContent = message;
+    }
+    
+    // Show navigation
+    const navigationSection = document.getElementById('navigation-section');
+    if (navigationSection) {
+        navigationSection.style.display = 'block';
+    }
+    
+    if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+    }
+}
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    if (eventSource) {
+        eventSource.close();
+    }
+});
+
+// Start progress monitoring when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    startExportProgress();
+});
+</script>
+{% endblock %}
