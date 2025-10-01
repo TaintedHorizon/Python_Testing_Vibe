@@ -2416,75 +2416,140 @@ def download_export_file(filepath):
     return send_from_directory(directory, filename, as_attachment=True)
 
 
-@app.route('/batch/<int:batch_id>/manipulate', methods=['GET', 'POST'])
-def manipulate_batch_page(batch_id):
+@app.route('/batch/<int:batch_id>/manipulate', methods=['GET'])
+@app.route('/batch/<int:batch_id>/manipulate/<int:doc_num>', methods=['GET', 'POST'])
+def manipulate_batch_page(batch_id, doc_num=1):
     """
     Manipulate stage for single document workflow: edit AI category/filename suggestions.
+    Single document per page with pagination, following verify.html design pattern.
     """
-    import json
     
     if request.method == 'POST':
-        # Save edits for each document
+        # Handle form submission for current document
+        doc_id = request.form.get('doc_id')
+        action = request.form.get('action', 'save')
+        
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM single_documents WHERE batch_id=?", (batch_id,))
-        doc_ids = [row[0] for row in cursor.fetchall()]
-        for doc_id in doc_ids:
-            # Handle category selection (same logic as verify workflow)
-            category_dropdown = request.form.get(f'category_dropdown_{doc_id}')
-            if category_dropdown == 'other_new':
-                new_category = request.form.get(f'other_category_{doc_id}', '').strip()
-            elif category_dropdown:
-                new_category = category_dropdown
-            else:
-                # No selection made, keep AI suggestion
-                cursor.execute("SELECT ai_suggested_category FROM single_documents WHERE id=?", (doc_id,))
-                new_category = cursor.fetchone()[0]
-            
-            # Handle filename selection
-            filename_choice = request.form.get(f'filename_choice_{doc_id}')
-            if filename_choice == 'custom':
-                new_filename = request.form.get(f'custom_filename_{doc_id}', '').strip()
-            elif filename_choice == 'original':
-                cursor.execute("SELECT original_filename FROM single_documents WHERE id=?", (doc_id,))
-                original = cursor.fetchone()[0]
-                # Remove extension and use as base filename
+        
+        # Handle category selection
+        category_dropdown = request.form.get('category_dropdown')
+        if category_dropdown == 'other_new':
+            new_category = request.form.get('other_category', '').strip()
+        elif category_dropdown:
+            new_category = category_dropdown
+        else:
+            # No selection made, keep AI suggestion
+            cursor.execute("SELECT ai_suggested_category FROM single_documents WHERE id=?", (doc_id,))
+            result = cursor.fetchone()
+            new_category = result[0] if result else None
+        
+        # Handle filename selection
+        filename_choice = request.form.get('filename_choice')
+        if filename_choice == 'custom':
+            new_filename = request.form.get('custom_filename', '').strip()
+        elif filename_choice == 'original':
+            cursor.execute("SELECT original_filename FROM single_documents WHERE id=?", (doc_id,))
+            result = cursor.fetchone()
+            if result:
+                original = result[0]
                 new_filename = original.rsplit('.', 1)[0] if '.' in original else original
             else:
-                # Use AI suggested filename
-                cursor.execute("SELECT ai_suggested_filename FROM single_documents WHERE id=?", (doc_id,))
-                new_filename = cursor.fetchone()[0]
-            
-            cursor.execute("""
-                UPDATE single_documents SET
-                    final_category=?,
-                    final_filename=?
-                WHERE id=?
-            """, (new_category, new_filename, doc_id))
+                new_filename = 'Unknown'
+        else:
+            # Use AI suggested filename
+            cursor.execute("SELECT ai_suggested_filename FROM single_documents WHERE id=?", (doc_id,))
+            result = cursor.fetchone()
+            new_filename = result[0] if result else None
+        
+        # Update the document
+        cursor.execute("""
+            UPDATE single_documents SET
+                final_category=?,
+                final_filename=?
+            WHERE id=?
+        """, (new_category, new_filename, doc_id))
         conn.commit()
         
-        # Update batch status to ready for export
-        cursor.execute("UPDATE batches SET status = 'ready_for_export' WHERE id = ?", (batch_id,))
-        conn.commit()
+        # Get total document count
+        cursor.execute("SELECT COUNT(*) FROM single_documents WHERE batch_id=?", (batch_id,))
+        total_docs = cursor.fetchone()[0]
+        
+        # Determine next action based on button clicked and position
+        if action == 'save_and_next':
+            if doc_num < total_docs:
+                # Move to next document
+                conn.close()
+                return redirect(url_for('manipulate_batch_page', batch_id=batch_id, doc_num=doc_num + 1))
+            else:
+                # Last document - mark batch as ready for export
+                cursor.execute("UPDATE batches SET status = 'ready_for_export' WHERE id = ?", (batch_id,))
+                conn.commit()
+                conn.close()
+                flash('All documents processed. Batch ready for export.', 'success')
+                return redirect(url_for('batch_control_page'))
+        elif action == 'save_and_finish':
+            # Mark batch as ready for export regardless of position
+            cursor.execute("UPDATE batches SET status = 'ready_for_export' WHERE id = ?", (batch_id,))
+            conn.commit()
+            conn.close()
+            flash('Changes saved. Batch ready for export.', 'success')
+            return redirect(url_for('batch_control_page'))
+        
         conn.close()
-        flash('Changes saved successfully. Ready for export.', 'success')
-        return redirect(url_for('batch_control_page'))
-
-    # GET: Show documents for manipulation
+    
+    # GET: Show single document for manipulation
     conn = get_db_connection()
     cursor = conn.cursor()
+    
+    # Get all documents in batch
     cursor.execute("""
-        SELECT id, original_filename, ai_suggested_category, ai_suggested_filename, ai_confidence, ai_summary, ocr_text, ocr_confidence_avg
-        FROM single_documents WHERE batch_id=?
+        SELECT id, original_filename, ai_suggested_category, ai_suggested_filename, 
+               ai_confidence, ai_summary, ocr_text, ocr_confidence_avg, original_pdf_path
+        FROM single_documents 
+        WHERE batch_id=? 
+        ORDER BY id
     """, (batch_id,))
-    documents = [dict(zip(['id', 'original_filename', 'ai_suggested_category', 'ai_suggested_filename', 'ai_confidence', 'ai_summary', 'ocr_text', 'ocr_confidence_avg'], row)) for row in cursor.fetchall()]
+    all_docs = cursor.fetchall()
+    
+    if not all_docs:
+        conn.close()
+        flash('No documents found in this batch.', 'error')
+        return redirect(url_for('batch_control_page'))
+    
+    total_docs = len(all_docs)
+    
+    # Validate doc_num
+    if doc_num < 1 or doc_num > total_docs:
+        conn.close()
+        return redirect(url_for('manipulate_batch_page', batch_id=batch_id, doc_num=1))
+    
+    # Get current document (0-indexed)
+    current_doc_data = all_docs[doc_num - 1]
+    current_doc = {
+        'id': current_doc_data[0],
+        'original_filename': current_doc_data[1],
+        'ai_suggested_category': current_doc_data[2],
+        'ai_suggested_filename': current_doc_data[3],
+        'ai_confidence': current_doc_data[4],
+        'ai_summary': current_doc_data[5],
+        'ocr_text': current_doc_data[6],
+        'ocr_confidence_avg': current_doc_data[7],
+        'original_pdf_path': current_doc_data[8]
+    }
+    
     conn.close()
     
-    # Get categories for dropdown (same as verify workflow)
+    # Get categories for dropdown
     from .database import get_active_categories
     categories = get_active_categories()
     
-    return render_template('manipulate.html', batch_id=batch_id, documents=documents, categories=categories)
+    return render_template('manipulate.html', 
+                         batch_id=batch_id,
+                         current_doc=current_doc,
+                         current_doc_num=doc_num,
+                         total_docs=total_docs,
+                         categories=categories)
 
 
 @app.route("/api/rotate_document/<int:doc_id>", methods=['POST'])
