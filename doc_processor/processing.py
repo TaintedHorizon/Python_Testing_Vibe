@@ -35,6 +35,130 @@ def safe_move(src, dst):
             except:
                 pass
         raise OSError(f"Safe move failed from {src} to {dst}: {e}")
+
+# --- IMAGE TO PDF CONVERSION ---
+def convert_image_to_pdf(image_path: str, output_pdf_path: str) -> str:
+    """
+    Convert an image file (PNG, JPG, JPEG) to PDF format.
+    
+    Args:
+        image_path: Path to the source image file
+        output_pdf_path: Path where the converted PDF will be saved
+        
+    Returns:
+        str: Path to the created PDF file
+        
+    Raises:
+        FileProcessingError: If conversion fails
+    """
+    try:
+        # Validate input file
+        if not os.path.exists(image_path):
+            raise FileProcessingError(f"Image file does not exist: {image_path}")
+        
+        # Check if it's a supported image format
+        supported_formats = ['.png', '.jpg', '.jpeg']
+        file_ext = os.path.splitext(image_path)[1].lower()
+        if file_ext not in supported_formats:
+            raise FileProcessingError(f"Unsupported image format: {file_ext}")
+        
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output_pdf_path), exist_ok=True)
+        
+        logging.info(f"Converting image to PDF: {os.path.basename(image_path)} -> {os.path.basename(output_pdf_path)}")
+        
+        # Open and process the image
+        with Image.open(image_path) as img:
+            # Convert to RGB if necessary (required for PDF)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Save as PDF
+            img.save(output_pdf_path, "PDF", resolution=150.0)
+        
+        # Verify the PDF was created successfully
+        if not os.path.exists(output_pdf_path):
+            raise FileProcessingError(f"PDF conversion failed - output file not created: {output_pdf_path}")
+        
+        # Verify it's a valid PDF by trying to open it
+        try:
+            with fitz.open(output_pdf_path) as doc:
+                if len(doc) == 0:
+                    raise FileProcessingError("Converted PDF has no pages")
+        except Exception as pdf_error:
+            raise FileProcessingError(f"Converted PDF is invalid: {pdf_error}")
+        
+        logging.info(f"✅ Successfully converted image to PDF: {os.path.basename(output_pdf_path)}")
+        return output_pdf_path
+        
+    except Exception as e:
+        # Clean up any partial output
+        if os.path.exists(output_pdf_path):
+            try:
+                os.remove(output_pdf_path)
+            except:
+                pass
+        
+        error_msg = f"Failed to convert image {image_path} to PDF: {e}"
+        logging.error(error_msg)
+        raise FileProcessingError(error_msg)
+
+def process_image_file(image_path: str, batch_id: int) -> str:
+    """
+    Process an image file by converting it to PDF and moving it to the batch directory.
+    
+    Args:
+        image_path: Path to the source image file
+        batch_id: ID of the batch to process the image into
+        
+    Returns:
+        str: Path to the processed PDF file in the batch directory
+        
+    Raises:
+        FileProcessingError: If processing fails
+    """
+    try:
+        # Generate output filename (replace image extension with .pdf)
+        filename_base = os.path.splitext(os.path.basename(image_path))[0]
+        pdf_filename = f"{filename_base}.pdf"
+        
+        # Create batch directory structure
+        batch_dir = os.path.join(app_config.WIP_DIR, str(batch_id))
+        original_pdfs_dir = os.path.join(batch_dir, "original_pdfs")
+        os.makedirs(original_pdfs_dir, exist_ok=True)
+        
+        # Convert image to PDF in the batch directory
+        output_pdf_path = os.path.join(original_pdfs_dir, pdf_filename)
+        convert_image_to_pdf(image_path, output_pdf_path)
+        
+        # Archive the original image file
+        archive_dir = os.path.join(app_config.ARCHIVE_DIR, f"batch_{batch_id}_images")
+        os.makedirs(archive_dir, exist_ok=True)
+        
+        archived_image_path = os.path.join(archive_dir, os.path.basename(image_path))
+        safe_move(image_path, archived_image_path)
+        
+        logging.info(f"✅ Processed image file: {os.path.basename(image_path)} -> {pdf_filename} (archived to {archive_dir})")
+        return output_pdf_path
+        
+    except Exception as e:
+        error_msg = f"Failed to process image file {image_path}: {e}"
+        logging.error(error_msg)
+        raise FileProcessingError(error_msg)
+
+def is_image_file(file_path: str) -> bool:
+    """
+    Check if a file is a supported image format.
+    
+    Args:
+        file_path: Path to the file to check
+        
+    Returns:
+        bool: True if the file is a supported image format
+    """
+    supported_extensions = ['.png', '.jpg', '.jpeg']
+    file_ext = os.path.splitext(file_path)[1].lower()
+    return file_ext in supported_extensions
 """
 This module handles the core backend logic for the document processing pipeline.
 It includes functions for:
@@ -997,6 +1121,32 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                     base_name = os.path.splitext(filename)[0]
                     logging.info(f"Processing {filename} with improved single document workflow...")
                     
+                    # Handle image files - convert to PDF first
+                    if is_image_file(analysis.file_path):
+                        logging.info(f"Converting image file {filename} to PDF...")
+                        # Convert image to PDF in batch directory
+                        batch_wip_dir = os.path.join(app_config.WIP_DIR, str(batch_id))
+                        original_pdfs_dir = os.path.join(batch_wip_dir, "original_pdfs")
+                        os.makedirs(original_pdfs_dir, exist_ok=True)
+                        
+                        converted_pdf_path = os.path.join(original_pdfs_dir, f"{base_name}.pdf")
+                        convert_image_to_pdf(analysis.file_path, converted_pdf_path)
+                        
+                        # Archive the original image
+                        archive_dir = os.path.join(app_config.ARCHIVE_DIR, f"batch_{batch_id}_images")
+                        os.makedirs(archive_dir, exist_ok=True)
+                        archived_image_path = os.path.join(archive_dir, filename)
+                        safe_move(analysis.file_path, archived_image_path)
+                        
+                        # Use the converted PDF for further processing
+                        pdf_path_for_processing = converted_pdf_path
+                        pdf_filename = f"{base_name}.pdf"
+                        logging.info(f"✓ Converted {filename} to {pdf_filename}")
+                    else:
+                        # Regular PDF file
+                        pdf_path_for_processing = analysis.file_path
+                        pdf_filename = filename
+                    
                     # Step 1: Insert document first with basic info (no OCR yet)
                     cursor.execute("""
                         INSERT INTO single_documents (
@@ -1004,7 +1154,7 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                             page_count, file_size_bytes, status
                         ) VALUES (?, ?, ?, ?, ?, ?)
                     """, (
-                        batch_id, filename, analysis.file_path,
+                        batch_id, pdf_filename, pdf_path_for_processing,
                         analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
                         "processing"
                     ))
@@ -1014,7 +1164,7 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                     # Step 2: Create searchable PDF with OCR (with caching)
                     searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
                     ocr_text, ocr_confidence, ocr_status = create_searchable_pdf(
-                        analysis.file_path, searchable_pdf_path, doc_id
+                        pdf_path_for_processing, searchable_pdf_path, doc_id
                     )
                     
                     if ocr_status != "success" and not ocr_status.startswith("success"):
@@ -1123,6 +1273,44 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                     
                     logging.info(f"Processing {filename} with improved single document workflow...")
                     
+                    # Handle image files - convert to PDF first
+                    if is_image_file(analysis.file_path):
+                        logging.info(f"Converting image file {filename} to PDF...")
+                        yield {
+                            'message': f'Converting image {filename} to PDF...',
+                            'document_number': i,
+                            'total_documents': len(single_docs)
+                        }
+                        
+                        # Convert image to PDF in batch directory
+                        batch_wip_dir = os.path.join(app_config.WIP_DIR, str(batch_id))
+                        original_pdfs_dir = os.path.join(batch_wip_dir, "original_pdfs")
+                        os.makedirs(original_pdfs_dir, exist_ok=True)
+                        
+                        converted_pdf_path = os.path.join(original_pdfs_dir, f"{base_name}.pdf")
+                        convert_image_to_pdf(analysis.file_path, converted_pdf_path)
+                        
+                        # Archive the original image
+                        archive_dir = os.path.join(app_config.ARCHIVE_DIR, f"batch_{batch_id}_images")
+                        os.makedirs(archive_dir, exist_ok=True)
+                        archived_image_path = os.path.join(archive_dir, filename)
+                        safe_move(analysis.file_path, archived_image_path)
+                        
+                        # Use the converted PDF for further processing
+                        pdf_path_for_processing = converted_pdf_path
+                        pdf_filename = f"{base_name}.pdf"
+                        logging.info(f"✓ Converted {filename} to {pdf_filename}")
+                        
+                        yield {
+                            'message': f'✓ Converted {filename} to PDF',
+                            'document_number': i,
+                            'total_documents': len(single_docs)
+                        }
+                    else:
+                        # Regular PDF file
+                        pdf_path_for_processing = analysis.file_path
+                        pdf_filename = filename
+                    
                     # Step 1: Insert document first with basic info (no OCR yet)
                     cursor.execute("""
                         INSERT INTO single_documents (
@@ -1130,7 +1318,7 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                             page_count, file_size_bytes, status
                         ) VALUES (?, ?, ?, ?, ?, ?)
                     """, (
-                        batch_id, filename, analysis.file_path,
+                        batch_id, pdf_filename, pdf_path_for_processing,
                         analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
                         "processing"
                     ))
@@ -1140,7 +1328,7 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                     # Step 2: Create searchable PDF with OCR (with caching)
                     searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
                     ocr_text, ocr_confidence, ocr_status = create_searchable_pdf(
-                        analysis.file_path, searchable_pdf_path, doc_id
+                        pdf_path_for_processing, searchable_pdf_path, doc_id
                     )
                     
                     if ocr_status != "success" and not ocr_status.startswith("success"):

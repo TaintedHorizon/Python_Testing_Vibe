@@ -366,7 +366,7 @@ class DocumentTypeDetector:
     
     def analyze_intake_directory(self, intake_dir: str) -> List[DocumentAnalysis]:
         """
-        Analyze all PDFs in intake directory and return processing strategies.
+        Analyze all supported files (PDFs and images) in intake directory and return processing strategies.
         
         Returns list of DocumentAnalysis objects for preview/confirmation.
         """
@@ -374,17 +374,24 @@ class DocumentTypeDetector:
             self.logger.error(f"Intake directory does not exist: {intake_dir}")
             return []
         
-        pdf_files = [
-            os.path.join(intake_dir, f) 
-            for f in os.listdir(intake_dir) 
-            if f.lower().endswith('.pdf')
-        ]
+        # Supported file extensions
+        supported_extensions = ['.pdf', '.png', '.jpg', '.jpeg']
         
-        self.logger.info(f"Found {len(pdf_files)} PDF files in {intake_dir}")
+        supported_files = []
+        for f in os.listdir(intake_dir):
+            file_ext = os.path.splitext(f)[1].lower()
+            if file_ext in supported_extensions:
+                supported_files.append(os.path.join(intake_dir, f))
+        
+        self.logger.info(f"Found {len(supported_files)} supported files in {intake_dir}")
         
         analyses = []
-        for pdf_file in pdf_files:
-            analysis = self.analyze_pdf(pdf_file)
+        for file_path in supported_files:
+            if file_path.lower().endswith('.pdf'):
+                analysis = self.analyze_pdf(file_path)
+            else:
+                # For image files, analyze as converted PDF
+                analysis = self.analyze_image_file(file_path)
             analyses.append(analysis)
         
         # Summary logging
@@ -394,6 +401,127 @@ class DocumentTypeDetector:
         self.logger.info(f"Analysis complete: {single_count} single documents, {batch_count} batch scans")
         
         return analyses
+    
+    def analyze_image_file(self, file_path: str) -> DocumentAnalysis:
+        """
+        Analyze an image file (PNG, JPG, JPEG) for processing strategy.
+        
+        Images are typically single documents, but we'll apply similar logic
+        based on file size and filename patterns.
+        """
+        self.logger.info(f"Analyzing image file: {file_path}")
+        
+        reasoning = []
+        confidence = 0.8  # Images are usually single documents
+        strategy = "single_document"  # Default for images
+        
+        try:
+            # Basic file analysis
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            filename = Path(file_path).stem.lower()
+            
+            # For images, we can't easily get "page count", so we'll use 1
+            page_count = 1
+            
+            reasoning.append(f"Image file: {file_size_mb:.1f}MB, treating as single page")
+            
+            # Apply similar filename analysis as PDFs
+            filename_hint = self._analyze_filename(filename)
+            if filename_hint == "batch":
+                strategy = "batch_scan"
+                confidence = 0.6
+                reasoning.append("Filename pattern suggests batch scan despite being image")
+            elif filename_hint == "single":
+                confidence = 0.9
+                reasoning.append("Filename pattern confirms single document")
+            else:
+                reasoning.append("No clear filename hints, defaulting to single document for image")
+            
+            # Large images might be scanned documents
+            if file_size_mb > 10:  # Large image files
+                if filename_hint != "single":
+                    strategy = "batch_scan"
+                    confidence = 0.7
+                    reasoning.append("Large image file suggests possible batch scan")
+            
+            # Try to extract text for LLM analysis if enabled
+            content_sample = ""
+            if self.use_llm_for_ambiguous:
+                try:
+                    import pytesseract
+                    from PIL import Image
+                    from .config_manager import app_config
+                    
+                    if not app_config.DEBUG_SKIP_OCR:
+                        self.logger.info(f"Extracting text from image for LLM analysis: {os.path.basename(file_path)}")
+                        with Image.open(file_path) as img:
+                            # Convert to RGB if necessary
+                            if img.mode != 'RGB':
+                                img = img.convert('RGB')
+                            content_sample = pytesseract.image_to_string(img)
+                            if content_sample and len(content_sample.strip()) > 50:
+                                self.logger.info(f"Extracted {len(content_sample)} characters from image")
+                                reasoning.append("Successfully extracted text from image for analysis")
+                            else:
+                                self.logger.debug(f"Minimal text extracted from image")
+                                reasoning.append("Limited text extracted from image")
+                    else:
+                        content_sample = "[DEBUG MODE - Sample content for image file]"
+                        reasoning.append("DEBUG mode - skipped OCR")
+                        
+                except Exception as ocr_error:
+                    self.logger.warning(f"Failed to extract text from image {file_path}: {ocr_error}")
+                    reasoning.append(f"Text extraction failed: {str(ocr_error)}")
+            
+            # LLM analysis for images (if content available)
+            llm_analysis = None
+            if self.use_llm_for_ambiguous and content_sample.strip():
+                self.logger.info(f"🤖 Starting LLM analysis for image {os.path.basename(file_path)}")
+                try:
+                    llm_analysis = get_ai_document_type_analysis(
+                        file_path, content_sample, os.path.basename(file_path), page_count, file_size_mb
+                    )
+                    if llm_analysis:
+                        llm_strategy = llm_analysis.get('classification')
+                        llm_confidence = llm_analysis.get('confidence', 50)
+                        llm_reasoning = llm_analysis.get('reasoning', '')
+                        self.logger.info(f"✅ LLM analysis for image: {llm_strategy} ({llm_confidence}%)")
+                        reasoning.append(f"🤖 LLM ANALYSIS: {llm_strategy} (confidence: {llm_confidence}%) - {llm_reasoning}")
+                        
+                        # Apply LLM result if confident
+                        if llm_confidence >= 70:
+                            strategy = llm_strategy
+                            confidence = llm_confidence / 100.0
+                            self.logger.info(f"🎯 LLM override for image: {os.path.basename(file_path)} -> {llm_strategy}")
+                        
+                except Exception as llm_e:
+                    self.logger.error(f"💥 LLM analysis failed for image {file_path}: {llm_e}")
+                    reasoning.append(f"🤖 LLM ANALYSIS: Failed - {str(llm_e)}")
+            
+            result = DocumentAnalysis(
+                file_path=file_path,
+                file_size_mb=file_size_mb,
+                page_count=page_count,
+                processing_strategy=strategy,
+                confidence=confidence,
+                reasoning=reasoning,
+                filename_hints=filename_hint,
+                content_sample=content_sample[:200] if content_sample else None,
+                llm_analysis=llm_analysis
+            )
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Error analyzing image {file_path}: {e}")
+            return DocumentAnalysis(
+                file_path=file_path,
+                file_size_mb=0,
+                page_count=1,
+                processing_strategy="single_document",  # Safe default for images
+                confidence=0.5,
+                reasoning=[f"Analysis error: {e}", "Defaulting to single document for image file"]
+            )
 
 def get_detector(use_llm_for_ambiguous: bool = True) -> DocumentTypeDetector:
     """

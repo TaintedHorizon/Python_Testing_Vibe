@@ -125,7 +125,8 @@ from flask import (
     jsonify,
     abort,
     flash,
-    session
+    session,
+    Response
 )
 
 # Local application imports
@@ -197,7 +198,8 @@ def fetch_all_categories(include_inactive=True, sort="name"):
 def add_category(name, notes=None):
     if not name:
         return False, "Name required"
-    conn = get_db_connection()
+        session,
+        Response
     try:
         conn.execute("INSERT INTO categories (name, is_active, notes) VALUES (?, 1, ?)", (name.strip(), notes))
         cat_id = conn.execute("SELECT id FROM categories WHERE name = ?", (name.strip(),)).fetchone()["id"]
@@ -495,34 +497,38 @@ def analyze_intake_progress():
                 yield f"data: {json.dumps({'error': f'Intake directory does not exist: {intake_dir}'})}\n\n"
                 return
                 
-            pdf_files = [
-                os.path.join(intake_dir, f) 
-                for f in os.listdir(intake_dir) 
-                if f.lower().endswith('.pdf')
-            ]
+            # Check for supported files (PDFs and images)
+            supported_files = []
+            for f in os.listdir(intake_dir):
+                file_ext = os.path.splitext(f)[1].lower()
+                if file_ext in ['.pdf', '.png', '.jpg', '.jpeg']:
+                    supported_files.append(os.path.join(intake_dir, f))
             
-            total_files = len(pdf_files)
+            total_files = len(supported_files)
             
             if total_files == 0:
                 yield f"data: {json.dumps({'complete': True, 'analyses': [], 'total': 0, 'single_count': 0, 'batch_count': 0, 'success': True})}\n\n"
                 return
             
             # Send initial progress
-            logging.info(f"Starting SSE analysis for {total_files} PDF files")
-            yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'current_file': None, 'message': f'Found {total_files} PDF files to analyze...'})}\n\n"
+            logging.info(f"Starting SSE analysis for {total_files} files (PDFs and images)")
+            yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'current_file': None, 'message': f'Found {total_files} files to analyze...'})}\n\n"
             
             analyses = []
             single_count = 0
             batch_count = 0
             
-            for i, pdf_file in enumerate(pdf_files):
-                filename = os.path.basename(pdf_file)
+            for i, file_path in enumerate(supported_files):
+                filename = os.path.basename(file_path)
                 
                 # Send progress update for current file
                 yield f"data: {json.dumps({'progress': i, 'total': total_files, 'current_file': filename, 'message': f'Analyzing {filename}...'})}\n\n"
                 
-                # Analyze the file
-                analysis = detector.analyze_pdf(pdf_file)
+                # Analyze the file (PDF or image)
+                if file_path.lower().endswith('.pdf'):
+                    analysis = detector.analyze_pdf(file_path)
+                else:
+                    analysis = detector.analyze_image_file(file_path)
                 
                 # Prepare analysis data
                 analysis_data = {
@@ -776,14 +782,15 @@ def api_smart_processing_progress():
                 yield f"data: {json.dumps({'complete': True, 'success': False, 'error': f'Intake directory does not exist: {intake_dir}'})}\n\n"
                 return
 
-            pdf_files = [
-                _os.path.join(intake_dir, f)
-                for f in _os.listdir(intake_dir)
-                if f.lower().endswith('.pdf')
-            ]
+            # Get all supported files (PDFs and images)
+            supported_files = []
+            for f in _os.listdir(intake_dir):
+                file_ext = _os.path.splitext(f)[1].lower()
+                if file_ext in ['.pdf', '.png', '.jpg', '.jpeg']:
+                    supported_files.append(_os.path.join(intake_dir, f))
 
-            total_files = len(pdf_files)
-            logging.info(f"[SMART SSE] Found {total_files} PDF files in intake directory.")
+            total_files = len(supported_files)
+            logging.info(f"[SMART SSE] Found {total_files} supported files in intake directory.")
             if total_files == 0:
                 logging.warning("[SMART SSE] No files to process in intake directory.")
                 yield f"data: {json.dumps({'complete': True, 'success': True, 'message': 'No files to process', 'redirect': '/batch_control'})}\n\n"
@@ -820,7 +827,7 @@ def api_smart_processing_progress():
                 else:
                     cached_analyses = {}
                 
-                for path in pdf_files:
+                for path in supported_files:
                     analysis = cached_analyses.get(path)
                     if analysis:
                         analyses.append(analysis)
@@ -842,7 +849,7 @@ def api_smart_processing_progress():
                 last_progress_time = time.time()
                 
                 detector = get_detector(use_llm_for_ambiguous=True)
-                for i, path in enumerate(pdf_files, start=1):
+                for i, path in enumerate(supported_files, start=1):
                     fname = _os.path.basename(path)
                     logging.info(f"[SMART SSE] Fresh analysis starting for: {fname}")
                     yield f"data: {json.dumps({'progress': i-1, 'total': total_files, 'message': f'Analyzing: {fname}', 'current_file': fname})}\n\n"
@@ -1104,15 +1111,21 @@ def api_smart_processing_start():
             cleanup_old_archives()
             import os as _os
             
-            # Get files to process
+            # Get files to process (PDFs and images)
             intake_dir = app_config.INTAKE_DIR
-            pdf_files = [f for f in _os.listdir(intake_dir) if f.lower().endswith('.pdf')]
-            pdf_files.sort()
+            supported_extensions = ['.pdf', '.png', '.jpg', '.jpeg']
             
-            _processing_state['total'] = len(pdf_files)
-            _processing_state['message'] = f'Found {len(pdf_files)} files to process'
+            supported_files = []
+            for f in _os.listdir(intake_dir):
+                file_ext = _os.path.splitext(f)[1].lower()
+                if file_ext in supported_extensions:
+                    supported_files.append(f)
+            supported_files.sort()
             
-            if len(pdf_files) == 0:
+            _processing_state['total'] = len(supported_files)
+            _processing_state['message'] = f'Found {len(supported_files)} files to process (PDFs and images)'
+            
+            if len(supported_files) == 0:
                 _processing_state['complete'] = True
                 _processing_state['success'] = True
                 _processing_state['message'] = 'No files to process'
@@ -1147,7 +1160,7 @@ def api_smart_processing_start():
             single_documents = []
             batch_scan_documents = []
             
-            for i, filename in enumerate(pdf_files):
+            for i, filename in enumerate(supported_files):
                 _processing_state['progress'] = i
                 _processing_state['message'] = f'Analyzing {filename}...'
                 
@@ -1197,15 +1210,15 @@ def api_smart_processing_start():
                     _processing_state['message'] = f'✗ Failed {filename}: {str(e)}'
             
             # Complete
-            _processing_state['progress'] = len(pdf_files)
+            _processing_state['progress'] = len(supported_files)
             _processing_state['complete'] = True
             _processing_state['success'] = True
             if batches_created > 0:
-                _processing_state['message'] = f'Successfully created {batches_created} batch(es) from {len(pdf_files)} files!'
-                logging.info(f"Smart processing complete: Created {batches_created} batches from {len(pdf_files)} files")
+                _processing_state['message'] = f'Successfully created {batches_created} batch(es) from {len(supported_files)} files!'
+                logging.info(f"Smart processing complete: Created {batches_created} batches from {len(supported_files)} files")
             else:
                 _processing_state['message'] = 'Processing complete, but no batches were created'
-                logging.warning(f"Smart processing complete but no batches created from {len(pdf_files)} files")
+                logging.warning(f"Smart processing complete but no batches created from {len(supported_files)} files")
             _processing_state['redirect'] = '/batch_control'
             
         except Exception as e:
@@ -1270,13 +1283,14 @@ def api_smart_processing_progress_with_strategy(force_strategy=None):
                 yield f"data: {json.dumps({'complete': True, 'success': False, 'error': f'Intake directory does not exist: {intake_dir}'})}\n\n"
                 return
 
-            pdf_files = [
-                _os.path.join(intake_dir, f)
-                for f in _os.listdir(intake_dir)
-                if f.lower().endswith('.pdf')
-            ]
+            # Get all supported files (PDFs and images)
+            supported_files = []
+            for f in _os.listdir(intake_dir):
+                file_ext = _os.path.splitext(f)[1].lower()
+                if file_ext in ['.pdf', '.png', '.jpg', '.jpeg']:
+                    supported_files.append(_os.path.join(intake_dir, f))
 
-            total_files = len(pdf_files)
+            total_files = len(supported_files)
             logging.info(f"[SSE] Found {total_files} PDF files for {strategy_name} processing.")
             
             if total_files == 0:
@@ -1289,7 +1303,7 @@ def api_smart_processing_progress_with_strategy(force_strategy=None):
             if force_strategy:
                 # Force all files to use the specified strategy
                 from .document_detector import DocumentAnalysis
-                for path in pdf_files:
+                for path in supported_files:
                     filename = _os.path.basename(path)
                     analyses.append(DocumentAnalysis(
                         file_path=path,
@@ -2179,25 +2193,56 @@ def serve_original_pdf(filename):
     if not intake_dir or not os.path.isdir(intake_dir):
         abort(500, "Intake directory not configured")
     
-    # Validate the requested filename - must be a PDF and no path traversal
+    # Validate the requested filename - must be a supported file type and no path traversal
     if not validate_path(filename):
         abort(400, "Invalid file path")
     
-    if not filename.lower().endswith('.pdf'):
-        abort(400, "Only PDF files are allowed")
+    # Allow PDFs and images for preview
+    file_ext = os.path.splitext(filename)[1].lower()
+    if file_ext not in ['.pdf', '.png', '.jpg', '.jpeg']:
+        abort(400, "Only PDF and image files are allowed")
     
     # Check if file exists in intake directory
     full_path = os.path.join(intake_dir, filename)
-    if not os.path.isfile(full_path):
-        abort(404, "PDF file not found")
+        if not os.path.isfile(full_path):
+            abort(404, "File not found")
     
-    # Serve the PDF file with appropriate headers for viewing
-    return send_from_directory(
-        intake_dir, 
-        filename, 
-        mimetype='application/pdf',
-        as_attachment=False  # Don't force download, allow inline viewing
-    )
+        # Handle PDF files directly
+        if file_ext == '.pdf':
+            return send_from_directory(
+                intake_dir, 
+                filename, 
+                mimetype='application/pdf',
+                as_attachment=False  # Don't force download, allow inline viewing
+            )
+    
+        # Handle image files - convert to PDF for preview
+        else:
+            try:
+                from .processing import convert_image_to_pdf
+                import tempfile
+            
+                # Create temporary PDF for preview
+                with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_pdf:
+                    convert_image_to_pdf(full_path, temp_pdf.name)
+                
+                    # Read the PDF data
+                    with open(temp_pdf.name, 'rb') as pdf_file:
+                        pdf_data = pdf_file.read()
+                
+                    # Clean up the temporary file
+                    os.unlink(temp_pdf.name)
+                
+                    # Return the PDF data
+                    return Response(
+                        pdf_data,
+                        mimetype='application/pdf',
+                        headers={'Content-Disposition': f'inline; filename="{os.path.splitext(filename)[0]}.pdf"'}
+                    )
+                
+            except Exception as e:
+                logging.error(f"Failed to convert image {filename} for preview: {e}")
+                abort(500, "Failed to generate preview")
 
 
 # --- FINALIZATION AND EXPORT ROUTES ---
