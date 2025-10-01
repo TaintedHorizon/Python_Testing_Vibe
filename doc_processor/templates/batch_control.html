@@ -3,12 +3,7 @@
 {% block title %}Batch Control{% endblock %}
 
 {% block content %}
-<                {% elif batch.status == 'ready_for_export' %}
-                    <form action="{{ url_for('finalize_single_documents_batch_action', batch_id=batch.id) }}" method="post" style="display:inline;">
-                        <button type="submit" class="action-btn btn-group" id="export-btn-{{ batch.id }}">🎯 Export Single Documents</button>
-                    </form>
-                    <a href="{{ url_for('manipulate_batch_page', batch_id=batch.id) }}" class="action-btn btn-secondary">✏️ Edit Again</a>
-                    <a href="{{ url_for('view_documents_page', batch_id=batch.id) }}" class="action-btn btn-view-docs">📄 View PDFs</a>
+<style>
     /* General table styling */
     .history-table { width: 100%; border-collapse: collapse; margin-top: 20px; background-color: white; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
     .history-table th, .history-table td { border: 1px solid #ddd; padding: 12px; text-align: left; vertical-align: middle; }
