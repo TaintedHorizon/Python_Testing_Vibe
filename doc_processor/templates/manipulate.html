@@ -67,7 +67,7 @@
         border-radius: 4px;
         cursor: pointer;
     }
-    .btn-rescan {
+    .btn-rescan-llm {
         background: #28a745;
         color: white;
         border: none;
@@ -77,10 +77,27 @@
         font-size: 0.9em;
         white-space: nowrap;
     }
-    .btn-rescan:hover {
+    .btn-rescan-llm:hover {
         background: #218838;
     }
-    .btn-rescan:disabled {
+    .btn-rescan-llm:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
+    }
+    .btn-rescan-ocr {
+        background: #17a2b8;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9em;
+        white-space: nowrap;
+    }
+    .btn-rescan-ocr:hover {
+        background: #138496;
+    }
+    .btn-rescan-ocr:disabled {
         background: #6c757d;
         cursor: not-allowed;
     }
@@ -121,9 +138,9 @@
                     <br><strong>Summary:</strong> {{ doc.ai_summary }}
                     {% endif %}
                 </div>
-                <button type="button" class="btn-rescan" data-doc-id="{{ doc.id }}" 
-                        title="Re-analyze this document with AI">
-                    🔄 Rescan
+                <button type="button" class="btn-rescan-llm" data-doc-id="{{ doc.id }}" 
+                        title="Re-analyze this document with AI (keeps existing OCR text)">
+                    🤖 Rescan LLM
                 </button>
             </div>
         </div>
@@ -145,10 +162,16 @@
                         <br><small style="color: #6c757d;">This may indicate OCR failure, blank document, or image-only content</small>
                     {% endif %}
                 </div>
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleOcrText({{ doc.id }})" 
-                        title="Show/hide full OCR text">
-                    📝 Full Text
-                </button>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleOcrText({{ doc.id }})" 
+                            title="Show/hide full OCR text">
+                        📝 Full Text
+                    </button>
+                    <button type="button" class="btn-rescan-ocr" data-doc-id="{{ doc.id }}" 
+                            title="Re-extract text from PDF using OCR (rebuilds searchable PDF)">
+                        🔍 Rescan OCR
+                    </button>
+                </div>
             </div>
             
             <!-- Full OCR Text (collapsible) -->
@@ -274,22 +297,25 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // Rescan button handlers
-    document.querySelectorAll('.btn-rescan').forEach(btn => {
+    // LLM Rescan button handlers
+    document.querySelectorAll('.btn-rescan-llm').forEach(btn => {
         btn.addEventListener('click', function() {
             const docId = this.getAttribute('data-doc-id');
             const button = this;
             
             // Disable button and show loading state
             button.disabled = true;
-            button.innerHTML = '⏳ Rescanning...';
+            button.innerHTML = '⏳ Rescanning LLM...';
             
-            // Make API call to rescan document
+            // Make API call to rescan LLM analysis only
             fetch(`/api/rescan_document/${docId}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                }
+                },
+                body: JSON.stringify({
+                    rescan_type: 'llm_only'
+                })
             })
             .then(response => response.json())
             .then(data => {
@@ -297,16 +323,56 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Reload the page to show updated results
                     window.location.reload();
                 } else {
-                    alert(`Rescan failed: ${data.error || 'Unknown error'}`);
+                    alert(`LLM rescan failed: ${data.error || 'Unknown error'}`);
                     button.disabled = false;
-                    button.innerHTML = '🔄 Rescan';
+                    button.innerHTML = '🤖 Rescan LLM';
                 }
             })
             .catch(error => {
-                console.error('Rescan error:', error);
-                alert('Failed to rescan document. Please try again.');
+                console.error('LLM rescan error:', error);
+                alert('Failed to rescan LLM analysis. Please try again.');
                 button.disabled = false;
-                button.innerHTML = '🔄 Rescan';
+                button.innerHTML = '🤖 Rescan LLM';
+            });
+        });
+    });
+    
+    // OCR Rescan button handlers
+    document.querySelectorAll('.btn-rescan-ocr').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const docId = this.getAttribute('data-doc-id');
+            const button = this;
+            
+            // Disable button and show loading state
+            button.disabled = true;
+            button.innerHTML = '⏳ Rescanning OCR...';
+            
+            // Make API call to rescan OCR (which will also trigger LLM re-analysis)
+            fetch(`/api/rescan_document/${docId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    rescan_type: 'ocr_and_llm'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Reload the page to show updated results
+                    window.location.reload();
+                } else {
+                    alert(`OCR rescan failed: ${data.error || 'Unknown error'}`);
+                    button.disabled = false;
+                    button.innerHTML = '� Rescan OCR';
+                }
+            })
+            .catch(error => {
+                console.error('OCR rescan error:', error);
+                alert('Failed to rescan OCR. Please try again.');
+                button.disabled = false;
+                button.innerHTML = '� Rescan OCR';
             });
         });
     });

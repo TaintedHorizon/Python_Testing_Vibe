@@ -2554,15 +2554,20 @@ def rotate_document_api(doc_id):
 @app.route("/api/rescan_document/<int:doc_id>", methods=['POST'])
 def rescan_document_api(doc_id):
     """
-    API endpoint to rescan a single document for improved AI analysis.
+    API endpoint to rescan a single document for improved analysis.
+    Supports both OCR-only and LLM-only rescans based on request payload.
     """
     try:
+        # Parse request data
+        data = request.get_json() or {}
+        rescan_type = data.get('rescan_type', 'llm_only')  # Default to LLM only for backward compatibility
+        
         conn = get_db_connection()
         cursor = conn.cursor()
         
         # Get document details
         cursor.execute("""
-            SELECT original_filename, ocr_text, page_count, file_size_bytes 
+            SELECT original_filename, original_pdf_path, ocr_text, page_count, file_size_bytes 
             FROM single_documents 
             WHERE id = ?
         """, (doc_id,))
@@ -2571,18 +2576,55 @@ def rescan_document_api(doc_id):
         if not result:
             return jsonify({"success": False, "error": "Document not found"})
         
-        filename, ocr_text, page_count, file_size_bytes = result
+        filename, pdf_path, ocr_text, page_count, file_size_bytes = result
+        
+        if rescan_type == 'ocr_and_llm':
+            # Re-run OCR processing
+            import logging
+            logging.info(f"🔍 OCR Rescan requested for document {filename}")
+            
+            if not pdf_path or not os.path.exists(pdf_path):
+                return jsonify({"success": False, "error": "Original PDF file not found"})
+            
+            # Re-create searchable PDF with OCR
+            from .processing import create_searchable_pdf
+            searchable_pdf_path = pdf_path.replace('.pdf', '_searchable.pdf')
+            
+            try:
+                ocr_text, ocr_confidence, status = create_searchable_pdf(
+                    doc_id, pdf_path, searchable_pdf_path
+                )
+                
+                if status != "success (cached)":  # Only update if actually re-processed
+                    # Update OCR results in database
+                    cursor.execute("""
+                        UPDATE single_documents SET
+                            ocr_text = ?,
+                            ocr_confidence_avg = ?,
+                            searchable_pdf_path = ?
+                        WHERE id = ?
+                    """, (ocr_text, ocr_confidence, searchable_pdf_path, doc_id))
+                    
+                    logging.info(f"✅ OCR rescan completed for {filename} - Confidence: {ocr_confidence:.1f}%")
+                
+            except Exception as ocr_error:
+                logging.error(f"OCR rescan failed for {filename}: {ocr_error}")
+                return jsonify({"success": False, "error": f"OCR processing failed: {str(ocr_error)}"})
+        
+        # Get current OCR text (either existing or newly scanned)
+        cursor.execute("SELECT ocr_text FROM single_documents WHERE id = ?", (doc_id,))
+        current_ocr_text = cursor.fetchone()[0]
         
         # Convert file size back to MB
         file_size_mb = file_size_bytes / (1024 * 1024) if file_size_bytes else 0
         
-        # Get new AI suggestions
+        # Get new AI suggestions (always run this for both rescan types)
         from .processing import _get_ai_suggestions_for_document
         ai_category, ai_filename, ai_confidence, ai_summary = _get_ai_suggestions_for_document(
-            ocr_text or "", filename, page_count or 1, file_size_mb
+            current_ocr_text or "", filename, page_count or 1, file_size_mb
         )
         
-        # Update the database
+        # Update the AI analysis in database
         cursor.execute("""
             UPDATE single_documents SET
                 ai_suggested_category = ?,
@@ -2597,10 +2639,12 @@ def rescan_document_api(doc_id):
         
         # Log the rescan
         import logging
-        logging.info(f"Document {filename} rescanned - Category: {ai_category}, Filename: {ai_filename}, Confidence: {ai_confidence:.2f}")
+        rescan_desc = "OCR + LLM" if rescan_type == 'ocr_and_llm' else "LLM only"
+        logging.info(f"📝 {rescan_desc} rescan completed for {filename} - Category: {ai_category}, Filename: {ai_filename}, Confidence: {ai_confidence:.2f}")
         
         return jsonify({
             "success": True,
+            "rescan_type": rescan_type,
             "document": {
                 "category": ai_category,
                 "filename": ai_filename,
