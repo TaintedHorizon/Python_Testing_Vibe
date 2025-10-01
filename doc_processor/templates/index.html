@@ -10,18 +10,18 @@
     and this page might not be directly used, but it remains functional.
     -->
     <div style="text-align: center;">
-        <h1>Start a New Processing Batch</h1>
+        <h1>🚀 Start a New Processing Batch</h1>
         <p>Click the button below to start processing all documents in the intake folder.</p>
         <br>
         
         <!-- The form submits a POST request to the 'handle_batch_processing' endpoint. -->
         <form id="batch-form" action="{{ url_for('handle_batch_processing') }}" method="post">
-            <button id="start-button" type="submit">Start New Batch</button>
+            <button id="start-button" type="submit" style="padding: 15px 30px; font-size: 1.2em; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer;">📁 Start New Batch</button>
         </form>
 
         <!-- A message can be passed to this template to show status updates. -->
         {% if message %}
-            <p style="margin-top: 2em; font-weight: bold; color: green;">{{ message }}</p>
+            <p style="margin-top: 2em; font-weight: bold; color: green;">✅ {{ message }}</p>
         {% endif %}
     </div>
 
@@ -32,7 +32,7 @@
             // Disable the button to prevent multiple submissions.
             button.disabled = true;
             // Change the button text to indicate that processing has started.
-            button.innerText = 'Processing... Please Wait...';
+            button.innerText = '⏳ Processing... Please Wait...';
         });
     </script>
 {% endblock %}

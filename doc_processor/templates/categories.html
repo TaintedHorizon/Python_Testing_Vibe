@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Manage Categories{% endblock %}
 {% block content %}
-<h1>Category Management</h1>
+<h1>📂 Manage Categories</h1>
 <p>Active categories appear in verification/review dropdowns. Inactive (removed) categories are hidden but kept for history and LLM mapping. Renamed categories retain their previous name for training alignment.</p>
 
 <style>
@@ -36,7 +36,7 @@ form + form { margin-left:4px; }
     <input type="text" id="name" name="name" placeholder="e.g. Insurance Policy" required />
     <label for="notes">Notes (optional)</label>
     <textarea id="notes" name="notes" rows="2" placeholder="Context or LLM guidance"></textarea>
-    <button type="submit">Add Category</button>
+                <button type="submit">➕ Add Category</button>
   </form>
 </div>
 

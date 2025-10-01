@@ -2244,6 +2244,16 @@ def finalize_single_documents_batch(batch_id: int) -> bool:
     
     if success:
         logging.info(f"✅ All single documents in batch {batch_id} exported successfully")
+        
+        # Clean up the batch directory in WIP after successful export
+        try:
+            cleanup_success = cleanup_batch_files(batch_id)
+            if cleanup_success:
+                logging.info(f"✅ Successfully cleaned up batch {batch_id} directory")
+            else:
+                logging.warning(f"⚠️ Export succeeded but failed to clean up batch {batch_id} directory")
+        except Exception as cleanup_e:
+            logging.error(f"💥 Failed to clean up batch {batch_id} directory: {cleanup_e}")
     else:
         logging.warning(f"⚠️ Some documents in batch {batch_id} failed export - check logs above")
     
@@ -2405,7 +2415,20 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
     
     # Final progress update
     if success:
-        update_progress(total_docs, total_docs, "Export completed successfully!", f"All {total_docs} documents exported to category folders")
+        update_progress(total_docs, total_docs, "Cleaning up batch files...", "Removing temporary batch directory")
+        
+        # Clean up the batch directory in WIP after successful export
+        try:
+            cleanup_success = cleanup_batch_files(batch_id)
+            if cleanup_success:
+                logging.info(f"✅ Successfully cleaned up batch {batch_id} directory")
+                update_progress(total_docs, total_docs, "Export completed successfully!", f"All {total_docs} documents exported and batch directory cleaned up")
+            else:
+                logging.warning(f"⚠️ Export succeeded but failed to clean up batch {batch_id} directory")
+                update_progress(total_docs, total_docs, "Export completed successfully!", f"All {total_docs} documents exported (manual cleanup may be needed)")
+        except Exception as cleanup_e:
+            logging.error(f"💥 Failed to clean up batch {batch_id} directory: {cleanup_e}")
+            update_progress(total_docs, total_docs, "Export completed successfully!", f"All {total_docs} documents exported (cleanup failed)")
     else:
         update_progress(total_docs, total_docs, "Export completed with some errors", "Check logs for details")
     

@@ -26,7 +26,7 @@
     .btn-ocr:disabled { background-color: #6c757d; color: white; cursor: not-allowed; }
 </style>
 
-<h1>Reviewing Flagged Pages for Batch #{{ batch_id }} <span style="font-size: 0.6em; color: #666;">(Status: {{ batch.status }})</span></h1>
+<h1>🔍 Review Flagged Pages for Batch #{{ batch_id }}</h1>
 <p>This page lists all pages that were flagged for manual review. You can correct their category, re-run OCR with rotation, or delete them.</p>
 <hr>
 
@@ -79,14 +79,15 @@
                     <input type="text" id="other-category-input_{{ page.id }}" name="other_category">
                 </div>
                 <div class="actions">
-                    <button type="submit" data-action="save" class="btn-correct">Approve Correction</button>
+                                        <button type="submit" data-action="save" class="btn-approve">✅ Approve Changes</button>
+                    <button type="submit" data-action="keep-flagged" class="btn-flag">🚩 Keep Flagged</button>
                 </div>
             </form>
         </div>
 
         <!-- Box for OCR text and actions -->
         <div class="info-box">
-            <h3>Extracted OCR Text</h3>
+            <h3>📄 Extracted OCR Text</h3>
             <div class="ocr-text"><pre>{{ page.ocr_text }}</pre></div>
             
             <!-- Form to re-run OCR on this page -->

@@ -83,8 +83,8 @@ and a content block that child templates will override.
 <div class="navbar">
     <!-- Primary workflow entry point - analyze intake first -->
     <a href="{{ url_for('analyze_intake_page') }}" class="{% if request.endpoint == 'analyze_intake_page' %}active{% endif %}">📋 Analyze Intake</a>
-    <a href="{{ url_for('batch_control_page') }}" class="{% if request.endpoint == 'batch_control_page' %}active{% endif %}">Batch Control</a>
-    <a href="{{ url_for('categories_page') }}" class="{% if request.endpoint == 'categories_page' %}active{% endif %}">Categories</a>
+    <a href="{{ url_for('batch_control_page') }}" class="{% if request.endpoint == 'batch_control_page' %}active{% endif %}">📊 Batch Control</a>
+    <a href="{{ url_for('categories_page') }}" class="{% if request.endpoint == 'categories_page' %}active{% endif %}">📂 Categories</a>
 </div>
 
 <!-- The main content area. -->

@@ -38,14 +38,14 @@
     .reset-grouping-btn { background-color: #dc3545; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; float: right;}
 </style>
 
-<h1>Group Documents for Batch #{{ batch_id }}</h1>
+<h1>📂 Group Documents for Batch #{{ batch_id }}</h1>
 <p>This is the second step of the workflow. Group verified pages into logical documents. Select pages from the same category and give the document a name.</p>
 <hr>
 
 <div class="group-container">
     <!-- Left Pane: Image Preview -->
     <div class="preview-pane">
-        <h3>Page Preview</h3>
+        <h3>🔍 Page Preview</h3>
         <div class="preview-wrapper">
             <span id="previewPlaceholder">Select a page from the right to preview it here.</span>
             <img id="previewImage" src="" alt="Page Preview" style="display: none;">
@@ -56,11 +56,11 @@
     <div class="selection-pane">
         
         <!-- Section to display documents already created in this batch -->
-        <h3>Created Documents</h3>
+        <h3>📄 Created Documents</h3>
         {% if created_docs %}
             <!-- Form to reset all grouping for this batch -->
             <form id="reset-grouping-form" action="{{ url_for('reset_grouping_action', batch_id=batch_id) }}" method="post" onsubmit="return confirm('Are you sure you want to reset all grouping for this batch? This cannot be undone.');" style="margin-bottom: 10px;">
-                <button id="reset-grouping-btn" type="submit" class="reset-grouping-btn" style="float:none; width:auto; display:block; margin:0 auto 10px auto;">Reset All Groups</button>
+                <button id="reset-grouping-btn" type="submit" class="reset-grouping-btn" style="float:none; width:auto; display:block; margin:0 auto 10px auto;">🔄 Reset All Groups</button>
             </form>
         {% endif %}
         <div id="doc-list" class="doc-list">
@@ -113,7 +113,7 @@
                         </div>
                     {% endfor %}
                 </div>
-                <button id="save-document-btn" type="submit" style="width: 100%; padding: 10px; margin-top: 15px; background-color: #28a745; color: white; border: none; font-size: 1.2em; cursor: pointer;">Save New Document</button>
+                <button id="save-document-btn" type="submit" style="width: 100%; padding: 10px; margin-top: 15px; background-color: #28a745; color: white; border: none; font-size: 1.2em; cursor: pointer;">💾 Save New Document</button>
 <script>
 // Disable Save New Document button and show loading text on submit
 const saveDocForm = document.getElementById('save-document-form');
@@ -144,7 +144,7 @@ if (resetGroupingForm) {
             <div style="text-align: center;">
                 <p style="color: green; font-weight: bold;">🎉 Grouping is complete for this batch!</p>
                 <p>You have finished grouping. Click below to return to Batch Control and continue with Ordering if needed.</p>
-                <a href="{{ url_for('batch_control_page') }}" class="finish-button">Finish Grouping</a>
+                <a href="{{ url_for('batch_control_page') }}" class="finish-button">✅ Finish Grouping</a>
             </div>
         {% endif %}
     </div>

@@ -40,7 +40,7 @@
     .rotate-buttons { margin-top: 10px; }
 </style>
 
-<h1>Verifying Batch #{{ batch_id }}</h1>
+<h1>✅ Verifying Batch #{{ batch_id }}</h1>
 <p>This is the first step of the workflow. Review each page, check the AI's suggested category, and make corrections as needed.</p>
 
 <!-- Pagination controls to move between pages in the batch -->
@@ -67,9 +67,9 @@
             <img id="pageImage" src="{{ url_for('serve_processed_file', filepath=current_page.relative_image_path) }}?v={{ current_page.rotation_angle or 0 }}" alt="Scanned page">
         </div>
         <div class="rotate-buttons">
-            <button type="button" onclick="rotateImage(-90)">Rotate Left ↺</button>
-            <button type="button" onclick="rotateImage(90)">Rotate Right ↻</button>
-            <button type="button" id="confirm-rotation-btn" style="margin-left:10px; background:#17a2b8; color:white; border:none; border-radius:5px; padding:8px 16px; cursor:pointer;">Confirm Rotation</button>
+            <button type="button" onclick="rotateImage(-90)">🔄 Rotate Left ↺</button>
+            <button type="button" onclick="rotateImage(90)">🔄 Rotate Right ↻</button>
+            <button type="button" id="confirm-rotation-btn" style="margin-left:10px; background:#17a2b8; color:white; border:none; border-radius:5px; padding:8px 16px; cursor:pointer;">✓ Confirm Rotation</button>
             <span id="rotation-confirm-msg" style="margin-left:10px; color:#28a745; display:none; font-weight:bold;">Rotation saved!</span>
         </div>
     </div>
@@ -107,15 +107,15 @@
                 </div>
                 <!-- Action buttons that submit the form with different 'action' values -->
                 <div class="actions">
-                    <button type="submit" id="primary-action-btn" data-action="save" class="btn-approve">Approve & Next</button>
-                    <button type="submit" data-action="flag" class="btn-flag">Flag for Review</button>
+                    <button type="submit" id="primary-action-btn" data-action="save" class="btn-approve">✅ Approve & Next</button>
+                    <button type="submit" data-action="flag" class="btn-flag">🚩 Flag for Review</button>
                 </div>
             </div>
         </form>
         
         <!-- Box to display the extracted OCR text -->
         <div class="info-box" style="margin-top: 20px;">
-            <h3>Extracted OCR Text</h3>
+            <h3>📄 Extracted OCR Text</h3>
             <div class="ocr-text"><pre>{{ current_page.ocr_text }}</pre></div>
         </div>
     </div>
