@@ -5,7 +5,7 @@ try:
     from .config_manager import app_config
 except ImportError:
     # Handle direct script execution
-    from config_manager import app_config
+    from .config_manager import app_config
 
 
 def extract_document_tags(ocr_text: str, document_name: str = "") -> Optional[Dict[str, List[str]]]:
