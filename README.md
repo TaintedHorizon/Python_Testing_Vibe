@@ -17,6 +17,8 @@ Production-ready document processing pipeline with AI integration, human verific
 - **89% code reduction**: From 2,947-line single file to 309-line main app + 13 focused modules
 - **Zero indentation errors**: Eliminated editing issues with small, focused files
 - **Professional Blueprint architecture**: Clean separation of concerns for enterprise-grade maintainability
+- **✅ API COMPATIBILITY RESTORED**: All Blueprint routes now match original functionality exactly
+- **🔧 MAJOR FIX (Oct 1, 2025)**: Fixed critical API contract differences between original and Blueprint implementations
 
 **Key Features:**
 - End-to-end document workflow: Intake → OCR → AI Classification → Human Verification → Export
