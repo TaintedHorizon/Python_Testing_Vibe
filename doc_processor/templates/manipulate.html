@@ -116,7 +116,7 @@
                     <strong>AI Analysis:</strong> 
                     Category: {{ doc.ai_suggested_category }} | 
                     Filename: {{ doc.ai_suggested_filename }} |
-                    Confidence: {{ '%.2f'|format(doc.ai_confidence) }}
+                    Confidence: {{ '%.2f'|format(doc.ai_confidence) if doc.ai_confidence is not none else 'N/A' }}
                     {% if doc.ai_summary %}
                     <br><strong>Summary:</strong> {{ doc.ai_summary }}
                     {% endif %}
