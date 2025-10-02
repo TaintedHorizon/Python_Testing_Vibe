@@ -346,7 +346,7 @@ def serve_original_pdf(filename: str):
         # If the file is already a PDF, serve it directly
         file_ext = Path(filename).suffix.lower()
         if file_ext == '.pdf':
-            return send_file(original_path)
+            return send_file(original_path, mimetype='application/pdf', as_attachment=False)
         
         # If the file is an image, try to serve the converted PDF first
         if file_ext in ['.png', '.jpg', '.jpeg']:
@@ -357,7 +357,7 @@ def serve_original_pdf(filename: str):
             
             if os.path.exists(converted_pdf_path):
                 logger.info(f"Serving converted PDF for image {filename}: {converted_pdf_path}")
-                return send_file(converted_pdf_path)
+                return send_file(converted_pdf_path, mimetype='application/pdf', as_attachment=False)
             else:
                 logger.warning(f"Converted PDF not found for {filename}, serving original image")
                 return send_file(original_path)

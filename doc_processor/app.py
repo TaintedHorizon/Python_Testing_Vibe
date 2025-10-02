@@ -5,6 +5,9 @@ This is the main application file for the document processing system.
 The application has been refactored to use a modular Blueprint architecture
 for improved maintainability and separation of concerns.
 
+🤖 AI ASSISTANTS: See .github/copilot-instructions.md for critical setup patterns!
+⚠️  Run with: cd /repo/root && ./start_app.sh (NOT python app.py!)
+
 Key Features:
 - Modular Blueprint-based architecture
 - Service layer for business logic

@@ -20,6 +20,7 @@ Production-ready document processing pipeline with AI integration, human verific
 - **✅ API COMPATIBILITY RESTORED**: All Blueprint routes now match original functionality exactly
 - **🔧 MAJOR FIX (Oct 1, 2025)**: Fixed critical API contract differences between original and Blueprint implementations
 - **🎯 UX REVOLUTION (Oct 2, 2025)**: Unified PDF display system - all document previews now use consistent iframe approach with automatic image-to-PDF conversion
+- **🔧 CRITICAL UI FIXES (Oct 2, 2025)**: Fixed OCR rescan functionality, eliminated popup alerts, improved PDF scaling, implemented rotation persistence, added LLM reanalysis capabilities
 
 **Key Features:**
 - End-to-end document workflow: Intake → OCR → AI Classification → Human Verification → Export
@@ -43,6 +44,8 @@ Production-ready document processing pipeline with AI integration, human verific
 
 **Status:** ✅ Production Ready  
 **Tech Stack:** Python 3, Flask Blueprints, SQLite, Ollama LLM, EasyOCR/Tesseract
+
+**🤖 AI Assistants:** See [`.github/copilot-instructions.md`](.github/copilot-instructions.md) for critical setup patterns and common mistake prevention.
 
 [📖 Full Documentation](doc_processor/readme.md)
 

@@ -12,10 +12,11 @@ Benefits:
 from flask import Blueprint, render_template, jsonify, request, Response
 from ..document_detector import get_detector
 from ..config_manager import app_config
+from ..database import get_db_connection
 import logging
 import json
 import os
-import os
+from pathlib import Path
 
 # Create blueprint for intake routes
 intake_bp = Blueprint('intake', __name__)
@@ -58,45 +59,107 @@ def analyze_intake_progress():
                 yield f"data: {json.dumps({'error': f'Intake directory does not exist: {intake_dir}'})}\n\n"
                 return
                 
-            # Check for supported files (PDFs and images) 
-            supported_files = []
+            # Clean up any old converted PDFs to ensure fresh start
+            import tempfile
+            import glob
+            temp_dir = tempfile.gettempdir()
+            old_converted_pdfs = glob.glob(os.path.join(temp_dir, "*_converted.pdf"))
+            for old_pdf in old_converted_pdfs:
+                try:
+                    os.remove(old_pdf)
+                    logging.info(f"Cleaned up old converted PDF: {os.path.basename(old_pdf)}")
+                except Exception as e:
+                    logging.warning(f"Failed to clean up {old_pdf}: {e}")
+            
+            # Scan intake directory for files - treat ALL as needing conversion
+            original_pdf_files = []
+            image_files = []
+            
             for f in os.listdir(intake_dir):
                 file_ext = os.path.splitext(f)[1].lower()
-                if file_ext in ['.pdf', '.png', '.jpg', '.jpeg']:
-                    supported_files.append(os.path.join(intake_dir, f))
+                file_path = os.path.join(intake_dir, f)
+                if file_ext == '.pdf':
+                    original_pdf_files.append(file_path)
+                elif file_ext in ['.png', '.jpg', '.jpeg']:
+                    image_files.append(file_path)
             
-            total_files = len(supported_files)
+            total_files = len(original_pdf_files) + len(image_files)
+            # Total operations = convert all files (PDFs + images) + analyze all converted PDFs
+            total_operations = total_files + total_files  # Convert everything + analyze everything
             
             if total_files == 0:
                 yield f"data: {json.dumps({'complete': True, 'analyses': [], 'total': 0, 'single_count': 0, 'batch_count': 0, 'success': True})}\n\n"
                 return
             
             # Send initial progress
-            logging.info(f"Starting SSE analysis for {total_files} files (PDFs and images)")
-            yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'current_file': None, 'message': f'Found {total_files} files to analyze...'})}\n\n"
+            logging.info(f"Starting two-phase analysis for {total_files} files ({len(original_pdf_files)} PDFs, {len(image_files)} images)")
+            yield f"data: {json.dumps({'progress': 0, 'total': total_operations, 'current_file': None, 'message': f'Found {total_files} files - starting two-phase processing...'})}\n\n"
+            
+            # Phase 1: Convert ALL files to standardized PDFs
+            all_converted_pdfs = []
+            detector = get_detector(use_llm_for_ambiguous=True)
+            current_operation = 0
+            
+            yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': None, 'message': f'Phase 1: Converting {total_files} files to standardized PDFs...'})}\n\n"
+            
+            # Convert images to PDFs
+            for i, image_path in enumerate(image_files):
+                image_name = os.path.basename(image_path)
+                current_operation += 1
+                yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': image_name, 'message': f'Converting image {i+1}/{len(image_files)}: {image_name}...'})}\n\n"
+                
+                converted_pdf = detector._convert_image_to_pdf(image_path)
+                all_converted_pdfs.append(converted_pdf)
+                logging.info(f"Converted image: {image_name} -> {os.path.basename(converted_pdf)}")
+            
+            # Copy original PDFs to temp directory for consistent handling
+            for i, pdf_path in enumerate(original_pdf_files):
+                pdf_name = os.path.basename(pdf_path)
+                current_operation += 1
+                yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': pdf_name, 'message': f'Standardizing PDF {i+1}/{len(original_pdf_files)}: {pdf_name}...'})}\n\n"
+                
+                # Copy to temp with consistent naming
+                temp_pdf_path = os.path.join(temp_dir, f"{Path(pdf_path).stem}_standardized.pdf")
+                import shutil
+                shutil.copy2(pdf_path, temp_pdf_path)
+                all_converted_pdfs.append(temp_pdf_path)
+                logging.info(f"Standardized PDF: {pdf_name} -> {os.path.basename(temp_pdf_path)}")
+            
+            # Phase 2: Analyze all standardized PDFs
+            total_pdfs = len(all_converted_pdfs)
+            yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': None, 'message': f'Phase 2: Analyzing {total_pdfs} standardized PDFs...'})}\n\n"
             
             analyses = []
             single_count = 0
             batch_count = 0
             
-            # Initialize detector
-            detector = get_detector(use_llm_for_ambiguous=True)
-            
-            for i, file_path in enumerate(supported_files):
-                filename = os.path.basename(file_path)
+            for i, pdf_path in enumerate(all_converted_pdfs):
+                pdf_name = os.path.basename(pdf_path)
+                current_operation += 1
                 
-                # Send progress update for current file
-                yield f"data: {json.dumps({'progress': i, 'total': total_files, 'current_file': filename, 'message': f'Analyzing {filename}...'})}\n\n"
+                # Send progress update for current PDF analysis
+                yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': pdf_name, 'message': f'Analyzing PDF {i+1}/{total_pdfs}: {pdf_name}...'})}\n\n"
                 
-                # Analyze the file (PDF or image)
-                if file_path.lower().endswith('.pdf'):
-                    analysis = detector.analyze_pdf(file_path)
-                else:
-                    analysis = detector.analyze_image_file(file_path)
+                # Analyze the standardized PDF
+                analysis = detector.analyze_pdf(pdf_path)
+                
+                # Determine original filename for display
+                original_filename = pdf_name
+                if "_converted.pdf" in pdf_name:
+                    # Find the original image name
+                    original_filename = pdf_name.replace("_converted.pdf", "")
+                    # Add back original extension
+                    for img_path in image_files:
+                        if Path(img_path).stem == original_filename:
+                            original_filename = os.path.basename(img_path)
+                            break
+                elif "_standardized.pdf" in pdf_name:
+                    # Find the original PDF name
+                    original_filename = pdf_name.replace("_standardized.pdf", ".pdf")
                 
                 # Prepare analysis data
                 analysis_data = {
-                    'filename': filename,
+                    'filename': original_filename,  # Use original filename for display
                     'file_size_mb': analysis.file_size_mb,
                     'page_count': analysis.page_count,
                     'processing_strategy': analysis.processing_strategy,
@@ -105,7 +168,8 @@ def analyze_intake_progress():
                     'filename_hints': analysis.filename_hints,
                     'content_sample': analysis.content_sample,
                     'llm_analysis': analysis.llm_analysis,  # Include LLM analysis data
-                    'detected_rotation': analysis.detected_rotation  # Include rotation info
+                    'detected_rotation': analysis.detected_rotation,  # Include rotation info
+                    'pdf_path': pdf_path  # Store the actual PDF path for serving
                 }
                 
                 analyses.append(analysis_data)
@@ -127,7 +191,7 @@ def analyze_intake_progress():
                 logging.warning(f"Failed to cache analysis results: {cache_err}")
             
             # Send completion
-            yield f"data: {json.dumps({'complete': True, 'analyses': analyses, 'total': total_files, 'single_count': single_count, 'batch_count': batch_count, 'success': True})}\n\n"
+            yield f"data: {json.dumps({'complete': True, 'analyses': analyses, 'total': total_operations, 'single_count': single_count, 'batch_count': batch_count, 'success': True})}\n\n"
             
         except Exception as e:
             logging.error(f"Error in intake analysis SSE: {e}")
@@ -307,9 +371,13 @@ def _rescan_pdf_ocr(file_path: str, rotation: int) -> str:
         str: Extracted text content
     """
     try:
-        from pdf2image import convert_from_path
-        from PIL import Image
-        import pytesseract
+        try:
+            from pdf2image import convert_from_path
+            from PIL import Image
+            import pytesseract
+        except ImportError as import_error:
+            logging.error(f"Missing required dependencies for PDF OCR: {import_error}")
+            return "Error: Missing required dependencies for PDF OCR"
         
         # Convert first few pages to images
         pages = convert_from_path(file_path, first_page=1, last_page=3)
@@ -362,8 +430,12 @@ def _rescan_image_ocr(file_path: str, rotation: int) -> str:
                 logging.info(f"Applied {rotation}° rotation to image")
             
             # Use EasyOCR for better results
-            from ..processing import EasyOCRSingleton
-            reader = EasyOCRSingleton.get_reader()
+            try:
+                from ..processing import EasyOCRSingleton
+                reader = EasyOCRSingleton.get_reader()
+            except ImportError:
+                from processing import EasyOCRSingleton
+                reader = EasyOCRSingleton.get_reader()
             ocr_results = reader.readtext(np.array(img))
             
             if ocr_results:
@@ -377,3 +449,39 @@ def _rescan_image_ocr(file_path: str, rotation: int) -> str:
     except Exception as e:
         logging.error(f"Error in image OCR rescan: {e}")
         return ""
+
+
+@intake_bp.route('/save_rotation', methods=['POST'])
+def save_rotation():
+    """Save document rotation state for persistence across sessions"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+            
+        filename = data.get('filename')
+        rotation = data.get('rotation', 0)
+        
+        if not filename:
+            return jsonify({'error': 'Filename required'}), 400
+            
+        # Update rotation in database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Update the detected_rotation field for this document
+        cursor.execute("""
+            UPDATE document_analysis 
+            SET detected_rotation = ? 
+            WHERE filename = ?
+        """, (rotation, filename))
+        
+        conn.commit()
+        conn.close()
+        
+        logging.info(f"Saved rotation {rotation}° for {filename}")
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        logging.error(f"Error saving rotation: {e}")
+        return jsonify({'error': 'Failed to save rotation'}), 500

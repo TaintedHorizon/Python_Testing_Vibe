@@ -80,6 +80,7 @@ class DocumentTypeDetector:
     def _convert_image_to_pdf(self, image_path: str) -> str:
         """
         Convert an image file to PDF for standardized display.
+        Note: Rotation detection will be applied during PDF analysis phase.
         
         Args:
             image_path (str): Path to the source image file
@@ -93,7 +94,7 @@ class DocumentTypeDetector:
             image_name = Path(image_path).stem
             temp_pdf_path = os.path.join(temp_dir, f"{image_name}_converted.pdf")
             
-            # Open and convert image to PDF
+            # Open and convert image to PDF (without rotation for now)
             with Image.open(image_path) as img:
                 # Convert to RGB if necessary (for RGBA images)
                 if img.mode in ('RGBA', 'LA', 'P'):
@@ -105,7 +106,7 @@ class DocumentTypeDetector:
                 elif img.mode != 'RGB':
                     img = img.convert('RGB')
                 
-                # Save as PDF
+                # Save as PDF (rotation will be detected and applied during analysis)
                 img.save(temp_pdf_path, 'PDF', resolution=150.0, quality=95)
                 
             self.logger.info(f"Converted image to PDF: {image_path} -> {temp_pdf_path}")

@@ -3,6 +3,9 @@
 # Document Processing System Startup Script
 # This script ensures the correct virtual environment is always used
 # and the app is run with the proper module syntax from the repo root.
+#
+# 🤖 AI ASSISTANTS: See .github/copilot-instructions.md for critical patterns!
+# ⚠️  ALWAYS use this script instead of running Flask directly!
 
 set -e  # Exit on any error
 

@@ -1,6 +1,9 @@
 """
 Configuration management for the document processing system.
 Provides a centralized, type-safe configuration with validation.
+
+🤖 AI ASSISTANTS: This is the ONLY config module to use!
+See .github/copilot-instructions.md - NEVER import from old 'config.py'
 """
 import os
 from dataclasses import dataclass

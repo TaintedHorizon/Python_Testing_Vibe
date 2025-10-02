@@ -43,6 +43,15 @@
             border-radius: 8px;
             position: relative;
         }
+        
+        .universal-viewer iframe {
+            border: none;
+            transform-origin: center center;
+            transition: transform 0.3s ease;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
 
 .viewer-placeholder {
     text-align: center;
@@ -308,10 +317,65 @@
         height: 80vh;
     }
 }
+
+/* Status Notifications */
+.status-notifications {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    max-width: 400px;
+}
+
+.status-notification {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    opacity: 0;
+    transform: translateX(100%);
+    transition: all 0.3s ease;
+}
+
+.status-notification.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.status-notification.success {
+    border-left: 4px solid #28a745;
+    background-color: #f8fff9;
+}
+
+.status-notification.error {
+    border-left: 4px solid #dc3545;
+    background-color: #fff8f8;
+}
+
+.status-notification.info {
+    border-left: 4px solid #17a2b8;
+    background-color: #f8fdff;
+}
+
+.status-notification .status-title {
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.status-notification .status-details {
+    font-size: 0.9em;
+    color: #666;
+    word-wrap: break-word;
+}
 </style>
 
 <div class="main-container">
     <h1>📄 Document Analysis & Processing</h1>
+    
+    <!-- Status Notification Area -->
+    <div id="status-notifications" class="status-notifications"></div>
     
     <!-- Analysis State Display -->
     <div id="analysis-state" class="mb-4">
@@ -359,8 +423,9 @@
                     <!-- Now always use PDF iframe since images are converted during analysis -->
                     <iframe src="{{ url_for('export.serve_original_pdf', filename=analysis.filename) }}" 
                             width="100%" height="100%" 
-                            style="border: none;"
-                            data-filename="{{ analysis.filename }}">
+                            style="border: none; transform: rotate({{ analysis.detected_rotation or 0 }}deg);"
+                            data-filename="{{ analysis.filename }}"
+                            data-rotation="{{ analysis.detected_rotation or 0 }}">
                         <div class="viewer-placeholder">
                             <h4>📄 {{ analysis.filename }}</h4>
                             <p>PDF viewer not supported.<br>
@@ -528,6 +593,37 @@
     </div>
 </div>
 
+<!-- Loading State (hidden by default) -->
+<div id="loading-state" class="alert alert-primary text-center" style="display: none;">
+    <div class="spinner-border text-primary mb-3" role="status">
+    </div>
+    <h4>🤖 Analyzing Your Documents...</h4>
+    <p class="mb-3">Please wait while we examine your intake files and determine optimal processing strategies.</p>
+    
+    <!-- Progress Bar -->
+    <div class="progress mb-3" style="height: 30px; max-width: 500px; margin: 0 auto;">
+        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+             role="progressbar" 
+             style="width: 0%; white-space: nowrap; font-weight: 500; font-size: 14px; line-height: 30px;"
+             aria-valuenow="0" 
+             aria-valuemin="0" 
+             aria-valuemax="100">
+            0 of 0 PDFs
+        </div>
+    </div>
+    
+    <small class="text-muted">This may take a few moments for large files or when consulting the AI...</small>
+</div>
+
+<!-- Error State (hidden by default) -->
+<div id="error-state" class="alert alert-danger text-center" style="display: none;">
+    <h4>❌ Analysis Failed</h4>
+    <p id="error-message">An error occurred during analysis.</p>
+    <button onclick="startAnalysis()" class="btn btn-primary">
+        🔄 Retry Analysis
+    </button>
+</div>
+
 <!-- Batch Processing Controls -->
 {% if analyses %}
 <div class="batch-controls">
@@ -542,15 +638,56 @@
             <button onclick="refreshAnalysis()" class="btn-secondary">
                 🔄 Refresh Analysis
             </button>
-            <button onclick="exportResults()" class="btn-primary">
-                📋 Export Results
-            </button>
         </div>
     </div>
 </div>
 {% endif %}
 
 <script>
+// Status notification system
+function showStatusNotification(type, title, details) {
+    const container = document.getElementById('status-notifications');
+    const notification = document.createElement('div');
+    notification.className = `status-notification ${type}`;
+    notification.innerHTML = `
+        <div class="status-title">${title}</div>
+        <div class="status-details">${details}</div>
+    `;
+    
+    container.appendChild(notification);
+    
+    // Trigger animation
+    setTimeout(() => {
+        notification.classList.add('show');
+    }, 100);
+    
+    // Auto-remove after 5 seconds (or 8 for errors)
+    const timeout = type === 'error' ? 8000 : 5000;
+    setTimeout(() => {
+        notification.classList.remove('show');
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, timeout);
+    
+    // Log to console as well
+    console.log(`${type.toUpperCase()}: ${title} - ${details}`);
+}
+
+function showSuccess(title, details) {
+    showStatusNotification('success', title, details);
+}
+
+function showError(title, details) {
+    showStatusNotification('error', title, details);
+}
+
+function showInfo(title, details) {
+    showStatusNotification('info', title, details);
+}
+
 // Document rotation tracking
 window.documentRotations = {};
 window.originalRotations = {};
@@ -570,6 +707,9 @@ function rotateDocument(filename, degrees) {
     
     window.documentRotations[filename] = newRotation;
     
+    // Save rotation to server
+    saveRotation(filename, newRotation);
+    
     // Update display
     updateRotationDisplay(filename);
     
@@ -578,18 +718,16 @@ function rotateDocument(filename, degrees) {
     const img = document.querySelector(`img[data-filename="${filename}"]`);
     
     if (iframe) {
-        // For PDFs, apply rotation and adjust size
+        // For PDFs, apply rotation and adjust size with better scaling
         const isLandscape = (newRotation % 180 === 90);
-        iframe.style.transform = `rotate(${newRotation}deg)`;
-        iframe.style.width = isLandscape ? '70%' : '100%';
-        iframe.style.height = isLandscape ? '70%' : '100%';
+        iframe.style.transform = `rotate(${newRotation}deg) scale(${isLandscape ? 0.7 : 1})`;
+        iframe.setAttribute('data-rotation', newRotation);
     }
     if (img) {
         // For images, apply rotation and adjust size
         const isLandscape = (newRotation % 180 === 90);
-        img.style.transform = `rotate(${newRotation}deg)`;
-        img.style.width = isLandscape ? '70%' : '100%';
-        img.style.height = isLandscape ? '70%' : '100%';
+        img.style.transform = `rotate(${newRotation}deg) scale(${isLandscape ? 0.7 : 1})`;
+        img.setAttribute('data-rotation', newRotation);
     }
     
     console.log(`Rotated ${filename} by ${degrees}° to ${newRotation}°`);
@@ -599,6 +737,9 @@ function resetRotation(filename) {
     const originalRotation = window.originalRotations[filename] || 0;
     window.documentRotations[filename] = originalRotation;
     
+    // Save reset rotation to server
+    saveRotation(filename, originalRotation);
+    
     // Update display
     updateRotationDisplay(filename);
     
@@ -607,21 +748,41 @@ function resetRotation(filename) {
     const img = document.querySelector(`img[data-filename="${filename}"]`);
     
     if (iframe) {
-        // For PDFs, apply rotation and adjust size
+        // For PDFs, apply rotation and adjust size with better scaling
         const isLandscape = (originalRotation % 180 === 90);
-        iframe.style.transform = `rotate(${originalRotation}deg)`;
-        iframe.style.width = isLandscape ? '70%' : '100%';
-        iframe.style.height = isLandscape ? '70%' : '100%';
+        iframe.style.transform = `rotate(${originalRotation}deg) scale(${isLandscape ? 0.7 : 1})`;
+        iframe.setAttribute('data-rotation', originalRotation);
     }
     if (img) {
         // For images, apply rotation and adjust size
         const isLandscape = (originalRotation % 180 === 90);
-        img.style.transform = `rotate(${originalRotation}deg)`;
-        img.style.width = isLandscape ? '70%' : '100%';
-        img.style.height = isLandscape ? '70%' : '100%';
+        img.style.transform = `rotate(${originalRotation}deg) scale(${isLandscape ? 0.7 : 1})`;
+        img.setAttribute('data-rotation', originalRotation);
     }
     
     console.log(`Reset rotation for ${filename} to original ${originalRotation}°`);
+}
+
+// Save rotation to server for persistence
+function saveRotation(filename, rotation) {
+    fetch('/save_rotation', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            filename: filename,
+            rotation: rotation
+        })
+    })
+    .then(response => {
+        if (!response.ok) {
+            console.warn('Failed to save rotation to server');
+        }
+    })
+    .catch(error => {
+        console.warn('Error saving rotation:', error);
+    });
 }
 
 function updateInlineViewerRotation(filename, rotation) {
@@ -692,43 +853,287 @@ function rescanOCR(filename) {
     // Get current rotation
     const currentRotation = window.documentRotations[filename] || 0;
     
-    // TODO: Implement OCR rescan with rotation
-    alert(`OCR rescan for ${filename} with ${currentRotation}° rotation - TODO: Implement`);
+    // Show loading state
+    const button = event.target;
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = '🔄 Rescanning...';
+    
+    // Perform OCR rescan
+    fetch('/rescan_ocr', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            filename: filename,
+            rotation: currentRotation
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const details = `File: ${filename}\nRotation: ${currentRotation}°\nText extracted: ${data.content_sample ? data.content_sample.length : 0} characters`;
+            showSuccess('OCR Rescan Completed', details);
+            // Optionally refresh the analysis
+            location.reload();
+        } else {
+            showError('OCR Rescan Failed', data.error || 'Unknown error occurred');
+        }
+    })
+    .catch(error => {
+        console.error('OCR rescan error:', error);
+        showError('OCR Rescan Failed', error.message || 'Network or server error');
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.textContent = originalText;
+    });
 }
 
 function reanalyzeLLM(filename) {
     console.log(`Re-analyzing LLM for ${filename}`);
     
-    // TODO: Implement LLM re-analysis
-    alert(`LLM re-analysis for ${filename} - TODO: Implement`);
+    // Show loading state
+    const button = event.target;
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = '🤖 Re-analyzing...';
+    
+    // Perform LLM re-analysis
+    fetch('/reanalyze_llm', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            filename: filename
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const details = `File: ${filename}\nType: ${data.processing_strategy}\nConfidence: ${data.confidence}%\nReasoning: ${data.reasoning}`;
+            showSuccess('LLM Re-Analysis Completed', details);
+            // Optionally refresh the analysis
+            location.reload();
+        } else {
+            showError('LLM Re-Analysis Failed', data.error || 'Unknown error occurred');
+        }
+    })
+    .catch(error => {
+        console.error('LLM re-analysis error:', error);
+        showError('LLM Re-Analysis Failed', error.message || 'Network or server error');
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.textContent = originalText;
+    });
+}
+
+// Get current strategy overrides for processing
+function getStrategyOverrides() {
+    const overrides = {};
+    document.querySelectorAll('.override-controls .btn-sm').forEach(btn => {
+        if (btn.classList.contains('active')) {
+            const filename = btn.closest('[data-filename]').getAttribute('data-filename');
+            const strategy = btn.onclick.toString().includes('single_document') ? 'single_document' : 'batch_scan';
+            overrides[filename] = strategy;
+        }
+    });
+    return overrides;
 }
 
 // Batch processing functions
 function startBatchProcessing(mode) {
     console.log(`Starting batch processing in ${mode} mode`);
     
-    // TODO: Implement batch processing
-    alert(`Batch processing (${mode}) - TODO: Implement`);
+    // Get strategy overrides from UI
+    const overrides = getStrategyOverrides();
+    
+    // Create a form with the overrides data
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = `/batch/process_${mode}`;
+    
+    // Add overrides as hidden inputs
+    const overrideInput = document.createElement('input');
+    overrideInput.type = 'hidden';
+    overrideInput.name = 'strategy_overrides';
+    overrideInput.value = JSON.stringify(overrides);
+    form.appendChild(overrideInput);
+    
+    // Submit the form to start processing
+    document.body.appendChild(form);
+    form.submit();
 }
 
 function refreshAnalysis() {
-    console.log('Refreshing analysis');
-    window.location.reload();
+    console.log('Refreshing analysis - clearing cache and re-analyzing');
+    
+    // Show loading state
+    const btn = event.target;
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Clearing Cache...';
+    
+    // Clear cache first, then start fresh analysis
+    fetch('/admin/clear_analysis_cache', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+    })
+    .then(response => {
+        if (response.ok) {
+            // Cache cleared successfully
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Starting Analysis...';
+            
+            // Small delay to show the status change, then start analysis
+            setTimeout(() => {
+                // Start fresh analysis
+                startAnalysis();
+            }, 500);
+        } else {
+            throw new Error('Failed to clear cache');
+        }
+    })
+    .catch(error => {
+        console.error('Error clearing cache:', error);
+        // Reset button and try to start analysis anyway
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        showError('Cache Clear Failed', 'Failed to clear cache, but will try to re-analyze anyway.');
+        startAnalysis();
+    });
 }
 
-function exportResults() {
-    console.log('Exporting results');
-    
-    // TODO: Implement export
-    alert('Export results - TODO: Implement');
-}
+
 
 // Analysis functions (from original template)
 function startAnalysis() {
     console.log('Starting document analysis');
     
-    // TODO: Implement analysis start
-    alert('Start analysis - TODO: Implement');
+    // Disable and update button state
+    const startBtns = document.querySelectorAll('[onclick="startAnalysis()"]');
+    startBtns.forEach(btn => {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-secondary');
+    });
+    
+    // Show loading state
+    const loadingState = document.getElementById('loading-state');
+    const resultsState = document.getElementById('results-state');
+    const noFilesState = document.getElementById('no-files-state');
+    const errorState = document.getElementById('error-state');
+    const analysisState = document.getElementById('analysis-state');
+    
+    if (loadingState) loadingState.style.display = 'block';
+    if (resultsState) resultsState.style.display = 'none';
+    if (noFilesState) noFilesState.style.display = 'none';
+    if (errorState) errorState.style.display = 'none';
+    if (analysisState) analysisState.style.display = 'none';
+    
+    // Use Server-Sent Events for real-time progress
+    const eventSource = new EventSource('/api/analyze_intake_progress');
+    
+    eventSource.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            console.log('Analysis progress:', data);
+            
+            if (data.error) {
+                eventSource.close();
+                if (loadingState) loadingState.style.display = 'none';
+                if (analysisState) analysisState.style.display = 'none';
+                if (errorState) {
+                    errorState.style.display = 'block';
+                    const errorMsg = errorState.querySelector('#error-message');
+                    if (errorMsg) errorMsg.textContent = data.error;
+                }
+                resetStartButtons();
+                return;
+            }
+            
+            if (data.complete) {
+                // Analysis complete
+                console.log('Analysis complete:', data);
+                eventSource.close();
+                resetStartButtons();
+                if (loadingState) loadingState.style.display = 'none';
+                
+                if (data.analyses && data.analyses.length === 0) {
+                    if (noFilesState) noFilesState.style.display = 'block';
+                } else {
+                    // Reload page to show results
+                    window.location.reload();
+                }
+            } else {
+                // Progress update
+                updateAnalysisProgress(data);
+            }
+        } catch (parseError) {
+            console.error('Error parsing SSE data:', parseError, event.data);
+        }
+    };
+    
+    eventSource.onerror = function(error) {
+        console.error('EventSource error:', error);
+        eventSource.close();
+        if (loadingState) loadingState.style.display = 'none';
+        if (analysisState) analysisState.style.display = 'none';
+        if (errorState) {
+            errorState.style.display = 'block';
+            const errorMsg = errorState.querySelector('#error-message');
+            if (errorMsg) errorMsg.textContent = 'Connection lost during analysis.';
+        }
+        resetStartButtons();
+    };
+}
+
+function resetStartButtons() {
+    const startBtns = document.querySelectorAll('[onclick="startAnalysis()"]');
+    startBtns.forEach(btn => {
+        btn.disabled = false;
+        btn.innerHTML = '🚀 Start Analysis';
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-primary');
+    });
+}
+
+function updateAnalysisProgress(data) {
+    console.log('Progress update received:', data); // Debug logging
+    
+    const progressPercent = data.total > 0 ? Math.round((data.progress / data.total) * 100) : 0;
+    const progressText = data.total > 0 ? `${data.progress} of ${data.total} PDFs` : '0 of 0 PDFs';
+    
+    // Update progress bar if it exists
+    const progressBar = document.querySelector('#loading-state .progress-bar');
+    if (progressBar) {
+        progressBar.style.width = progressPercent + '%';
+        progressBar.textContent = progressText;
+        console.log(`Updated progress bar: ${progressPercent}% - ${progressText}`); // Debug logging
+    } else {
+        console.log('Progress bar not found!'); // Debug logging
+    }
+    
+    // Update status message
+    const statusMessage = document.querySelector('#loading-state p');
+    if (statusMessage) {
+        if (data.current_file) {
+            statusMessage.textContent = `${data.message || 'Analyzing: ' + data.current_file}`;
+            console.log(`Updated status: ${data.message || 'Analyzing: ' + data.current_file}`); // Debug logging
+        } else if (data.message) {
+            statusMessage.textContent = data.message;
+            console.log(`Updated status: ${data.message}`); // Debug logging
+        }
+    } else {
+        console.log('Status message element not found!'); // Debug logging
+    }
+    
+    console.log(`Progress: ${progressText} (${progressPercent}%)`);
 }
 </script>
 {% endblock %}
