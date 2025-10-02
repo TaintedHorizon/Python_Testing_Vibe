@@ -325,22 +325,45 @@ def serve_processed_file(filepath: str):
 
 @bp.route("/original_pdf/<path:filename>")
 def serve_original_pdf(filename: str):
-    """Serve original PDF files."""
+    """Serve original PDF/image files from intake directory, with intelligent handling for converted images."""
     try:
-        # Get archive directory from config
-        # archive_dir = app_config.get('ARCHIVE_DIR', '/tmp/archive')
-        archive_dir = '/tmp/archive'  # Placeholder
+        from ..config_manager import app_config
+        import tempfile
+        from pathlib import Path
         
-        full_path = os.path.join(archive_dir, filename)
+        # Files should be served from the intake directory for analysis
+        intake_dir = app_config.INTAKE_DIR
+        original_path = os.path.join(intake_dir, filename)
         
-        if not os.path.exists(full_path):
-            return jsonify(create_error_response("Original file not found")), 404
+        # Check if the original file exists
+        if not os.path.exists(original_path):
+            return jsonify(create_error_response(f"File not found: {filename}")), 404
         
-        # Security check
-        if not os.path.abspath(full_path).startswith(os.path.abspath(archive_dir)):
+        # Security check - ensure file is within intake directory
+        if not os.path.abspath(original_path).startswith(os.path.abspath(intake_dir)):
             return jsonify(create_error_response("Invalid file path")), 403
         
-        return send_file(full_path)
+        # If the file is already a PDF, serve it directly
+        file_ext = Path(filename).suffix.lower()
+        if file_ext == '.pdf':
+            return send_file(original_path)
+        
+        # If the file is an image, try to serve the converted PDF first
+        if file_ext in ['.png', '.jpg', '.jpeg']:
+            # Look for converted PDF in temp directory
+            temp_dir = tempfile.gettempdir()
+            image_name = Path(filename).stem
+            converted_pdf_path = os.path.join(temp_dir, f"{image_name}_converted.pdf")
+            
+            if os.path.exists(converted_pdf_path):
+                logger.info(f"Serving converted PDF for image {filename}: {converted_pdf_path}")
+                return send_file(converted_pdf_path)
+            else:
+                logger.warning(f"Converted PDF not found for {filename}, serving original image")
+                return send_file(original_path)
+        
+        # For other file types, serve the original
+        return send_file(original_path)
         
     except Exception as e:
         logger.error(f"Error serving original PDF {filename}: {e}")

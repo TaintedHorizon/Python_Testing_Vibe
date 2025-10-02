@@ -1,8 +1,8 @@
-<!-- Reusable PDF Modal Viewer Component -->
-<!-- Include this component in any template that needs PDF viewing capability -->
+<!-- Universal Document Viewer Component - Supports PDFs and Images -->
+<!-- Include this component in any template that needs document viewing capability -->
 
 <style>
-/* PDF Modal Styles */
+/* Document Modal Styles */
 .pdf-modal {
     display: none;
     position: fixed;
@@ -71,6 +71,9 @@
     flex: 1;
     position: relative;
     background: #525659;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .pdf-viewer-iframe {
@@ -78,6 +81,16 @@
     height: 100%;
     border: none;
     background: white;
+}
+
+.image-viewer {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    transition: transform 0.3s ease;
+    transform-origin: center center;
 }
 
 .pdf-controls {
@@ -148,6 +161,29 @@
     display: none;
 }
 
+/* Image-specific controls */
+.image-controls {
+    display: none;
+}
+
+.pdf-controls.image-mode .image-controls {
+    display: flex;
+}
+
+.pdf-controls.image-mode .pdf-only-controls {
+    display: none !important;
+}
+
+.rotation-controls {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin: 0 10px;
+    padding: 0 10px;
+    border-left: 1px solid #ddd;
+    border-right: 1px solid #ddd;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .pdf-modal-content {
@@ -168,43 +204,61 @@
 }
 </style>
 
-<!-- PDF Modal HTML -->
+<!-- Document Modal HTML -->
 <div id="pdfModal" class="pdf-modal">
     <div class="pdf-modal-content">
         <div class="pdf-modal-header">
-            <h3 class="pdf-modal-title" id="pdfModalTitle">PDF Viewer</h3>
+            <h3 class="pdf-modal-title" id="pdfModalTitle">Document Viewer</h3>
             <button class="pdf-modal-close" id="pdfModalClose" title="Close (ESC)">×</button>
         </div>
         <div class="pdf-modal-body">
-            <div class="pdf-loading" id="pdfLoading">Loading PDF...</div>
+            <div class="pdf-loading" id="pdfLoading">Loading document...</div>
             <div class="pdf-error" id="pdfError">
-                <div>Failed to load PDF</div>
+                <div>Failed to load document</div>
                 <div style="font-size: 14px; margin-top: 10px;">Please check if the file exists and is accessible.</div>
             </div>
             <div class="pdf-viewer-container" id="pdfViewerContainer">
-                <!-- PDF.js viewer will be loaded here -->
+                <!-- PDF.js viewer or image will be loaded here -->
             </div>
         </div>
-        <div class="pdf-controls">
-            <button class="pdf-control-btn" id="pdfPrevPage" title="Previous Page">‹ Previous</button>
-            <div class="pdf-page-info">
-                <span>Page</span>
-                <input type="number" class="pdf-page-input" id="pdfPageInput" min="1" title="Go to page">
-                <span>of <span id="pdfTotalPages">-</span></span>
+        <div class="pdf-controls" id="pdfControls">
+            <!-- PDF-only controls -->
+            <div class="pdf-only-controls" style="display: flex; align-items: center; gap: 15px;">
+                <button class="pdf-control-btn" id="pdfPrevPage" title="Previous Page">‹ Previous</button>
+                <div class="pdf-page-info">
+                    <span>Page</span>
+                    <input type="number" class="pdf-page-input" id="pdfPageInput" min="1" title="Go to page">
+                    <span>of <span id="pdfTotalPages">-</span></span>
+                </div>
+                <button class="pdf-control-btn" id="pdfNextPage" title="Next Page">Next ›</button>
             </div>
-            <button class="pdf-control-btn" id="pdfNextPage" title="Next Page">Next ›</button>
+            
+            <!-- Universal controls (work for both PDFs and images) -->
             <button class="pdf-control-btn" id="pdfZoomOut" title="Zoom Out">-</button>
             <span id="pdfZoomLevel">100%</span>
             <button class="pdf-control-btn" id="pdfZoomIn" title="Zoom In">+</button>
             <button class="pdf-control-btn" id="pdfFitWidth" title="Fit Width">Fit Width</button>
             <button class="pdf-control-btn" id="pdfFitPage" title="Fit Page">Fit Page</button>
+            
+            <!-- Rotation controls -->
+            <div class="rotation-controls">
+                <button class="pdf-control-btn" id="rotateLeft" title="Rotate Left 90°">↺ 90°</button>
+                <button class="pdf-control-btn" id="rotateRight" title="Rotate Right 90°">↻ 90°</button>
+                <button class="pdf-control-btn" id="resetRotation" title="Reset Rotation">📄 Reset</button>
+            </div>
+            
+            <!-- Image-only controls -->
+            <div class="image-controls">
+                <button class="pdf-control-btn" id="imageActualSize" title="Actual Size">100%</button>
+                <button class="pdf-control-btn" id="imageDownload" title="Download Image">⬇ Download</button>
+            </div>
         </div>
     </div>
 </div>
 
 <script>
-// PDF Modal JavaScript Controller
-class PDFModalViewer {
+// Universal Document Viewer JavaScript Controller
+class UniversalDocumentViewer {
     constructor() {
         this.modal = document.getElementById('pdfModal');
         this.title = document.getElementById('pdfModalTitle');
@@ -212,6 +266,7 @@ class PDFModalViewer {
         this.loading = document.getElementById('pdfLoading');
         this.error = document.getElementById('pdfError');
         this.container = document.getElementById('pdfViewerContainer');
+        this.controls = document.getElementById('pdfControls');
         
         // Controls
         this.prevBtn = document.getElementById('pdfPrevPage');
@@ -223,11 +278,22 @@ class PDFModalViewer {
         this.zoomLevel = document.getElementById('pdfZoomLevel');
         this.fitWidth = document.getElementById('pdfFitWidth');
         this.fitPage = document.getElementById('pdfFitPage');
+        this.actualSize = document.getElementById('imageActualSize');
+        this.download = document.getElementById('imageDownload');
         
-        this.currentPdf = null;
+        // Rotation controls
+        this.rotateLeft = document.getElementById('rotateLeft');
+        this.rotateRight = document.getElementById('rotateRight');
+        this.resetRotation = document.getElementById('resetRotation');
+        
+        this.currentDocument = null;
         this.currentPage = 1;
         this.currentZoom = 1.0;
+        this.currentRotation = 0; // Track current rotation angle
+        this.originalRotation = 0; // Track original/intended rotation
         this.isLoading = false;
+        this.documentType = null; // 'pdf' or 'image'
+        this.currentUrl = null;
         
         this.initEventListeners();
     }
@@ -269,6 +335,13 @@ class PDFModalViewer {
         this.zoomOut.addEventListener('click', () => this.zoomInOut(0.8));
         this.fitWidth.addEventListener('click', () => this.fitToWidth());
         this.fitPage.addEventListener('click', () => this.fitToPage());
+        this.actualSize.addEventListener('click', () => this.setActualSize());
+        this.download.addEventListener('click', () => this.downloadDocument());
+        
+        // Rotation controls
+        this.rotateLeft.addEventListener('click', () => this.rotate(-90));
+        this.rotateRight.addEventListener('click', () => this.rotate(90));
+        this.resetRotation.addEventListener('click', () => this.resetRotationToOriginal());
         
         // Page input
         this.pageInput.addEventListener('change', () => {
@@ -287,19 +360,38 @@ class PDFModalViewer {
         });
     }
     
-    async open(pdfUrl, title = 'PDF Viewer') {
+    async open(documentUrl, title = 'Document Viewer', initialRotation = 0) {
         if (this.isLoading) return;
         
+        this.currentUrl = documentUrl;
+        this.originalRotation = initialRotation;
+        this.currentRotation = initialRotation;
         this.title.textContent = title;
         this.modal.style.display = 'block';
         this.showLoading();
         
+        // Determine document type from URL
+        const fileExtension = documentUrl.split('.').pop().toLowerCase();
+        this.documentType = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(fileExtension) ? 'image' : 'pdf';
+        
         try {
             this.isLoading = true;
-            await this.loadPdf(pdfUrl);
+            
+            if (this.documentType === 'image') {
+                await this.loadImage(documentUrl);
+            } else {
+                await this.loadPdf(documentUrl);
+            }
+            
+            // Apply initial rotation if specified
+            if (initialRotation !== 0) {
+                this.applyRotation(initialRotation);
+            }
+            
             this.hideLoading();
+            this.updateControlsVisibility();
         } catch (error) {
-            console.error('Failed to load PDF:', error);
+            console.error('Failed to load document:', error);
             this.showError();
         } finally {
             this.isLoading = false;
@@ -308,10 +400,12 @@ class PDFModalViewer {
     
     close() {
         this.modal.style.display = 'none';
-        this.container.innerHTML = ''; // Clear PDF viewer
-        this.currentPdf = null;
+        this.container.innerHTML = ''; // Clear document viewer
+        this.currentDocument = null;
         this.currentPage = 1;
         this.currentZoom = 1.0;
+        this.documentType = null;
+        this.currentUrl = null;
     }
     
     showLoading() {
@@ -328,6 +422,33 @@ class PDFModalViewer {
         this.loading.style.display = 'none';
         this.error.style.display = 'block';
         this.container.innerHTML = '';
+    }
+    
+    async loadImage(imageUrl) {
+        return new Promise((resolve, reject) => {
+            const img = document.createElement('img');
+            img.className = 'image-viewer';
+            img.src = imageUrl;
+            img.alt = 'Document Image';
+            
+            img.onload = () => {
+                this.container.appendChild(img);
+                this.currentDocument = img;
+                this.setupImageControls();
+                resolve();
+            };
+            
+            img.onerror = () => {
+                reject(new Error('Failed to load image'));
+            };
+            
+            // Timeout after 10 seconds
+            setTimeout(() => {
+                if (!img.complete) {
+                    reject(new Error('Image loading timeout'));
+                }
+            }, 10000);
+        });
     }
     
     async loadPdf(pdfUrl) {
@@ -362,7 +483,14 @@ class PDFModalViewer {
             }, 10000);
             
             this.container.appendChild(iframe);
+            this.currentDocument = iframe;
         });
+    }
+    
+    setupImageControls() {
+        // For images, we only have zoom controls
+        this.currentZoom = 1.0;
+        this.updateControls();
     }
     
     setupPdfControls(iframe) {
@@ -396,33 +524,49 @@ class PDFModalViewer {
         }
     }
     
+    updateControlsVisibility() {
+        if (this.documentType === 'image') {
+            this.controls.classList.add('image-mode');
+            this.title.textContent = this.title.textContent.replace('Document Viewer', 'Image Viewer');
+        } else {
+            this.controls.classList.remove('image-mode');
+            this.title.textContent = this.title.textContent.replace('Image Viewer', 'PDF Viewer');
+        }
+    }
+    
     updateControls() {
         const totalPages = this.getTotalPages();
         
-        this.prevBtn.disabled = this.currentPage <= 1;
-        this.nextBtn.disabled = this.currentPage >= totalPages;
-        this.pageInput.value = this.currentPage;
+        if (this.documentType === 'pdf') {
+            this.prevBtn.disabled = this.currentPage <= 1;
+            this.nextBtn.disabled = this.currentPage >= totalPages;
+            this.pageInput.value = this.currentPage;
+        }
+        
         this.zoomLevel.textContent = Math.round(this.currentZoom * 100) + '%';
     }
     
     getTotalPages() {
+        if (this.documentType === 'image') return 1;
         const total = this.totalPages.textContent;
         return total === '-' || total === '?' ? 1 : parseInt(total) || 1;
     }
     
     previousPage() {
-        if (this.currentPage > 1) {
+        if (this.documentType === 'pdf' && this.currentPage > 1) {
             this.goToPage(this.currentPage - 1);
         }
     }
     
     nextPage() {
-        if (this.currentPage < this.getTotalPages()) {
+        if (this.documentType === 'pdf' && this.currentPage < this.getTotalPages()) {
             this.goToPage(this.currentPage + 1);
         }
     }
     
     goToPage(pageNum) {
+        if (this.documentType !== 'pdf') return;
+        
         this.currentPage = Math.max(1, Math.min(pageNum, this.getTotalPages()));
         
         // Try to control PDF.js viewer
@@ -441,58 +585,149 @@ class PDFModalViewer {
         this.currentZoom *= factor;
         this.currentZoom = Math.max(0.25, Math.min(5.0, this.currentZoom));
         
-        // Try to control PDF.js zoom
-        const iframe = this.container.querySelector('iframe');
-        if (iframe && iframe.contentWindow && iframe.contentWindow.PDFViewerApplication) {
-            const app = iframe.contentWindow.PDFViewerApplication;
-            if (app.pdfViewer) {
-                app.pdfViewer.currentScale = this.currentZoom;
+        if (this.documentType === 'image') {
+            const img = this.container.querySelector('img');
+            if (img) {
+                img.style.transform = `scale(${this.currentZoom})`;
+                img.style.transformOrigin = 'center center';
+            }
+        } else {
+            // Try to control PDF.js zoom
+            const iframe = this.container.querySelector('iframe');
+            if (iframe && iframe.contentWindow && iframe.contentWindow.PDFViewerApplication) {
+                const app = iframe.contentWindow.PDFViewerApplication;
+                if (app.pdfViewer) {
+                    app.pdfViewer.currentScale = this.currentZoom;
+                }
             }
         }
         
         this.updateControls();
     }
     
+    setActualSize() {
+        if (this.documentType === 'image') {
+            this.currentZoom = 1.0;
+            const img = this.container.querySelector('img');
+            if (img) {
+                img.style.transform = 'scale(1)';
+                img.style.transformOrigin = 'center center';
+            }
+            this.updateControls();
+        }
+    }
+    
     fitToWidth() {
-        const iframe = this.container.querySelector('iframe');
-        if (iframe && iframe.contentWindow && iframe.contentWindow.PDFViewerApplication) {
-            const app = iframe.contentWindow.PDFViewerApplication;
-            if (app.pdfViewer) {
-                app.pdfViewer.currentScaleValue = 'page-width';
+        if (this.documentType === 'image') {
+            const img = this.container.querySelector('img');
+            if (img) {
+                img.style.transform = '';
+                img.style.width = '100%';
+                img.style.height = 'auto';
+                img.style.maxWidth = '100%';
+                img.style.maxHeight = '100%';
+                img.style.objectFit = 'contain';
+            }
+        } else {
+            const iframe = this.container.querySelector('iframe');
+            if (iframe && iframe.contentWindow && iframe.contentWindow.PDFViewerApplication) {
+                const app = iframe.contentWindow.PDFViewerApplication;
+                if (app.pdfViewer) {
+                    app.pdfViewer.currentScaleValue = 'page-width';
+                }
             }
         }
     }
     
     fitToPage() {
-        const iframe = this.container.querySelector('iframe');
-        if (iframe && iframe.contentWindow && iframe.contentWindow.PDFViewerApplication) {
-            const app = iframe.contentWindow.PDFViewerApplication;
-            if (app.pdfViewer) {
-                app.pdfViewer.currentScaleValue = 'page-fit';
+        if (this.documentType === 'image') {
+            const img = this.container.querySelector('img');
+            if (img) {
+                img.style.transform = '';
+                img.style.width = 'auto';
+                img.style.height = 'auto';
+                img.style.maxWidth = '100%';
+                img.style.maxHeight = '100%';
+                img.style.objectFit = 'contain';
             }
+        } else {
+            const iframe = this.container.querySelector('iframe');
+            if (iframe && iframe.contentWindow && iframe.contentWindow.PDFViewerApplication) {
+                const app = iframe.contentWindow.PDFViewerApplication;
+                if (app.pdfViewer) {
+                    app.pdfViewer.currentScaleValue = 'page-fit';
+                }
+            }
+        }
+    }
+    
+    downloadDocument() {
+        if (this.currentUrl) {
+            const link = document.createElement('a');
+            link.href = this.currentUrl;
+            link.download = this.currentUrl.split('/').pop() || 'document';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    }
+    
+    rotate(degrees) {
+        this.currentRotation = (this.currentRotation + degrees) % 360;
+        if (this.currentRotation < 0) {
+            this.currentRotation += 360;
+        }
+        this.applyRotation(this.currentRotation);
+        console.log(`Rotated document by ${degrees}°, current rotation: ${this.currentRotation}°`);
+    }
+    
+    resetRotationToOriginal() {
+        this.currentRotation = this.originalRotation;
+        this.applyRotation(this.currentRotation);
+        console.log(`Reset rotation to original: ${this.originalRotation}°`);
+    }
+    
+    applyRotation(degrees) {
+        if (this.documentType === 'image' && this.currentDocument) {
+            // Apply CSS rotation to images
+            this.currentDocument.style.transform = `rotate(${degrees}deg)`;
+            this.currentDocument.style.transition = 'transform 0.3s ease';
+        } else if (this.documentType === 'pdf' && this.container) {
+            // For PDFs in iframe, we need to handle rotation differently
+            // Note: PDF.js doesn't easily support programmatic rotation
+            // This is a limitation of embedded PDF viewers
+            console.log('PDF rotation not fully supported in iframe mode');
+            
+            // We could potentially reload the PDF with rotation parameter
+            // but this would require server-side support for PDF rotation
         }
     }
 }
 
-// Global PDF viewer instance
-let pdfViewer;
+// Global document viewer instance
+let documentViewer;
 
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', function() {
-    pdfViewer = new PDFModalViewer();
+    documentViewer = new UniversalDocumentViewer();
 });
 
-// Helper function for other scripts to open PDF viewer
-function openPdfViewer(pdfUrl, title) {
-    if (pdfViewer) {
-        pdfViewer.open(pdfUrl, title);
+// Helper function for other scripts to open document viewer
+function openPdfViewer(documentUrl, title, initialRotation = 0) {
+    if (documentViewer) {
+        documentViewer.open(documentUrl, title, initialRotation);
     } else {
-        console.error('PDF viewer not initialized');
+        console.error('Document viewer not initialized');
     }
 }
 
-// Helper function to create PDF viewer buttons
-function createPdfViewerButton(pdfUrl, title, buttonText = '👁️ View PDF', buttonClass = 'pdf-viewer-btn') {
+// Backward compatibility alias
+function openDocumentViewer(documentUrl, title) {
+    return openPdfViewer(documentUrl, title);
+}
+
+// Helper function to create document viewer buttons
+function createDocumentViewerButton(documentUrl, title, buttonText = '👁️ View', buttonClass = 'document-viewer-btn') {
     const button = document.createElement('button');
     button.textContent = buttonText;
     button.className = buttonClass;
@@ -500,9 +735,8 @@ function createPdfViewerButton(pdfUrl, title, buttonText = '👁️ View PDF', b
     button.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        openPdfViewer(pdfUrl, title);
+        openPdfViewer(documentUrl, title);
     };
     return button;
 }
 </script>
-</pre>

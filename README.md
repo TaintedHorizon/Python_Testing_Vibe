@@ -19,13 +19,16 @@ Production-ready document processing pipeline with AI integration, human verific
 - **Professional Blueprint architecture**: Clean separation of concerns for enterprise-grade maintainability
 - **✅ API COMPATIBILITY RESTORED**: All Blueprint routes now match original functionality exactly
 - **🔧 MAJOR FIX (Oct 1, 2025)**: Fixed critical API contract differences between original and Blueprint implementations
+- **🎯 UX REVOLUTION (Oct 2, 2025)**: Unified PDF display system - all document previews now use consistent iframe approach with automatic image-to-PDF conversion
 
 **Key Features:**
 - End-to-end document workflow: Intake → OCR → AI Classification → Human Verification → Export
+- **Unified Document Display**: Revolutionary PDF standardization - all images automatically converted to PDF for consistent preview experience across all templates
 - **Enhanced Single Document Workflow**: Streamlined processing with AI-powered category and filename suggestions
 - **Intelligent AI Filename Generation**: Content-based filename suggestions using document analysis
 - **Interactive Manipulation Interface**: Edit AI suggestions with dropdown categories and filename options
 - **Individual Document Rescan**: Re-analyze specific documents for improved AI results
+- **Template Consistency**: All 5 preview templates use identical iframe approach - no more display inconsistencies or rotation issues
 - LLM-powered document analysis with Ollama integration
 - Complete file safety with rollback mechanisms
 - RAG-ready data structure for future AI integration

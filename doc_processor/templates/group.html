@@ -9,8 +9,24 @@
     .preview-pane, .selection-pane { border: 1px solid #ccc; padding: 15px; background-color: white; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
     
     /* Styles for the image preview area */
-    .preview-wrapper { width: 100%; height: 75vh; border: 1px solid #ddd; background-color: #f0f0f0; display: flex; align-items: center; justify-content: center; overflow: hidden; color: #888; border-radius: 3px; }
-    .preview-wrapper img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .preview-wrapper { 
+        width: 100%; 
+        height: 75vh; 
+        border: 2px solid #007BFF; 
+        background-color: #f8f9fa; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        overflow: hidden; 
+        color: #6c757d; 
+        border-radius: 8px;
+        position: relative;
+    }
+    .pdf-placeholder {
+        color: #6c757d;
+        text-align: center;
+        padding: 40px;
+    }
     
     /* Styles for the list of selectable pages */
     .page-list { max-height: 40vh; overflow-y: auto; border: 1px solid #ddd; padding: 10px; margin-top: 10px; background-color: #fdfdfd; }
@@ -48,7 +64,13 @@
         <h3>🔍 Page Preview</h3>
         <div class="preview-wrapper">
             <span id="previewPlaceholder">Select a page from the right to preview it here.</span>
-            <img id="previewImage" src="" alt="Page Preview" style="display: none;">
+            <iframe id="previewPdf" src="" width="100%" height="100%" 
+                    style="border: none; display: none;">
+                <div class="pdf-placeholder">
+                    <h4>📄 Document Preview</h4>
+                    <p>PDF viewer not supported.</p>
+                </div>
+            </iframe>
         </div>
     </div>
 
@@ -104,7 +126,7 @@
                             </div>
                             <!-- Loop through each page in the category -->
                             {% for page in pages %}
-                                <div class="page-item" data-rotation="{{ page.rotation_angle or 0 }}" onclick="showPreview('{{ url_for('export.serve_processed_file', filepath=page.relative_image_path) }}')">
+                                <div class="page-item" data-rotation="{{ page.rotation_angle or 0 }}" onclick="showPreview('{{ page.source_filename }}', {{ page.id }})">>>
                                     <input type="checkbox" name="page_ids" value="{{ page.id }}" class="page-checkbox-{{ category_slug }}" onclick="event.stopPropagation();">
                                     <img src="{{ url_for('export.serve_processed_file', filepath=page.relative_image_path) }}" alt="Thumbnail">
                                     <span>ID: {{ page.id }} ({{ page.source_filename }}, Pg {{ page.page_number }})</span>
@@ -151,15 +173,16 @@ if (resetGroupingForm) {
 </div>
 
 <script>
-    const previewImage = document.getElementById('previewImage');
+    const previewPdf = document.getElementById('previewPdf');
     const previewPlaceholder = document.getElementById('previewPlaceholder');
 
-    // Function to update the main preview pane with the selected image.
-    function showPreview(imageUrl) {
+    // Function to update the main preview pane with the selected document.
+    function showPreview(sourceFilename, pageId) {
         if (previewPlaceholder) previewPlaceholder.style.display = 'none';
-        if (previewImage) {
-            previewImage.style.display = 'block';
-            previewImage.src = imageUrl;
+        if (previewPdf) {
+            previewPdf.style.display = 'block';
+            // Use the serve_original_pdf route for standardized PDF viewing
+            previewPdf.src = `/export/original_pdf/${sourceFilename}`;
         }
     }
 

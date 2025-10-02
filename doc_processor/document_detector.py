@@ -1,4 +1,9 @@
-from .llm_utils import get_ai_document_type_analysis
+try:
+    # Try relative imports first (when used as module)
+    from .llm_utils import get_ai_document_type_analysis
+except ImportError:
+    # Fallback to absolute imports (when run directly)
+    from llm_utils import get_ai_document_type_analysis
 """
 Document type detection and processing strategy selection.
 
@@ -14,6 +19,8 @@ from typing import Dict, List, Optional, Tuple
 import logging
 from dataclasses import dataclass
 import fitz
+from PIL import Image
+import tempfile
 
 @dataclass
 class DocumentAnalysis:
@@ -27,6 +34,8 @@ class DocumentAnalysis:
     filename_hints: Optional[str] = None
     content_sample: Optional[str] = None
     llm_analysis: Optional[Dict] = None  # LLM analysis results when used
+    detected_rotation: int = 0  # Rotation angle detected during analysis (0, 90, 180, 270)
+    pdf_path: Optional[str] = None  # Path to PDF version (for converted images)
 
 class DocumentTypeDetector:
     """
@@ -67,6 +76,45 @@ class DocumentTypeDetector:
     def __init__(self, use_llm_for_ambiguous=True):
         self.logger = logging.getLogger(__name__)
         self.use_llm_for_ambiguous = use_llm_for_ambiguous
+    
+    def _convert_image_to_pdf(self, image_path: str) -> str:
+        """
+        Convert an image file to PDF for standardized display.
+        
+        Args:
+            image_path (str): Path to the source image file
+            
+        Returns:
+            str: Path to the generated PDF file
+        """
+        try:
+            # Create temporary PDF file
+            temp_dir = tempfile.gettempdir()
+            image_name = Path(image_path).stem
+            temp_pdf_path = os.path.join(temp_dir, f"{image_name}_converted.pdf")
+            
+            # Open and convert image to PDF
+            with Image.open(image_path) as img:
+                # Convert to RGB if necessary (for RGBA images)
+                if img.mode in ('RGBA', 'LA', 'P'):
+                    rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+                    if img.mode == 'P':
+                        img = img.convert('RGBA')
+                    rgb_img.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                    img = rgb_img
+                elif img.mode != 'RGB':
+                    img = img.convert('RGB')
+                
+                # Save as PDF
+                img.save(temp_pdf_path, 'PDF', resolution=150.0, quality=95)
+                
+            self.logger.info(f"Converted image to PDF: {image_path} -> {temp_pdf_path}")
+            return temp_pdf_path
+            
+        except Exception as e:
+            self.logger.error(f"Failed to convert image {image_path} to PDF: {e}")
+            # Return original path if conversion fails
+            return image_path
     
     def _import_llm_function(self):
         """Lazy import of LLM function to avoid circular imports."""
@@ -129,13 +177,28 @@ class DocumentTypeDetector:
                                 try:
                                     from pdf2image import convert_from_path
                                     import pytesseract
-                                    from .config_manager import app_config
+                                    try:
+                                        from .config_manager import app_config
+                                    except ImportError:
+                                        from config_manager import app_config
                                     
                                     if not app_config.DEBUG_SKIP_OCR:
                                         # Convert specific page to image and run OCR
                                         pages = convert_from_path(file_path, first_page=page_idx+1, last_page=page_idx+1, dpi=150)
                                         if pages:
-                                            page_text = pytesseract.image_to_string(pages[0])
+                                            page_img = pages[0]
+                                            
+                                            # Apply auto-rotation detection for better OCR
+                                            try:
+                                                osd = pytesseract.image_to_osd(page_img, output_type=pytesseract.Output.DICT)
+                                                rotation = osd.get("rotate", 0)
+                                                if rotation and rotation > 0:
+                                                    self.logger.info(f"📄 🔄 Auto-rotating page {page_idx+1} by {rotation}° for better OCR")
+                                                    page_img = page_img.rotate(-rotation, expand=True)
+                                            except pytesseract.TesseractError as osd_error:
+                                                self.logger.debug(f"📄 Could not determine page {page_idx+1} orientation: {osd_error}")
+                                            
+                                            page_text = pytesseract.image_to_string(page_img)
                                             if page_text and len(page_text.strip()) > 10:
                                                 self.logger.info(f"📄 ✅ OCR extracted {len(page_text)} characters from page {page_idx+1}")
                                             else:
@@ -268,11 +331,16 @@ class DocumentTypeDetector:
                 reasoning=reasoning,
                 filename_hints=filename_hint,
                 content_sample=content_sample[:200] if content_sample else None,
-                llm_analysis=llm_analysis
+                llm_analysis=llm_analysis,
+                detected_rotation=0,  # PDFs don't need rotation detection in analysis phase
+                pdf_path=file_path  # PDFs already in correct format
             )
             # Log detection decision for training data collection
             try:
-                from .database import log_interaction
+                try:
+                    from .database import log_interaction
+                except ImportError:
+                    from database import log_interaction
                 detection_data = {
                     "filename": os.path.basename(file_path),
                     "file_size_mb": file_size_mb,
@@ -306,7 +374,9 @@ class DocumentTypeDetector:
                 page_count=0,
                 processing_strategy="batch_scan",  # Safe fallback
                 confidence=0.0,
-                reasoning=[f"Analysis error: {e}", "Defaulting to batch scan for safety"]
+                reasoning=[f"Analysis error: {e}", "Defaulting to batch scan for safety"],
+                detected_rotation=0,
+                pdf_path=file_path  # Use original path even in error case
             )
     
     def _analyze_filename(self, filename: str) -> Optional[str]:
@@ -446,25 +516,35 @@ class DocumentTypeDetector:
             
             # Try to extract text for LLM analysis if enabled
             content_sample = ""
+            detected_rotation = 0
             if self.use_llm_for_ambiguous:
                 try:
                     import pytesseract
                     from PIL import Image
-                    from .config_manager import app_config
+                    try:
+                        from .config_manager import app_config
+                    except ImportError:
+                        from config_manager import app_config
                     
                     if not app_config.DEBUG_SKIP_OCR:
                         self.logger.info(f"Extracting text from image for LLM analysis: {os.path.basename(file_path)}")
-                        with Image.open(file_path) as img:
-                            # Convert to RGB if necessary
-                            if img.mode != 'RGB':
-                                img = img.convert('RGB')
-                            content_sample = pytesseract.image_to_string(img)
-                            if content_sample and len(content_sample.strip()) > 50:
-                                self.logger.info(f"Extracted {len(content_sample)} characters from image")
-                                reasoning.append("Successfully extracted text from image for analysis")
-                            else:
-                                self.logger.debug(f"Minimal text extracted from image")
-                                reasoning.append("Limited text extracted from image")
+                        
+                        # Use sophisticated 4-orientation rotation detection
+                        detected_rotation, rotation_confidence, content_sample = self._detect_best_rotation_for_image(file_path)
+                        
+                        if detected_rotation != 0:
+                            self.logger.info(f"  🔄 Auto-detected optimal rotation: {detected_rotation}° (confidence: {rotation_confidence:.3f})")
+                            reasoning.append(f"Detected {detected_rotation}° rotation needed (confidence: {rotation_confidence:.1f})")
+                        else:
+                            self.logger.info(f"  ✅ Image orientation is optimal (confidence: {rotation_confidence:.3f})")
+                            reasoning.append(f"No rotation needed (confidence: {rotation_confidence:.1f})")
+                        
+                        if content_sample and len(content_sample.strip()) > 50:
+                            self.logger.info(f"Extracted {len(content_sample)} characters from image")
+                            reasoning.append("Successfully extracted text from image for analysis")
+                        else:
+                            self.logger.debug(f"Minimal text extracted from image")
+                            reasoning.append("Limited text extracted from image")
                     else:
                         content_sample = "[DEBUG MODE - Sample content for image file]"
                         reasoning.append("DEBUG mode - skipped OCR")
@@ -507,7 +587,9 @@ class DocumentTypeDetector:
                 reasoning=reasoning,
                 filename_hints=filename_hint,
                 content_sample=content_sample[:200] if content_sample else None,
-                llm_analysis=llm_analysis
+                llm_analysis=llm_analysis,
+                detected_rotation=detected_rotation,
+                pdf_path=self._convert_image_to_pdf(file_path)
             )
             
             return result
@@ -520,8 +602,103 @@ class DocumentTypeDetector:
                 page_count=1,
                 processing_strategy="single_document",  # Safe default for images
                 confidence=0.5,
-                reasoning=[f"Analysis error: {e}", "Defaulting to single document for image file"]
+                reasoning=[f"Analysis error: {e}", "Defaulting to single document for image file"],
+                detected_rotation=0,
+                pdf_path=file_path  # Use original path if conversion fails
             )
+
+    def _detect_best_rotation_for_image(self, image_path: str) -> tuple[int, float, str]:
+        """
+        Automatically detect the best rotation for an image by testing OCR confidence at different rotations.
+        
+        Args:
+            image_path (str): Path to the image file
+            
+        Returns:
+            tuple: (best_rotation_angle, confidence_score, ocr_text)
+        """
+        if not os.path.exists(image_path):
+            self.logger.warning(f"Image not found for rotation detection: {image_path}")
+            return 0, 0.0, ""
+            
+        try:
+            from PIL import Image
+            import numpy as np
+            import pytesseract
+            
+            # Test rotations: 0, 90, 180, 270 degrees
+            rotations_to_test = [0, 90, 180, 270]
+            best_rotation = 0
+            best_confidence = 0.0
+            best_text = ""
+            results = {}
+            
+            with Image.open(image_path) as img:
+                # Convert to RGB if necessary
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                
+                try:
+                    from .processing import EasyOCRSingleton
+                except ImportError:
+                    from processing import EasyOCRSingleton
+                reader = EasyOCRSingleton.get_reader()
+                
+                for rotation in rotations_to_test:
+                    try:
+                        # Rotate image for testing
+                        if rotation == 0:
+                            test_img = img
+                        else:
+                            test_img = img.rotate(-rotation, expand=True)
+                        
+                        # Run OCR and get results with confidence scores
+                        ocr_results = reader.readtext(np.array(test_img))
+                        
+                        if ocr_results:
+                            # Calculate average confidence and extract text
+                            confidences = [float(conf) for (_, _, conf) in ocr_results if isinstance(conf, (int, float))]
+                            avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+                            text = " ".join([str(text) for (_, text, _) in ocr_results])
+                            
+                            # Additional heuristics for better detection
+                            text_length = len(text.strip())
+                            word_count = len(text.split())
+                            
+                            # Boost score for longer, more readable text
+                            adjusted_confidence = avg_confidence
+                            if text_length > 50:  # Reasonable amount of text
+                                adjusted_confidence *= 1.1
+                                
+                            if word_count > 10:  # Good word count
+                                adjusted_confidence *= 1.05
+                                
+                            results[rotation] = {
+                                'confidence': adjusted_confidence,
+                                'text': text,
+                                'raw_confidence': avg_confidence,
+                                'text_length': text_length
+                            }
+                            
+                            self.logger.debug(f"Rotation {rotation}°: confidence={avg_confidence:.3f}, adjusted={adjusted_confidence:.3f}, text_len={text_length}")
+                            
+                            if adjusted_confidence > best_confidence:
+                                best_confidence = adjusted_confidence
+                                best_rotation = rotation
+                                best_text = text
+                        else:
+                            results[rotation] = {'confidence': 0.0, 'text': '', 'raw_confidence': 0.0, 'text_length': 0}
+                            
+                    except Exception as rotation_error:
+                        self.logger.warning(f"Failed to test rotation {rotation}°: {rotation_error}")
+                        results[rotation] = {'confidence': 0.0, 'text': '', 'raw_confidence': 0.0, 'text_length': 0}
+                
+                self.logger.debug(f"Rotation detection results: {results}")
+                return best_rotation, best_confidence, best_text
+                
+        except Exception as e:
+            self.logger.error(f"Error in rotation detection for {image_path}: {e}")
+            return 0, 0.0, ""
 
 def get_detector(use_llm_for_ambiguous: bool = True) -> DocumentTypeDetector:
     """

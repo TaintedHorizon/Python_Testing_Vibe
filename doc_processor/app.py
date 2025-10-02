@@ -24,27 +24,22 @@ import logging
 import os
 import sys
 from datetime import datetime
-
-# Import configuration and core modules
-from .config_manager import app_config
-# from .database import initialize_database  # TODO: Create this function if needed
-# from .exceptions import DocumentProcessorError  # TODO: Create this if needed
-
-# Import all Blueprint modules
-from .routes import intake, batch, manipulation, export, admin, api
-
-# Import service layers
-from .services.document_service import DocumentService
-from .services.batch_service import BatchService  
-from .services.export_service import ExportService
-
-# Configure logging with rotation
-import os
 from logging.handlers import RotatingFileHandler
-from config_manager import app_config
+
+# Import configuration FIRST (needed for logging setup)
+from .config_manager import app_config
+
+# Global flag to prevent duplicate logging setup
+_logging_configured = False
 
 def setup_logging():
     """Configure logging with rotation based on app config."""
+    global _logging_configured
+    
+    # Prevent duplicate setup
+    if _logging_configured:
+        return logging.getLogger(__name__)
+    
     # Ensure log directory exists
     log_file_path = app_config.LOG_FILE_PATH
     if not os.path.isabs(log_file_path):
@@ -70,29 +65,45 @@ def setup_logging():
         '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
     ))
     
-    # Get root logger and configure it properly
+    # Get root logger
     root_logger = logging.getLogger()
     
-    # Only clear and configure if not already configured
-    if not root_logger.handlers:
-        # Set log level
-        log_level = getattr(logging, app_config.LOG_LEVEL.upper(), logging.INFO)
-        root_logger.setLevel(log_level)
-        
-        # Add our handlers
-        root_logger.addHandler(file_handler)
-        root_logger.addHandler(console_handler)
+    # Set log level
+    log_level = getattr(logging, app_config.LOG_LEVEL.upper(), logging.INFO)
+    root_logger.setLevel(log_level)
     
-    # Configure werkzeug to use our file handler (avoid duplicates)
+    # Clear any existing handlers to prevent duplicates
+    root_logger.handlers.clear()
+    
+    # Add our handlers
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+    
+    # Configure werkzeug to prevent duplicate logs
     werkzeug_logger = logging.getLogger('werkzeug')
-    if not any(isinstance(h, RotatingFileHandler) for h in werkzeug_logger.handlers):
-        werkzeug_logger.addHandler(file_handler)
+    werkzeug_logger.propagate = True  # Let root logger handle it
+    werkzeug_logger.setLevel(log_level)
+    
+    # Mark as configured
+    _logging_configured = True
     
     return logging.getLogger(__name__)
 
-# Initialize logging
+# Initialize logging FIRST, before importing modules that use logging
 logger = setup_logging()
 logger.info("Logging configuration initialized with rotation")
+
+# NOW import modules that depend on logging being configured
+# from .database import initialize_database  # TODO: Create this function if needed
+# from .exceptions import DocumentProcessorError  # TODO: Create this if needed
+
+# Import all Blueprint modules (AFTER logging is configured)
+from .routes import intake, batch, manipulation, export, admin, api
+
+# Import service layers
+from .services.document_service import DocumentService
+from .services.batch_service import BatchService  
+from .services.export_service import ExportService
 
 def create_app():
     """

@@ -365,14 +365,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     alert(`OCR rescan failed: ${data.error || 'Unknown error'}`);
                     button.disabled = false;
-                    button.innerHTML = '� Rescan OCR';
+                    button.innerHTML = '🔄 Rescan OCR';
                 }
             })
             .catch(error => {
                 console.error('OCR rescan error:', error);
                 alert('Failed to rescan OCR. Please try again.');
                 button.disabled = false;
-                button.innerHTML = '� Rescan OCR';
+                button.innerHTML = '🔄 Rescan OCR';
             });
         });
     });

@@ -30,19 +30,18 @@
     height: fit-content;
 }
 
-        .universal-viewer {
-            width: 100%;
-            height: 80vh;
-            border: 2px solid #007BFF;
-            background-color: #f8f9fa;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-            border-radius: 8px;
-            position: relative;
-        }
+.universal-viewer {
+    width: 100%;
+    height: 70vh;
+    border: 2px solid #007BFF;
+    background-color: white;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
 
 .viewer-placeholder {
     text-align: center;
@@ -305,7 +304,7 @@
     }
     
     .universal-viewer {
-        height: 80vh;
+        height: 50vh;
     }
 }
 </style>
@@ -356,20 +355,16 @@
             <!-- Left Pane: Document Viewer -->
             <div class="document-viewer-pane">
                 <div class="universal-viewer" id="viewer-{{ loop.index }}">
-                    <!-- Now always use PDF iframe since images are converted during analysis -->
-                    <iframe src="{{ url_for('export.serve_original_pdf', filename=analysis.filename) }}" 
-                            width="100%" height="100%" 
-                            style="border: none;"
-                            data-filename="{{ analysis.filename }}">
-                        <div class="viewer-placeholder">
-                            <h4>📄 {{ analysis.filename }}</h4>
-                            <p>PDF viewer not supported.<br>
-                            <a href="{{ url_for('export.serve_original_pdf', filename=analysis.filename) }}" target="_blank">Open in new tab</a></p>
-                        </div>
-                    </iframe>
+                    <div class="viewer-placeholder">
+                        <h5>{{ analysis.filename }}</h5>
+                        <p>Click "View Document" to load preview</p>
+                    </div>
                 </div>
                 
                 <div class="viewer-controls">
+                    <button onclick="openDocumentViewer('{{ analysis.filename }}', {{ analysis.detected_rotation or 0 }})" class="btn-primary">
+                        👁️ View Document
+                    </button>
                     <button onclick="rotateDocument('{{ analysis.filename }}', 90)">
                         ↻ Rotate Right
                     </button>
@@ -563,6 +558,26 @@ window.documentRotations['{{ analysis.filename }}'] = {{ analysis.detected_rotat
 {% endfor %}
 {% endif %}
 
+// Document viewer functions using the existing PDF modal
+function openDocumentViewer(filename, initialRotation = 0) {
+    console.log(`Opening viewer for ${filename} with rotation ${initialRotation}°`);
+    
+    // Create document URL based on file type
+    const documentUrl = `/intake/view_document/${encodeURIComponent(filename)}`;
+    const title = filename;
+    
+    // Use current rotation if available
+    const currentRotation = window.documentRotations[filename] || initialRotation;
+    
+    // Open the universal PDF modal viewer
+    if (window.openPdfViewer) {
+        window.openPdfViewer(documentUrl, title, currentRotation);
+    } else {
+        console.error('PDF viewer not available');
+        alert('Document viewer not available');
+    }
+}
+
 // Rotation functions
 function rotateDocument(filename, degrees) {
     const currentRotation = window.documentRotations[filename] || 0;
@@ -572,25 +587,6 @@ function rotateDocument(filename, degrees) {
     
     // Update display
     updateRotationDisplay(filename);
-    
-    // Update rotation for both iframe (PDF) and img (images)
-    const iframe = document.querySelector(`iframe[data-filename="${filename}"]`);
-    const img = document.querySelector(`img[data-filename="${filename}"]`);
-    
-    if (iframe) {
-        // For PDFs, apply rotation and adjust size
-        const isLandscape = (newRotation % 180 === 90);
-        iframe.style.transform = `rotate(${newRotation}deg)`;
-        iframe.style.width = isLandscape ? '70%' : '100%';
-        iframe.style.height = isLandscape ? '70%' : '100%';
-    }
-    if (img) {
-        // For images, apply rotation and adjust size
-        const isLandscape = (newRotation % 180 === 90);
-        img.style.transform = `rotate(${newRotation}deg)`;
-        img.style.width = isLandscape ? '70%' : '100%';
-        img.style.height = isLandscape ? '70%' : '100%';
-    }
     
     console.log(`Rotated ${filename} by ${degrees}° to ${newRotation}°`);
 }
@@ -602,44 +598,7 @@ function resetRotation(filename) {
     // Update display
     updateRotationDisplay(filename);
     
-    // Update rotation for both iframe (PDF) and img (images)
-    const iframe = document.querySelector(`iframe[data-filename="${filename}"]`);
-    const img = document.querySelector(`img[data-filename="${filename}"]`);
-    
-    if (iframe) {
-        // For PDFs, apply rotation and adjust size
-        const isLandscape = (originalRotation % 180 === 90);
-        iframe.style.transform = `rotate(${originalRotation}deg)`;
-        iframe.style.width = isLandscape ? '70%' : '100%';
-        iframe.style.height = isLandscape ? '70%' : '100%';
-    }
-    if (img) {
-        // For images, apply rotation and adjust size
-        const isLandscape = (originalRotation % 180 === 90);
-        img.style.transform = `rotate(${originalRotation}deg)`;
-        img.style.width = isLandscape ? '70%' : '100%';
-        img.style.height = isLandscape ? '70%' : '100%';
-    }
-    
     console.log(`Reset rotation for ${filename} to original ${originalRotation}°`);
-}
-
-function updateInlineViewerRotation(filename, rotation) {
-    const section = document.querySelector(`[data-filename="${filename}"]`);
-    const viewer = section.querySelector('.universal-viewer');
-    
-    if (!viewer) return;
-    
-    // Find iframe or img element and update rotation
-    const iframe = viewer.querySelector('iframe');
-    const img = viewer.querySelector('img');
-    
-    if (iframe) {
-        iframe.style.transform = `rotate(${rotation}deg)`;
-    }
-    if (img) {
-        img.style.transform = `rotate(${rotation}deg)`;
-    }
 }
 
 function updateRotationDisplay(filename) {
