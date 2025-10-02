@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+
+{% block title %}Manipulate Document - Batch {{ batch_id }}{% endblock %}
+
+{% block content %}
+<h1>Manipulate Document</h1>
+<p>This page is a placeholder for document-level manipulation.</p>
+
+<div class="info-box">
+  <p><strong>Batch:</strong> {{ batch_id }}</p>
+  <p><strong>Document # in view:</strong> {{ doc_num }}</p>
+  <p>This view will be replaced by the unified manipulation UI once data wiring is complete.</p>
+  <p>
+    <a href="{{ url_for('batch.batch_control') }}">Back to Batches</a>
+    {% if batch_id %}
+      | <a href="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch_id) }}">Batch Manipulation Overview</a>
+    {% endif %}
+  </p>
+  {% if documents %}
+  <details>
+    <summary>Documents (debug)</summary>
+    <pre>{{ documents | tojson(indent=2) }}</pre>
+  </details>
+  {% endif %}
+{% endblock %}

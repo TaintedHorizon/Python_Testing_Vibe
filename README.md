@@ -93,6 +93,7 @@ Legacy document scanner using Ollama integration.
 
 ### For Document Processing:
 ```bash
+# 1) One-time environment setup
 cd doc_processor
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
@@ -100,14 +101,16 @@ pip install -r requirements.txt
 python dev_tools/database_setup.py
 cp .env.sample .env  # Edit with your settings
 
-# Run the application (from project root)
+# 2) Start the application (from repo root) — REQUIRED
 cd ..
-python_testing_vibe/doc_processor/venv/bin/python -m doc_processor.app
+./start_app.sh
 ```
 
-Access the web interface at `http://localhost:5000`
+Access the web interface at `http://localhost:5000`.
 
-**Note:** The application now uses a proper Python package structure. Always run from the project root using the module syntax for correct import resolution.
+Important:
+- Always use `./start_app.sh`. It activates the correct venv and runs `python -m doc_processor.app` from the repo root.
+- Don’t run `python app.py` or run from the `doc_processor/` subdirectory—imports will fail.
 
 ### For Utility Tools:
 ```bash

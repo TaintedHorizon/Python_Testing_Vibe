@@ -254,47 +254,65 @@ def update_rotation_api():
 @bp.route("/batch/<int:batch_id>/manipulate", methods=['GET'])
 @bp.route("/batch/<int:batch_id>/manipulate/<int:doc_num>", methods=['GET', 'POST'])
 def manipulate_batch_documents(batch_id: int, doc_num: Optional[int] = None):
-    """Manipulate documents within a batch (combined route)."""
+    """Unified manipulation UI using manipulate.html with safe fallbacks.
+
+    - Loads documents for the batch (if available)
+    - Computes pagination context
+    - Builds a minimal current_doc dict for the template
+    - On POST, performs no-ops for now and redirects (placeholder wiring)
+    """
     try:
         if request.method == 'POST' and doc_num is not None:
-            # Handle document manipulation updates
+            # Handle document manipulation updates (placeholder wiring)
             action = request.form.get('action')
-            
-            if action == 'rotate':
-                rotation = request.form.get('rotation', 0)
-                # Rotate specific document
-                # rotate_document(batch_id, doc_num, int(rotation))
-                
-            elif action == 'recategorize':
-                new_category = request.form.get('category')
-                # Update document category
-                # update_document_category(batch_id, doc_num, new_category)
-                
-            elif action == 'rescan':
-                # Rescan document with OCR
-                # rescan_document(batch_id, doc_num)
-                pass
-            
-            flash(f"Document {doc_num} updated successfully", "success")
-            return redirect(url_for('manipulation.manipulate_batch_documents', batch_id=batch_id))
-        
+            if action:
+                flash(f"Action '{action}' received for document {doc_num}", "info")
+            return redirect(url_for('manipulation.manipulate_batch_documents', batch_id=batch_id, doc_num=doc_num))
+
         # GET request - show manipulation interface
-        # Get all documents in batch for manipulation
-        # documents = get_documents_by_batch(batch_id)
-        documents = []  # Placeholder
-        
-        if doc_num is not None:
-            # Show specific document manipulation
-            return render_template('manipulate_document.html', 
-                                 batch_id=batch_id, 
-                                 doc_num=doc_num,
-                                 documents=documents)
-        else:
-            # Show batch manipulation overview
-            return render_template('manipulate_batch.html', 
-                                 batch_id=batch_id,
-                                 documents=documents)
-        
+        # Attempt to fetch documents and categories; on error, fall back to empty lists
+        try:
+            documents = get_documents_for_batch(batch_id) or []
+        except Exception as e:
+            logger.warning(f"Failed to load documents for batch {batch_id}: {e}")
+            documents = []
+        try:
+            from ..database import get_all_categories
+            categories = get_all_categories() or []
+        except Exception as e:
+            logger.warning(f"Failed to load categories: {e}")
+            categories = []
+
+        total_docs = len(documents)
+        current_doc_num = max(1, min(doc_num or 1, total_docs if total_docs else 1))
+
+        # Select the current document row if available
+        current_row = documents[current_doc_num - 1] if total_docs >= current_doc_num else None
+        # Build a minimal current_doc dict expected by manipulate.html
+        doc_name = None
+        if current_row and hasattr(current_row, 'keys') and 'document_name' in current_row.keys():
+            doc_name = current_row['document_name']
+        current_doc = {
+            'id': (current_row['id'] if current_row else -1),
+            'original_filename': (doc_name + '.pdf') if doc_name else 'No documents',
+            'original_pdf_path': None,  # Not tracked directly; viewer shows placeholder
+            'ocr_confidence_avg': None,
+            'ocr_text': None,
+            'ai_suggested_category': None,
+            'ai_suggested_filename': None,
+            'ai_confidence': None,
+            'ai_summary': None,
+        }
+
+        return render_template(
+            'manipulate.html',
+            batch_id=batch_id,
+            current_doc_num=current_doc_num,
+            total_docs=total_docs,
+            current_doc=current_doc,
+            categories=categories,
+        )
+
     except Exception as e:
         logger.error(f"Error in batch manipulation for batch {batch_id}: {e}")
         flash(f"Error manipulating documents: {str(e)}", "error")

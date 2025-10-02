@@ -160,11 +160,21 @@ _DB_LOGGED_ONCE = False
 
 
 def get_db_connection():
-    """Create and return a configured SQLite connection (logs rich context once)."""
+    """Create and return a configured SQLite connection (logs rich context once).
+
+    Prefers the centralized config_manager.AppConfig.DATABASE_PATH. Falls back to
+    the DATABASE_PATH environment variable for backward compatibility.
+    """
     global _DB_LOGGED_ONCE
-    db_path = os.getenv("DATABASE_PATH")
+    try:
+        # Prefer centralized config
+        from .config_manager import app_config  # local import to avoid cycles at module import time
+        db_path = app_config.DATABASE_PATH
+    except Exception:
+        # Fallback to environment if config not yet available
+        db_path = os.getenv("DATABASE_PATH")
     if not db_path:
-        raise RuntimeError("DATABASE_PATH environment variable is not set.")
+        raise RuntimeError("Database path is not configured. Set in .env or via config_manager.")
 
     if not _DB_LOGGED_ONCE:
         # Structured, one-time metadata log (safe even if logger not configured yet)

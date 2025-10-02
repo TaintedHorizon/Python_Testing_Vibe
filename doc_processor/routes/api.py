@@ -1,14 +1,9 @@
 """
-API Routes Blue# Import existing modules (these imports will need to be adjusted)
-from database import (
-    get_db_connection, update_page_data,
-    get_batch_by_id, get_documents_for_batch
-)
-from processing import get_ai_classification
-from config_manager import app_config
-from utils.helpers import create_error_response, create_success_responsehis module contains all API endpoints including:
+API Routes Blueprint
+
+This module contains all API endpoints including:
 - Document manipulation APIs
-- Processing status APIs  
+- Processing status APIs
 - Real-time progress tracking
 - AJAX endpoints for UI interactions
 
@@ -25,7 +20,8 @@ import threading
 # Import existing modules (these imports will need to be adjusted)
 from ..database import (
     get_db_connection, update_page_data,
-    get_batch_by_id, get_documents_for_batch
+    get_batch_by_id, get_documents_for_batch,
+    update_document_final_filename,
 )
 from ..processing import get_ai_classification
 from ..config_manager import app_config
@@ -423,18 +419,25 @@ def system_info():
     """Get system information and stats."""
     try:
         import platform
-        import psutil
-        
+        import os
+        import shutil
+
         system_info = {
             'platform': platform.system(),
             'python_version': platform.python_version(),
-            'cpu_count': psutil.cpu_count(),
-            'memory_gb': round(psutil.virtual_memory().total / (1024**3), 2),
-            'disk_usage': {
-                'total_gb': round(psutil.disk_usage('/').total / (1024**3), 2),
-                'free_gb': round(psutil.disk_usage('/').free / (1024**3), 2)
-            }
+            'cpu_count': os.cpu_count(),
+            'memory_gb': None,  # Not available without psutil
+            'disk_usage': None,
+            'note': 'Limited system info; install psutil for more details.'
         }
+        try:
+            du = shutil.disk_usage('/')
+            system_info['disk_usage'] = {
+                'total_gb': round(du.total / (1024**3), 2),
+                'free_gb': round(du.free / (1024**3), 2)
+            }
+        except Exception:
+            pass
         
         return jsonify(create_success_response(system_info))
         

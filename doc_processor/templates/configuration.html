@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+
+{% block title %}Configuration{% endblock %}
+
+{% block content %}
+<h1>System Configuration</h1>
+<p>This is a placeholder configuration page. Values below may be placeholders.</p>
+
+<pre>{{ config | tojson(indent=2) }}</pre>
+{% endblock %}

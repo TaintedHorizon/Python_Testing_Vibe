@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2025-10-02-3] - 🧩 Template Fixes, DB Path Unification, and Safer System Info
+### Added
+- Minimal admin templates to prevent TemplateNotFound errors:
+  - `templates/configuration.html`, `templates/logs.html`, `templates/system_status.html`, `templates/database_maintenance.html`.
+- Manipulation stubs for completeness:
+  - `templates/manipulate_document.html`, `templates/manipulate_batch.html`.
+
+### Changed
+- Unified manipulation route to render the standardized `manipulate.html` with safe DB-backed context and pagination.
+- Cleaned garbled header docstrings in `routes/api.py`, `routes/batch.py`, and `routes/export.py`.
+- Database connection now prefers centralized `config_manager.app_config.DATABASE_PATH` with environment fallback (single source of truth).
+- `/api/system_info` no longer requires `psutil`; returns limited system info using the standard library to avoid optional dependency issues.
+
+### Documentation
+- Updated `docs/AUDIT_REPORT.md` to reflect fixes and current status.
+- Updated top-level `README.md` Quick Start to emphasize `./start_app.sh` as the only supported way to run the app.
+
 ## [2025-10-02-2] - 🔧 CRITICAL UI FIXES: OCR Rescan, Popup Elimination & Enhanced UX
 ### 🚨 **USER EXPERIENCE OVERHAUL: Multiple Critical Issues Resolved**
 **Issue:** OCR rescan functionality broken with JSON parsing errors, annoying popup alerts, PDF scaling problems, rotation not persisting, and missing LLM reanalysis options.

@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+
+{% block title %}System Status{% endblock %}
+
+{% block content %}
+<h1>System Status</h1>
+
+{% if status %}
+<pre>{{ status | tojson(indent=2) }}</pre>
+{% else %}
+<p>No status information available.</p>
+{% endif %}
+{% endblock %}
