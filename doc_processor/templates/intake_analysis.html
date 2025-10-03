@@ -415,17 +415,17 @@
         </div>
 
         <!-- Document List -->
-        {% for analysis in analyses %}
-        <div class="document-section" data-filename="{{ analysis.filename }}">
+    {% for analysis in analyses %}
+    <div class="document-section" data-filename="{{ analysis.filename }}" data-strategy="{{ analysis.processing_strategy }}">
             <!-- Left Pane: Document Viewer -->
             <div class="document-viewer-pane">
                 <div class="universal-viewer" id="viewer-{{ loop.index }}">
-                    <!-- Now always use PDF iframe since images are converted during analysis -->
-                    <iframe src="{{ url_for('export.serve_original_pdf', filename=analysis.filename) }}" 
-                            width="100%" height="100%" 
-                            style="border: none; transform: rotate({{ analysis.detected_rotation or 0 }}deg);"
-                            data-filename="{{ analysis.filename }}"
-                            data-rotation="{{ analysis.detected_rotation or 0 }}">
+            <!-- Use internal PDF.js viewer so rotation doesn't affect native toolbar -->
+            <iframe src="{{ url_for('export.view_pdf', filename=analysis.filename, rotation=(analysis.detected_rotation or 0)) }}"
+                width="100%" height="100%"
+                style="border: none;"
+                data-filename="{{ analysis.filename }}"
+                data-rotation="{{ analysis.detected_rotation or 0 }}">
                         <div class="viewer-placeholder">
                             <h4>📄 {{ analysis.filename }}</h4>
                             <p>PDF viewer not supported.<br>
@@ -435,13 +435,16 @@
                 </div>
                 
                 <div class="viewer-controls">
-                    <button onclick="rotateDocument('{{ analysis.filename }}', 90)">
+                    {% if analysis.filename.lower().endswith(('.jpg','.jpeg','.png')) %}
+                    <span class="badge" style="background:#eef; color:#225; margin-right:8px; padding:4px 6px; border-radius:4px;">Working as PDF</span>
+                    {% endif %}
+                    <button type="button" onclick="rotateDocument('{{ analysis.filename }}', 90)">
                         ↻ Rotate Right
                     </button>
-                    <button onclick="rotateDocument('{{ analysis.filename }}', -90)">
+                    <button type="button" onclick="rotateDocument('{{ analysis.filename }}', -90)">
                         ↺ Rotate Left
                     </button>
-                    <button onclick="resetRotation('{{ analysis.filename }}')">
+                    <button type="button" onclick="resetRotation('{{ analysis.filename }}')">
                         🔄 Reset
                     </button>
                 </div>
@@ -517,8 +520,11 @@
                 <div class="info-card">
                     <div class="info-card-header">
                         <h6>📊 Analysis Confidence</h6>
-                        <button class="btn-sm" onclick="rescanOCR('{{ analysis.filename }}')">
+                        <button type="button" class="btn-sm" onclick="rescanOCR('{{ analysis.filename }}', this)">
                             🔍 Rescan OCR
+                        </button>
+                        <button type="button" class="btn-sm" onclick="rescanOCRHigh('{{ analysis.filename }}', this)">
+                            🔍🔬 High-Accuracy OCR
                         </button>
                     </div>
                     <div class="info-card-body">
@@ -549,40 +555,46 @@
                     </div>
                 </div>
 
-                <!-- LLM Analysis -->
+                <!-- Content Sample (moved above AI analysis) -->
+                {% if analysis.content_sample %}
+                <div class="info-card ocr-content-card">
+                    <div class="info-card-header">
+                        <h6>📄 OCR Text Sample</h6>
+                    </div>
+                    <div class="info-card-body">
+                        <div class="content-sample">{{ analysis.content_sample }}</div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- LLM Analysis now always last -->
                 {% if analysis.llm_analysis %}
-                <div class="info-card">
+                <div class="info-card ai-analysis-card">
                     <div class="info-card-header">
                         <h6>🤖 AI Analysis</h6>
-                        <button class="btn-sm" onclick="reanalyzeLLM('{{ analysis.filename }}')">
-                            🤖 Re-analyze
-                        </button>
+                        <button type="button" class="btn-sm" onclick="reanalyzeLLM('{{ analysis.filename }}', this)">🤖 Re-analyze</button>
                     </div>
                     <div class="info-card-body">
                         <div class="llm-analysis-box">
                             <div class="info-grid">
                                 <span class="info-label">Classification:</span>
                                 <span class="info-value text-primary">{{ analysis.llm_analysis.classification|title }}</span>
-                                
                                 <span class="info-label">Confidence:</span>
                                 <span class="info-value">{{ analysis.llm_analysis.confidence }}%</span>
-                                
                                 <span class="info-label">Reasoning:</span>
                                 <span class="info-value">{{ analysis.llm_analysis.reasoning }}</span>
                             </div>
                         </div>
                     </div>
                 </div>
-                {% endif %}
-
-                <!-- Content Sample -->
-                {% if analysis.content_sample %}
-                <div class="info-card">
+                {% else %}
+                <div class="info-card ai-analysis-card">
                     <div class="info-card-header">
-                        <h6>📄 Content Sample</h6>
+                        <h6>🤖 AI Analysis</h6>
+                        <button type="button" class="btn-sm" onclick="reanalyzeLLM('{{ analysis.filename }}', this)">🤖 Run AI Analysis</button>
                     </div>
                     <div class="info-card-body">
-                        <div class="content-sample">{{ analysis.content_sample }}</div>
+                        <div class="text-muted">No AI analysis available for this document yet. Run AI analysis to classify and extract metadata.</div>
                     </div>
                 </div>
                 {% endif %}
@@ -629,7 +641,7 @@
 <div class="batch-controls">
     <div class="batch-controls-content">
         <div class="batch-summary">
-            <strong>{{ analyses|length }} documents ready for processing</strong>
+            <strong id="batchSummaryText">{{ analyses|length }} documents ready for processing</strong>
         </div>
         <div class="batch-actions">
             <button onclick="startBatchProcessing('smart')" class="btn-success">
@@ -639,6 +651,25 @@
                 🔄 Refresh Analysis
             </button>
         </div>
+    </div>
+    <!-- Inline Smart Processing Progress Panel -->
+    <div id="smart-progress-panel" style="display:none; margin-top:15px; background:#fff; border:1px solid #ddd; border-radius:6px; padding:15px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <strong>Smart Processing Progress</strong>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <button id="smart-cancel-btn" type="button" style="display:none; border:1px solid #dc3545; background:#fff; color:#dc3545; padding:4px 8px; border-radius:4px; font-size:11px; cursor:pointer;" title="Cancel in-flight processing">✖ Cancel</button>
+                <small id="smart-progress-status" class="text-muted">Initializing...</small>
+            </div>
+        </div>
+        <div class="progress" style="height:18px; background:#e9ecef; border-radius:4px; overflow:hidden;">
+            <div id="smart-progress-bar" class="progress-bar bg-primary" style="width:0%; font-size:12px; line-height:18px; transition:width 0.25s ease;">0%</div>
+        </div>
+        <div style="margin-top:8px; font-size:12px; display:flex; justify-content:space-between;">
+            <span id="smart-progress-file" class="text-truncate" style="max-width:60%;"></span>
+            <span id="smart-progress-count" class="text-muted"></span>
+        </div>
+        <div id="smart-progress-log" style="margin-top:10px; max-height:160px; overflow:auto; font-size:11px; background:#f8f9fa; border:1px solid #eee; padding:6px; border-radius:4px;"></div>
+        <div id="smart-batch-ids" style="display:none; margin-top:10px; font-size:12px; background:#eef; border:1px solid #cde; padding:6px 8px; border-radius:4px;"></div>
     </div>
 </div>
 {% endif %}
@@ -704,62 +735,55 @@ window.documentRotations['{{ analysis.filename }}'] = {{ analysis.detected_rotat
 function rotateDocument(filename, degrees) {
     const currentRotation = window.documentRotations[filename] || 0;
     const newRotation = (currentRotation + degrees + 360) % 360;
-    
     window.documentRotations[filename] = newRotation;
-    
-    // Save rotation to server
+
+    // Persist
     saveRotation(filename, newRotation);
-    
+
     // Update display
     updateRotationDisplay(filename);
-    
-    // Update rotation for both iframe (PDF) and img (images)
+
+    // Notify embedded viewer to rotate (avoids rotating native toolbar)
     const iframe = document.querySelector(`iframe[data-filename="${filename}"]`);
+    if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage(JSON.stringify({ type: 'rotate', degrees: newRotation }), '*');
+        iframe.setAttribute('data-rotation', String(newRotation));
+    }
+
+    // Legacy image fallback
     const img = document.querySelector(`img[data-filename="${filename}"]`);
-    
-    if (iframe) {
-        // For PDFs, apply rotation and adjust size with better scaling
-        const isLandscape = (newRotation % 180 === 90);
-        iframe.style.transform = `rotate(${newRotation}deg) scale(${isLandscape ? 0.7 : 1})`;
-        iframe.setAttribute('data-rotation', newRotation);
-    }
     if (img) {
-        // For images, apply rotation and adjust size
-        const isLandscape = (newRotation % 180 === 90);
-        img.style.transform = `rotate(${newRotation}deg) scale(${isLandscape ? 0.7 : 1})`;
-        img.setAttribute('data-rotation', newRotation);
+        img.style.transform = `rotate(${newRotation}deg)`;
+        img.setAttribute('data-rotation', String(newRotation));
     }
-    
+
     console.log(`Rotated ${filename} by ${degrees}° to ${newRotation}°`);
 }
 
 function resetRotation(filename) {
     const originalRotation = window.originalRotations[filename] || 0;
     window.documentRotations[filename] = originalRotation;
-    
-    // Save reset rotation to server
+
+    // Persist
     saveRotation(filename, originalRotation);
-    
+
     // Update display
     updateRotationDisplay(filename);
-    
-    // Update rotation for both iframe (PDF) and img (images)
+
+    // Notify embedded viewer
     const iframe = document.querySelector(`iframe[data-filename="${filename}"]`);
+    if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage(JSON.stringify({ type: 'rotate', degrees: originalRotation }), '*');
+        iframe.setAttribute('data-rotation', String(originalRotation));
+    }
+
+    // Legacy image
     const img = document.querySelector(`img[data-filename="${filename}"]`);
-    
-    if (iframe) {
-        // For PDFs, apply rotation and adjust size with better scaling
-        const isLandscape = (originalRotation % 180 === 90);
-        iframe.style.transform = `rotate(${originalRotation}deg) scale(${isLandscape ? 0.7 : 1})`;
-        iframe.setAttribute('data-rotation', originalRotation);
-    }
     if (img) {
-        // For images, apply rotation and adjust size
-        const isLandscape = (originalRotation % 180 === 90);
-        img.style.transform = `rotate(${originalRotation}deg) scale(${isLandscape ? 0.7 : 1})`;
-        img.setAttribute('data-rotation', originalRotation);
+        img.style.transform = `rotate(${originalRotation}deg)`;
+        img.setAttribute('data-rotation', String(originalRotation));
     }
-    
+
     console.log(`Reset rotation for ${filename} to original ${originalRotation}°`);
 }
 
@@ -777,30 +801,24 @@ function saveRotation(filename, rotation) {
     })
     .then(response => {
         if (!response.ok) {
-            console.warn('Failed to save rotation to server');
+            showError('Rotation Not Saved', 'The server did not accept the rotation update. It may not persist on refresh.');
         }
     })
     .catch(error => {
-        console.warn('Error saving rotation:', error);
+        showError('Rotation Save Error', (error && error.message) ? error.message : 'Network or server error');
     });
 }
 
 function updateInlineViewerRotation(filename, rotation) {
     const section = document.querySelector(`[data-filename="${filename}"]`);
-    const viewer = section.querySelector('.universal-viewer');
-    
-    if (!viewer) return;
-    
-    // Find iframe or img element and update rotation
-    const iframe = viewer.querySelector('iframe');
-    const img = viewer.querySelector('img');
-    
-    if (iframe) {
-        iframe.style.transform = `rotate(${rotation}deg)`;
+    if (!section) return;
+    const iframe = section.querySelector('iframe[data-filename]');
+    if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage(JSON.stringify({ type: 'rotate', degrees: rotation }), '*');
+        iframe.setAttribute('data-rotation', String(rotation));
     }
-    if (img) {
-        img.style.transform = `rotate(${rotation}deg)`;
-    }
+    const img = section.querySelector('img[data-filename]');
+    if (img) img.style.transform = `rotate(${rotation}deg)`;
 }
 
 function updateRotationDisplay(filename) {
@@ -836,7 +854,9 @@ function setStrategy(filename, strategy) {
         if (activeBtn) {
             activeBtn.classList.add('active');
         }
+        section.setAttribute('data-strategy', strategy);
     }
+    updateStrategySummary();
     
     // TODO: Send to backend
     // fetch('/intake/set_strategy', {
@@ -847,14 +867,14 @@ function setStrategy(filename, strategy) {
 }
 
 // OCR and LLM functions
-function rescanOCR(filename) {
-    console.log(`Rescanning OCR for ${filename}`);
+function rescanOCR(filename, buttonEl) {
+    console.log(`[UI] Rescanning OCR for ${filename}`);
     
     // Get current rotation
     const currentRotation = window.documentRotations[filename] || 0;
     
     // Show loading state
-    const button = event.target;
+    const button = buttonEl;
     const originalText = button.textContent;
     button.disabled = true;
     button.textContent = '🔄 Rescanning...';
@@ -867,22 +887,29 @@ function rescanOCR(filename) {
         },
         body: JSON.stringify({
             filename: filename,
-            rotation: currentRotation
+            rotation: currentRotation,
+            quality: 'default'
         })
     })
-    .then(response => response.json())
+    .then(response => {
+        console.log('[HTTP] /rescan_ocr status:', response.status);
+        return response.json();
+    })
     .then(data => {
-        if (data.success) {
+        if (data && data.success) {
             const details = `File: ${filename}\nRotation: ${currentRotation}°\nText extracted: ${data.content_sample ? data.content_sample.length : 0} characters`;
             showSuccess('OCR Rescan Completed', details);
-            // Optionally refresh the analysis
-            location.reload();
+            // Keep current view/rotation; update inline content sample if present
+            handleOCRContentInjection(filename, data.content_sample);
+            console.log('[UI] OCR rescan completed');
         } else {
-            showError('OCR Rescan Failed', data.error || 'Unknown error occurred');
+            const err = data && data.error ? data.error : 'Unknown error occurred';
+            showError('OCR Rescan Failed', err);
+            console.warn('[UI] OCR rescan failed:', err);
         }
     })
     .catch(error => {
-        console.error('OCR rescan error:', error);
+        console.error('[HTTP] OCR rescan error:', error);
         showError('OCR Rescan Failed', error.message || 'Network or server error');
     })
     .finally(() => {
@@ -891,14 +918,43 @@ function rescanOCR(filename) {
     });
 }
 
-function reanalyzeLLM(filename) {
-    console.log(`Re-analyzing LLM for ${filename}`);
+function rescanOCRHigh(filename, buttonEl) {
+    console.log(`[UI] Rescanning OCR (high) for ${filename}`);
+    const currentRotation = window.documentRotations[filename] || 0;
+    const button = buttonEl || null;
+    const originalText = button ? button.textContent : null;
+    if (button) { button.disabled = true; button.textContent = '🔄 High-Accuracy...'; }
+
+    fetch('/rescan_ocr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: filename, rotation: currentRotation, quality: 'high' })
+    })
+    .then(response => { console.log('[HTTP] /rescan_ocr (high) status:', response.status); return response.json(); })
+    .then(data => {
+        if (data && data.success) {
+            const details = `File: ${filename}\nRotation: ${currentRotation}°\nText extracted: ${data.content_sample ? data.content_sample.length : 0} characters`;
+            showSuccess('High-Accuracy OCR Completed', details);
+            handleOCRContentInjection(filename, data.content_sample);
+        } else {
+            const err = data && data.error ? data.error : 'Unknown error occurred';
+            showError('High-Accuracy OCR Failed', err);
+        }
+    })
+    .catch(error => { console.error('[HTTP] OCR rescan (high) error:', error); showError('High-Accuracy OCR Failed', error.message || 'Network or server error'); })
+    .finally(() => { if (button) { button.disabled = false; button.textContent = originalText; } });
+}
+
+function reanalyzeLLM(filename, buttonEl) {
+    console.log(`[UI] Re-analyzing LLM for ${filename}`);
     
     // Show loading state
-    const button = event.target;
-    const originalText = button.textContent;
-    button.disabled = true;
-    button.textContent = '🤖 Re-analyzing...';
+    const button = buttonEl || null;
+    const originalText = button ? button.textContent : null;
+    if (button) {
+        button.disabled = true;
+        button.textContent = '🤖 Re-analyzing...';
+    }
     
     // Perform LLM re-analysis
     fetch('/reanalyze_llm', {
@@ -910,13 +966,20 @@ function reanalyzeLLM(filename) {
             filename: filename
         })
     })
-    .then(response => response.json())
+    .then(response => {
+        console.log('[HTTP] /reanalyze_llm status:', response.status);
+        return response.json();
+    })
     .then(data => {
         if (data.success) {
             const details = `File: ${filename}\nType: ${data.processing_strategy}\nConfidence: ${data.confidence}%\nReasoning: ${data.reasoning}`;
             showSuccess('LLM Re-Analysis Completed', details);
-            // Optionally refresh the analysis
-            location.reload();
+            // Keep current view/rotation; update the AI Analysis card inline
+            try {
+                updateAIAnalysisCard(filename, data);
+            } catch (e) {
+                console.warn('Could not update AI analysis card:', e);
+            }
         } else {
             showError('LLM Re-Analysis Failed', data.error || 'Unknown error occurred');
         }
@@ -926,9 +989,127 @@ function reanalyzeLLM(filename) {
         showError('LLM Re-Analysis Failed', error.message || 'Network or server error');
     })
     .finally(() => {
-        button.disabled = false;
-        button.textContent = originalText;
+        if (button) {
+            button.disabled = false;
+            button.textContent = originalText;
+        }
     });
+}
+
+// Inline update for the AI Analysis card after re-analysis
+function updateAIAnalysisCard(filename, data) {
+    const section = document.querySelector(`[data-filename="${CSS.escape(filename)}"]`);
+    if (!section) return;
+    // Find the AI Analysis info-card by its header text
+    const cards = section.querySelectorAll('.info-card');
+    let aiCard = null;
+    for (const card of cards) {
+        const h = card.querySelector('.info-card-header h6');
+        if (h && h.textContent && h.textContent.trim().includes('AI Analysis')) {
+            aiCard = card;
+            break;
+        }
+    }
+    if (!aiCard) return;
+
+    // Ensure the header button reads Re-analyze and calls reanalyzeLLM correctly
+    const header = aiCard.querySelector('.info-card-header');
+    let btn = header ? header.querySelector('button.btn-sm') : null;
+    if (!btn) {
+        btn = document.createElement('button');
+        btn.className = 'btn-sm';
+        header && header.appendChild(btn);
+    }
+    btn.type = 'button';
+    btn.textContent = '🤖 Re-analyze';
+    btn.onclick = function() { reanalyzeLLM(filename, btn); };
+
+    // Build the analysis body
+    const body = aiCard.querySelector('.info-card-body') || document.createElement('div');
+    body.className = 'info-card-body';
+
+    // Extract fields with sane fallbacks
+    const llm = data.llm_analysis || {};
+    const classification = (llm.classification || '').toString() || 'Unknown';
+    let confidenceRaw = (typeof llm.confidence === 'number') ? llm.confidence : (typeof data.confidence === 'number' ? data.confidence : null);
+    let confidencePct = (confidenceRaw == null) ? '' : (confidenceRaw <= 1 ? Math.round(confidenceRaw * 100) : Math.round(confidenceRaw));
+    const reasoning = (llm.reasoning || data.reasoning || '').toString();
+
+    // Create content
+    const box = document.createElement('div');
+    box.className = 'llm-analysis-box';
+    const grid = document.createElement('div');
+    grid.className = 'info-grid';
+
+    const addRow = (label, value, valueClass) => {
+        const lbl = document.createElement('span');
+        lbl.className = 'info-label';
+        lbl.textContent = label;
+        const val = document.createElement('span');
+        val.className = 'info-value' + (valueClass ? ' ' + valueClass : '');
+        val.textContent = value;
+        grid.appendChild(lbl);
+        grid.appendChild(val);
+    };
+
+    addRow('Classification:', capitalizeWords(classification), 'text-primary');
+    if (confidencePct !== '') addRow('Confidence:', `${confidencePct}%`);
+    if (reasoning) addRow('Reasoning:', reasoning);
+
+    box.appendChild(grid);
+    body.innerHTML = '';
+    body.appendChild(box);
+    aiCard.appendChild(body);
+}
+
+// Dynamically insert or update OCR content sample card
+function handleOCRContentInjection(filename, text) {
+    if (!text || !text.length) return; // Nothing to show
+    try {
+        const section = document.querySelector(`[data-filename="${CSS.escape(filename)}"]`);
+        if (!section) return;
+        // Look for existing card
+        let card = section.querySelector('.ocr-content-card');
+        if (!card) {
+            // Insert before AI analysis card (which has .ai-analysis-card)
+            const aiCard = section.querySelector('.ai-analysis-card');
+            card = document.createElement('div');
+            card.className = 'info-card ocr-content-card';
+            card.innerHTML = `\n  <div class="info-card-header"><h6>📄 OCR Text Sample</h6></div>\n  <div class="info-card-body"><div class="content-sample"></div></div>`;
+            if (aiCard) aiCard.parentNode.insertBefore(card, aiCard); else section.querySelector('.document-info-pane').appendChild(card);
+        }
+        const sampleEl = card.querySelector('.content-sample');
+        if (sampleEl) sampleEl.textContent = text;
+    } catch (e) {
+        console.warn('handleOCRContentInjection failed', e);
+    }
+}
+
+// Strategy summary update
+function updateStrategySummary() {
+    const sections = document.querySelectorAll('.document-section[data-strategy]');
+    let single = 0, batch = 0;
+    sections.forEach(sec => {
+        const strat = sec.getAttribute('data-strategy');
+        if (strat === 'single_document') single++; else if (strat === 'batch_scan') batch++;
+    });
+    const total = single + batch;
+    const summaryEl = document.getElementById('batchSummaryText');
+    if (summaryEl) {
+        summaryEl.textContent = `${total} documents ready for processing (${single} single, ${batch} batch)`;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateStrategySummary();
+});
+
+function capitalizeWords(str) {
+    try {
+        return str.replace(/\b\w+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
+    } catch {
+        return str;
+    }
 }
 
 // Get current strategy overrides for processing
@@ -946,26 +1127,144 @@ function getStrategyOverrides() {
 
 // Batch processing functions
 function startBatchProcessing(mode) {
-    console.log(`Starting batch processing in ${mode} mode`);
-    
-    // Get strategy overrides from UI
-    const overrides = getStrategyOverrides();
-    
-    // Create a form with the overrides data
-    const form = document.createElement('form');
-    form.method = 'post';
-    form.action = `/batch/process_${mode}`;
-    
-    // Add overrides as hidden inputs
-    const overrideInput = document.createElement('input');
-    overrideInput.type = 'hidden';
-    overrideInput.name = 'strategy_overrides';
-    overrideInput.value = JSON.stringify(overrides);
-    form.appendChild(overrideInput);
-    
-    // Submit the form to start processing
-    document.body.appendChild(form);
-    form.submit();
+    console.log(`Starting batch processing in ${mode} mode (JSON fetch)`);
+    const btn = event && event.target ? event.target : null;
+    if (btn) { btn.disabled = true; btn.textContent = '🚀 Starting...'; }
+
+    // Collect overrides from data-strategy attributes instead of active buttons only
+    const overrides = {};
+    document.querySelectorAll('.document-section[data-filename]').forEach(sec => {
+        const fname = sec.getAttribute('data-filename');
+        const strat = sec.getAttribute('data-strategy');
+        if (fname && strat) overrides[fname] = strat;
+    });
+
+    const endpoint = `/batch/process_${mode}`;
+    fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ strategy_overrides: overrides })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            const resp = data.data || {};
+            showSuccess('Batch Started', `${mode} processing initiated (Batch ${resp.batch_id})`);
+            console.log('Smart processing token response:', resp);
+            if (mode === 'smart' && resp.token) {
+                startSmartSSE(resp.token);
+            }
+        } else {
+            showError('Batch Start Failed', data.error || 'Unknown error');
+        }
+    })
+    .catch(err => {
+        console.error('Batch start error', err);
+        showError('Batch Start Error', err.message || 'Network error');
+    })
+    .finally(() => { if (btn) { btn.disabled = false; btn.textContent = mode === 'smart' ? '🚀 Start Smart Processing' : 'Start'; } });
+}
+
+// Smart processing SSE
+function startSmartSSE(token) {
+    try {
+        const es = new EventSource(`/batch/api/smart_processing_progress?token=${encodeURIComponent(token)}`);
+        // Show panel
+        const panel = document.getElementById('smart-progress-panel');
+        const cancelBtn = document.getElementById('smart-cancel-btn');
+        const bar = document.getElementById('smart-progress-bar');
+        const statusEl = document.getElementById('smart-progress-status');
+        const fileEl = document.getElementById('smart-progress-file');
+        const countEl = document.getElementById('smart-progress-count');
+        const logEl = document.getElementById('smart-progress-log');
+        const batchIdsEl = document.getElementById('smart-batch-ids');
+        if (panel) panel.style.display = 'block';
+        if (cancelBtn) {
+            cancelBtn.style.display = 'inline-block';
+            cancelBtn.onclick = () => {
+                cancelBtn.disabled = true;
+                cancelBtn.textContent = 'Cancelling...';
+                fetch('/batch/api/smart_processing_cancel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                }).then(r => r.json()).then(resp => {
+                    if (!(resp && resp.success)) {
+                        cancelBtn.disabled = false;
+                        cancelBtn.textContent = '✖ Cancel';
+                    } else {
+                        appendLog('Cancellation requested by user');
+                    }
+                }).catch(() => {
+                    cancelBtn.disabled = false; cancelBtn.textContent = '✖ Cancel';
+                });
+            };
+        }
+        function appendLog(line) {
+            if (!logEl) return;
+            const div = document.createElement('div');
+            const ts = new Date().toLocaleTimeString();
+            div.textContent = `[${ts}] ${line}`;
+            logEl.appendChild(div);
+            // Auto-scroll
+            logEl.scrollTop = logEl.scrollHeight;
+            // Keep last 200 lines
+            while (logEl.children.length > 200) logEl.removeChild(logEl.firstChild);
+        }
+        appendLog('Live progress stream opened');
+        es.onmessage = (evt) => {
+            try {
+                const payload = JSON.parse(evt.data);
+                // console.log('[SSE][smart]', payload);
+                if (payload.error) {
+                    appendLog(`ERROR: ${payload.error}`);
+                    showError('Smart Processing Error', payload.error);
+                }
+                if (payload.message && !payload.error) {
+                    appendLog(payload.message);
+                }
+                // Update progress bar if counts present
+                if (typeof payload.progress === 'number' && typeof payload.total === 'number' && payload.total > 0) {
+                    const pct = Math.min(100, Math.round((payload.progress / payload.total) * 100));
+                    if (bar) { bar.style.width = pct + '%'; bar.textContent = pct + '%'; }
+                    if (countEl) countEl.textContent = `${payload.progress}/${payload.total}`;
+                }
+                if (statusEl && payload.message) statusEl.textContent = payload.message;
+                if (fileEl && payload.current_file) fileEl.textContent = payload.current_file;
+                if (payload.complete) {
+                    if (cancelBtn) { cancelBtn.style.display = 'none'; }
+                    // Show batch IDs footer if present
+                    if (batchIdsEl && (payload.single_batch_id || payload.batch_scan_batch_id)) {
+                        let html = '<strong>Result Batches:</strong><br>';
+                        if (payload.single_batch_id) html += `Single Docs: <a href="/batch/audit/${payload.single_batch_id}" target="_blank">#${payload.single_batch_id}</a><br>`;
+                        if (payload.batch_scan_batch_id) html += `Batch Scan: <a href="/batch/audit/${payload.batch_scan_batch_id}" target="_blank">#${payload.batch_scan_batch_id}</a>`;
+                        batchIdsEl.innerHTML = html;
+                        batchIdsEl.style.display = 'block';
+                    }
+                    appendLog('Complete. Redirecting...');
+                    if (payload.cancelled) {
+                        showInfo('Smart Processing Cancelled', 'Partial results saved.');
+                    } else {
+                        showSuccess('Smart Processing Complete', 'Redirecting to batch control...');
+                        if (payload.redirect) {
+                            setTimeout(() => { window.location.href = payload.redirect; }, 1200);
+                        }
+                    }
+                    es.close();
+                }
+            } catch (e) {
+                appendLog('Bad SSE payload');
+            }
+        };
+        es.onerror = (e) => {
+            appendLog('Stream error / connection lost');
+            showError('Smart Stream Error', 'Connection lost');
+            es.close();
+        };
+    } catch (e) {
+        console.error('Failed to start smart SSE', e);
+        showError('Smart SSE Failed', e.message || 'Unknown error');
+    }
 }
 
 function refreshAnalysis() {
@@ -1067,8 +1366,8 @@ function startAnalysis() {
                 if (data.analyses && data.analyses.length === 0) {
                     if (noFilesState) noFilesState.style.display = 'block';
                 } else {
-                    // Reload page to show results
-                    window.location.reload();
+                    // Optionally update the DOM in place; skip auto-reload to preserve rotations
+                    showSuccess('Analysis Complete', 'Results are ready. Refresh if needed.');
                 }
             } else {
                 // Progress update

@@ -21,6 +21,121 @@ from pathlib import Path
 # Create blueprint for intake routes
 intake_bp = Blueprint('intake', __name__)
 
+
+def _resolve_working_pdf_path(original_filename: str) -> str:
+    """Given an original intake filename (jpg/png/pdf), return the standardized/converted PDF path to use for analysis.
+
+    Rules:
+    - If original is an image (jpg/png/jpeg): use /tmp/{stem}_converted.pdf (perform conversion if missing)
+    - If original is a PDF: prefer /tmp/{stem}_standardized.pdf if it exists; otherwise return the original PDF path
+    """
+    try:
+        import tempfile
+        from PIL import Image
+    except Exception:
+        tempfile = None
+        Image = None
+
+    orig_path = os.path.join(app_config.INTAKE_DIR, original_filename)
+    stem = Path(original_filename).stem
+    ext = Path(original_filename).suffix.lower()
+    tmp_dir = tempfile.gettempdir() if tempfile else '/tmp'
+
+    # First, try to resolve from durable DB mapping if available
+    mapped_path = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS intake_working_files (filename TEXT PRIMARY KEY, working_pdf TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+        row = cur.execute("SELECT working_pdf FROM intake_working_files WHERE filename = ?", (original_filename,)).fetchone()
+        if row:
+            candidate = row[0]
+            if candidate and os.path.exists(candidate):
+                mapped_path = candidate
+        conn.close()
+    except Exception as db_err:
+        logging.debug(f"intake_working_files lookup failed for {original_filename}: {db_err}")
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    if mapped_path:
+        return mapped_path
+
+    if ext in {'.jpg', '.jpeg', '.png'}:
+        converted = os.path.join(tmp_dir, f"{stem}_converted.pdf")
+        if os.path.exists(converted):
+            # Backfill mapping if missing
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("CREATE TABLE IF NOT EXISTS intake_working_files (filename TEXT PRIMARY KEY, working_pdf TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+                cur.execute("UPDATE intake_working_files SET working_pdf = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?", (converted, original_filename))
+                if cur.rowcount == 0:
+                    cur.execute("INSERT INTO intake_working_files (filename, working_pdf) VALUES (?, ?)", (original_filename, converted))
+                conn.commit()
+                conn.close()
+            except Exception as db_err:
+                logging.debug(f"Failed to backfill mapping for {original_filename}: {db_err}")
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return converted
+        # Convert on-demand if missing
+        if Image is None:
+            # Fallback: if conversion unavailable, use original (downstream viewers may still cope)
+            return orig_path
+        try:
+            with Image.open(orig_path) as img:
+                rgb = img.convert('RGB') if img.mode != 'RGB' else img
+                rgb.save(converted, format='PDF')
+            logging.info(f"On-demand conversion: {original_filename} -> {converted}")
+            # Persist mapping
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("CREATE TABLE IF NOT EXISTS intake_working_files (filename TEXT PRIMARY KEY, working_pdf TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+                cur.execute("UPDATE intake_working_files SET working_pdf = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?", (converted, original_filename))
+                if cur.rowcount == 0:
+                    cur.execute("INSERT INTO intake_working_files (filename, working_pdf) VALUES (?, ?)", (original_filename, converted))
+                conn.commit()
+                conn.close()
+            except Exception as db_err:
+                logging.debug(f"Failed to persist mapping for {original_filename}: {db_err}")
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return converted
+        except Exception as e:
+            logging.error(f"Failed to convert image to PDF for {original_filename}: {e}")
+            return orig_path
+    elif ext == '.pdf':
+        standardized = os.path.join(tmp_dir, f"{stem}_standardized.pdf")
+        path_to_use = standardized if os.path.exists(standardized) else orig_path
+        # Persist or backfill mapping for PDFs too (so viewer and rescans use standardized when present)
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("CREATE TABLE IF NOT EXISTS intake_working_files (filename TEXT PRIMARY KEY, working_pdf TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+            cur.execute("UPDATE intake_working_files SET working_pdf = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?", (path_to_use, original_filename))
+            if cur.rowcount == 0:
+                cur.execute("INSERT INTO intake_working_files (filename, working_pdf) VALUES (?, ?)", (original_filename, path_to_use))
+            conn.commit()
+            conn.close()
+        except Exception as db_err:
+            logging.debug(f"Failed to persist mapping for PDF {original_filename}: {db_err}")
+            try:
+                conn.close()
+            except Exception:
+                pass
+        return path_to_use
+    else:
+        # Unknown type, return original
+        return orig_path
+
 @intake_bp.route("/analyze_intake")
 def analyze_intake_page():
     """Display the intake analysis page with cached results if available."""
@@ -37,6 +152,34 @@ def analyze_intake_page():
     except Exception as e:
         logging.warning(f"Failed to load cached analysis results: {e}")
         cached_analyses = None
+    
+    # IMPORTANT: Overlay persisted rotations from DB on top of cached analyses
+    # This ensures manual rotations survive page refreshes even if the cache is stale
+    try:
+        if cached_analyses:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("CREATE TABLE IF NOT EXISTS intake_rotations (filename TEXT PRIMARY KEY, rotation INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+            persisted = {row[0]: int(row[1]) for row in cur.execute("SELECT filename, rotation FROM intake_rotations")}
+            # Update the detected_rotation for each cached analysis if we have a persisted value
+            updated = 0
+            for item in cached_analyses:
+                fn = item.get('filename') or item.get('file_path')
+                if not fn:
+                    continue
+                # Normalize to basename
+                base = os.path.basename(fn)
+                if base in persisted:
+                    item['detected_rotation'] = persisted[base]
+                    updated += 1
+            try:
+                conn.close()
+            except Exception:
+                pass
+            if updated:
+                logging.info(f"Applied {updated} persisted rotation(s) to cached analyses for refresh consistency")
+    except Exception as e:
+        logging.warning(f"Failed to overlay persisted rotations onto cached analyses: {e}")
     
     return render_template("intake_analysis.html", 
                          analyses=cached_analyses,  # Use cached if available
@@ -70,6 +213,20 @@ def analyze_intake_progress():
                     logging.info(f"Cleaned up old converted PDF: {os.path.basename(old_pdf)}")
                 except Exception as e:
                     logging.warning(f"Failed to clean up {old_pdf}: {e}")
+
+            # Ensure mapping table exists; we'll repopulate mappings during this run
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("CREATE TABLE IF NOT EXISTS intake_working_files (filename TEXT PRIMARY KEY, working_pdf TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+                conn.commit()
+                conn.close()
+            except Exception as db_err:
+                logging.warning(f"Could not ensure intake_working_files table: {db_err}")
+                try:
+                    conn.close()
+                except Exception:
+                    pass
             
             # Scan intake directory for files - treat ALL as needing conversion
             original_pdf_files = []
@@ -111,6 +268,23 @@ def analyze_intake_progress():
                 converted_pdf = detector._convert_image_to_pdf(image_path)
                 all_converted_pdfs.append(converted_pdf)
                 logging.info(f"Converted image: {image_name} -> {os.path.basename(converted_pdf)}")
+
+                # Persist mapping image -> converted PDF
+                try:
+                    conn = get_db_connection()
+                    cur = conn.cursor()
+                    cur.execute("CREATE TABLE IF NOT EXISTS intake_working_files (filename TEXT PRIMARY KEY, working_pdf TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+                    cur.execute("UPDATE intake_working_files SET working_pdf = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?", (converted_pdf, image_name))
+                    if cur.rowcount == 0:
+                        cur.execute("INSERT INTO intake_working_files (filename, working_pdf) VALUES (?, ?)", (image_name, converted_pdf))
+                    conn.commit()
+                    conn.close()
+                except Exception as db_err:
+                    logging.warning(f"Failed to persist mapping for {image_name}: {db_err}")
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
             
             # Copy original PDFs to temp directory for consistent handling
             for i, pdf_path in enumerate(original_pdf_files):
@@ -124,6 +298,23 @@ def analyze_intake_progress():
                 shutil.copy2(pdf_path, temp_pdf_path)
                 all_converted_pdfs.append(temp_pdf_path)
                 logging.info(f"Standardized PDF: {pdf_name} -> {os.path.basename(temp_pdf_path)}")
+
+                # Persist mapping original PDF -> standardized copy
+                try:
+                    conn = get_db_connection()
+                    cur = conn.cursor()
+                    cur.execute("CREATE TABLE IF NOT EXISTS intake_working_files (filename TEXT PRIMARY KEY, working_pdf TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+                    cur.execute("UPDATE intake_working_files SET working_pdf = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?", (temp_pdf_path, pdf_name))
+                    if cur.rowcount == 0:
+                        cur.execute("INSERT INTO intake_working_files (filename, working_pdf) VALUES (?, ?)", (pdf_name, temp_pdf_path))
+                    conn.commit()
+                    conn.close()
+                except Exception as db_err:
+                    logging.warning(f"Failed to persist mapping for {pdf_name}: {db_err}")
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
             
             # Phase 2: Analyze all standardized PDFs
             total_pdfs = len(all_converted_pdfs)
@@ -157,7 +348,24 @@ def analyze_intake_progress():
                     # Find the original PDF name
                     original_filename = pdf_name.replace("_standardized.pdf", ".pdf")
                 
-                # Prepare analysis data
+                # Load any persisted rotation for this filename
+                persisted_rotation = None
+                try:
+                    conn = get_db_connection()
+                    cur = conn.cursor()
+                    cur.execute("CREATE TABLE IF NOT EXISTS intake_rotations (filename TEXT PRIMARY KEY, rotation INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+                    row = cur.execute("SELECT rotation FROM intake_rotations WHERE filename = ?", (original_filename,)).fetchone()
+                    if row:
+                        persisted_rotation = int(row[0])
+                except Exception as rot_err:
+                    logging.warning(f"Could not read persisted rotation for {original_filename}: {rot_err}")
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+                # Prepare analysis data (prefer persisted rotation when available)
                 analysis_data = {
                     'filename': original_filename,  # Use original filename for display
                     'file_size_mb': analysis.file_size_mb,
@@ -168,7 +376,7 @@ def analyze_intake_progress():
                     'filename_hints': analysis.filename_hints,
                     'content_sample': analysis.content_sample,
                     'llm_analysis': analysis.llm_analysis,  # Include LLM analysis data
-                    'detected_rotation': analysis.detected_rotation,  # Include rotation info
+                    'detected_rotation': persisted_rotation if persisted_rotation is not None else analysis.detected_rotation,
                     'pdf_path': pdf_path  # Store the actual PDF path for serving
                 }
                 
@@ -217,7 +425,25 @@ def analyze_intake_api():
         single_count = 0
         batch_count = 0
         
+        # Load persisted rotations once
+        persisted = {}
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("CREATE TABLE IF NOT EXISTS intake_rotations (filename TEXT PRIMARY KEY, rotation INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+            for row in cur.execute("SELECT filename, rotation FROM intake_rotations"):
+                persisted[row[0]] = int(row[1])
+        except Exception as rot_err:
+            logging.warning(f"Could not load persisted intake rotations: {rot_err}")
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
         for analysis in analyses:
+            filename_only = os.path.basename(analysis.file_path)
+            detected_rot = persisted.get(filename_only, analysis.detected_rotation)
             analysis_data = {
                 'filename': os.path.basename(analysis.file_path),
                 'file_size_mb': analysis.file_size_mb,
@@ -228,7 +454,7 @@ def analyze_intake_api():
                 'filename_hints': analysis.filename_hints,
                 'content_sample': analysis.content_sample,
                 'llm_analysis': analysis.llm_analysis,  # Include LLM analysis data
-                'detected_rotation': analysis.detected_rotation  # Include rotation info
+                'detected_rotation': detected_rot  # Include rotation info (persisted if available)
             }
             analyses_data.append(analysis_data)
             
@@ -275,24 +501,39 @@ def rescan_ocr():
         data = request.get_json()
         filename = data.get('filename')
         rotation = data.get('rotation', 0)
+        quality = (data.get('quality') or 'default').lower()
         
         if not filename:
             return jsonify({'error': 'Filename is required', 'success': False}), 400
-            
-        logging.info(f"Rescanning OCR for {filename} with {rotation}° rotation")
         
-        # Get the full file path
+        logging.info(f"[RESCAN_OCR] request filename={filename} rotation={rotation} quality={quality}")
+        
+        # Resolve the standardized/converted PDF path for OCR
         file_path = os.path.join(app_config.INTAKE_DIR, filename)
         if not os.path.exists(file_path):
             return jsonify({'error': f'File not found: {filename}', 'success': False}), 404
-        
-        # Determine file type and perform OCR with rotation
-        if filename.lower().endswith('.pdf'):
-            content_sample = _rescan_pdf_ocr(file_path, rotation)
-        elif filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-            content_sample = _rescan_image_ocr(file_path, rotation)
-        else:
-            return jsonify({'error': f'Unsupported file type: {filename}', 'success': False}), 400
+
+        # Best-effort: persist rotation on server as well (helps if client save failed)
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("CREATE TABLE IF NOT EXISTS intake_rotations (filename TEXT PRIMARY KEY, rotation INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+            cur.execute("UPDATE intake_rotations SET rotation = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?", (int(rotation) if isinstance(rotation, int) else 0, filename))
+            if cur.rowcount == 0:
+                cur.execute("INSERT INTO intake_rotations (filename, rotation) VALUES (?, ?)", (filename, int(rotation) if isinstance(rotation, int) else 0))
+            conn.commit()
+            conn.close()
+            logging.info(f"[RESCAN_OCR] persisted rotation {rotation}° for {filename}")
+        except Exception as rot_err:
+            logging.warning(f"[RESCAN_OCR] failed to persist rotation for {filename}: {rot_err}")
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+        working_pdf = _resolve_working_pdf_path(filename)
+        content_sample = _rescan_pdf_ocr(working_pdf, rotation, quality=quality)
+        logging.info(f"[RESCAN_OCR] completed for {filename} (chars={len(content_sample) if content_sample else 0})")
             
         return jsonify({
             'success': True,
@@ -325,7 +566,7 @@ def reanalyze_llm():
             
         logging.info(f"Re-analyzing LLM for {filename}")
         
-        # Get the full file path
+        # Resolve the standardized/converted PDF path for LLM analysis
         file_path = os.path.join(app_config.INTAKE_DIR, filename)
         if not os.path.exists(file_path):
             return jsonify({'error': f'File not found: {filename}', 'success': False}), 404
@@ -333,14 +574,9 @@ def reanalyze_llm():
         # Get current analysis from cache or re-analyze
         from ..document_detector import get_detector
         detector = get_detector(use_llm_for_ambiguous=True)
-        
-        # Re-run analysis with LLM
-        if filename.lower().endswith('.pdf'):
-            analysis = detector.analyze_pdf(file_path)
-        elif filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-            analysis = detector.analyze_image_file(file_path)
-        else:
-            return jsonify({'error': f'Unsupported file type: {filename}', 'success': False}), 400
+
+        working_pdf = _resolve_working_pdf_path(filename)
+        analysis = detector.analyze_pdf(working_pdf)
         
         if not analysis:
             return jsonify({'error': 'Failed to re-analyze document', 'success': False}), 500
@@ -359,7 +595,7 @@ def reanalyze_llm():
         logging.error(f"Error in reanalyze_llm: {e}")
         return jsonify({'error': str(e), 'success': False}), 500
 
-def _rescan_pdf_ocr(file_path: str, rotation: int) -> str:
+def _rescan_pdf_ocr(file_path: str, rotation: int, quality: str = 'default') -> str:
     """
     Re-run OCR on a PDF file with specified rotation.
     
@@ -379,8 +615,11 @@ def _rescan_pdf_ocr(file_path: str, rotation: int) -> str:
             logging.error(f"Missing required dependencies for PDF OCR: {import_error}")
             return "Error: Missing required dependencies for PDF OCR"
         
-        # Convert first few pages to images
-        pages = convert_from_path(file_path, first_page=1, last_page=3)
+        # Convert first few pages to images (higher DPI for high-accuracy mode)
+        dpi = 200
+        if quality in {"high", "hq", "best"}:
+            dpi = 400
+        pages = convert_from_path(file_path, first_page=1, last_page=3, dpi=dpi)
         page_texts = []
         
         for page_idx, page_img in enumerate(pages):
@@ -389,11 +628,36 @@ def _rescan_pdf_ocr(file_path: str, rotation: int) -> str:
                 page_img = page_img.rotate(-rotation, expand=True)
                 logging.info(f"Applied {rotation}° rotation to page {page_idx + 1}")
             
-            # Run OCR
-            page_text = pytesseract.image_to_string(page_img)
+            # Run Tesseract OCR with tuned config for better accuracy
+            tesseract_config = "--oem 1 --psm 6"  # LSTM-only, assume a block of text
+            try:
+                page_text = pytesseract.image_to_string(page_img, config=tesseract_config)
+            except Exception as te:
+                logging.warning(f"Tesseract OCR error on page {page_idx + 1}: {te}")
+                page_text = ""
             if page_text and len(page_text.strip()) > 10:
                 page_texts.append(f"=== PAGE {page_idx + 1} ===\n{page_text.strip()}")
                 logging.info(f"Extracted {len(page_text)} characters from rotated page {page_idx + 1}")
+            elif quality in {"high", "hq", "best"}:
+                # Fallback: try EasyOCR on the rendered image (for low-print quality docs)
+                try:
+                    import numpy as np
+                    try:
+                        from ..processing import EasyOCRSingleton
+                        reader = EasyOCRSingleton.get_reader()
+                    except ImportError:
+                        from processing import EasyOCRSingleton
+                        reader = EasyOCRSingleton.get_reader()
+                    ocr_results = reader.readtext(np.array(page_img))
+                    if ocr_results:
+                        eo_text = " ".join([t for (_, t, _) in ocr_results]).strip()
+                        if eo_text and len(eo_text) > 10:
+                            page_texts.append(f"=== PAGE {page_idx + 1} (easyocr) ===\n{eo_text}")
+                            logging.info(f"EasyOCR extracted {len(eo_text)} chars from page {page_idx + 1}")
+                        else:
+                            logging.info(f"EasyOCR found no usable text on page {page_idx + 1}")
+                except Exception as eo_err:
+                    logging.warning(f"EasyOCR fallback failed on page {page_idx + 1}: {eo_err}")
         
         combined_text = "\n\n".join(page_texts)
         logging.info(f"Total OCR text extracted: {len(combined_text)} characters")
@@ -458,24 +722,22 @@ def save_rotation():
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No JSON data provided'}), 400
-            
+        
         filename = data.get('filename')
         rotation = data.get('rotation', 0)
         
         if not filename:
             return jsonify({'error': 'Filename required'}), 400
-            
-        # Update rotation in database
+        
+        logging.info(f"[SAVE_ROTATION] request filename={filename} rotation={rotation}")
+        # Upsert rotation in dedicated intake_rotations table
         conn = get_db_connection()
         cursor = conn.cursor()
-        
-        # Update the detected_rotation field for this document
-        cursor.execute("""
-            UPDATE document_analysis 
-            SET detected_rotation = ? 
-            WHERE filename = ?
-        """, (rotation, filename))
-        
+        cursor.execute("CREATE TABLE IF NOT EXISTS intake_rotations (filename TEXT PRIMARY KEY, rotation INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+        # Try update first
+        cursor.execute("UPDATE intake_rotations SET rotation = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?", (rotation, filename))
+        if cursor.rowcount == 0:
+            cursor.execute("INSERT INTO intake_rotations (filename, rotation) VALUES (?, ?)", (filename, rotation))
         conn.commit()
         conn.close()
         

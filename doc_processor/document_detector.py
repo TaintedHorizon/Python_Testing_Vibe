@@ -21,6 +21,8 @@ from dataclasses import dataclass
 import fitz
 from PIL import Image
 import tempfile
+import threading
+import time
 
 @dataclass
 class DocumentAnalysis:
@@ -76,45 +78,93 @@ class DocumentTypeDetector:
     def __init__(self, use_llm_for_ambiguous=True):
         self.logger = logging.getLogger(__name__)
         self.use_llm_for_ambiguous = use_llm_for_ambiguous
+        self._start_normalized_cleanup_once()
+
+    _cleanup_started = False
+
+    def _start_normalized_cleanup_once(self):
+        if DocumentTypeDetector._cleanup_started:
+            return
+        DocumentTypeDetector._cleanup_started = True
+        def _cleanup_loop():
+            while True:
+                try:
+                    try:
+                        from .config_manager import app_config
+                    except ImportError:
+                        from config_manager import app_config
+                    root = app_config.NORMALIZED_DIR
+                    max_age_days = app_config.NORMALIZED_CACHE_MAX_AGE_DAYS
+                    if not root or not os.path.isdir(root):
+                        time.sleep(3600)
+                        continue
+                    cutoff = time.time() - (max_age_days * 86400)
+                    removed = 0
+                    for fname in os.listdir(root):
+                        if not fname.lower().endswith('.pdf'):
+                            continue
+                        fpath = os.path.join(root, fname)
+                        try:
+                            st = os.stat(fpath)
+                            if st.st_mtime < cutoff:
+                                os.remove(fpath)
+                                removed += 1
+                        except OSError:
+                            continue
+                    if removed:
+                        self.logger.info(f"Normalized cache cleanup removed {removed} stale PDFs (>{max_age_days}d)")
+                except Exception as e:
+                    try:
+                        self.logger.warning(f"Normalized cache cleanup error: {e}")
+                    except Exception:
+                        pass
+                time.sleep(43200)  # 12 hours
+        threading.Thread(target=_cleanup_loop, daemon=True, name='NormalizedCacheCleanup').start()
     
     def _convert_image_to_pdf(self, image_path: str) -> str:
-        """
-        Convert an image file to PDF for standardized display.
-        Note: Rotation detection will be applied during PDF analysis phase.
-        
-        Args:
-            image_path (str): Path to the source image file
-            
-        Returns:
-            str: Path to the generated PDF file
+        """Convert image file to a cached normalized PDF.
+
+        Uses a content hash of the image to produce a stable filename in the
+        configured NORMALIZED_DIR so repeated analyses across runs reuse the
+        prior conversion (saving time and I/O). Rotation is NOT applied here;
+        later OCR/searchable steps handle orientation.
+
+        Returns path to normalized PDF or original path on failure.
         """
         try:
-            # Create temporary PDF file
-            temp_dir = tempfile.gettempdir()
-            image_name = Path(image_path).stem
-            temp_pdf_path = os.path.join(temp_dir, f"{image_name}_converted.pdf")
-            
-            # Open and convert image to PDF (without rotation for now)
+            try:
+                from .config_manager import app_config
+            except ImportError:
+                from config_manager import app_config
+            norm_root = app_config.NORMALIZED_DIR
+            os.makedirs(norm_root, exist_ok=True)
+            # Hash image contents for stable identity
+            import hashlib
+            h = hashlib.sha256()
+            with open(image_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(8192), b''):
+                    h.update(chunk)
+            digest = h.hexdigest()  # 64 hex chars
+            pdf_name = f"img_{digest[:16]}.pdf"  # shorten name while preserving uniqueness
+            pdf_path = os.path.join(norm_root, pdf_name)
+            if os.path.exists(pdf_path):
+                self.logger.debug(f"Reusing cached normalized PDF for {image_path} -> {pdf_path}")
+                return pdf_path
+            # Perform conversion
             with Image.open(image_path) as img:
-                # Convert to RGB if necessary (for RGBA images)
                 if img.mode in ('RGBA', 'LA', 'P'):
-                    rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+                    base = Image.new('RGB', img.size, (255, 255, 255))
                     if img.mode == 'P':
                         img = img.convert('RGBA')
-                    rgb_img.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
-                    img = rgb_img
+                    base.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                    img = base
                 elif img.mode != 'RGB':
                     img = img.convert('RGB')
-                
-                # Save as PDF (rotation will be detected and applied during analysis)
-                img.save(temp_pdf_path, 'PDF', resolution=150.0, quality=95)
-                
-            self.logger.info(f"Converted image to PDF: {image_path} -> {temp_pdf_path}")
-            return temp_pdf_path
-            
+                img.save(pdf_path, 'PDF', resolution=150.0, quality=95)
+            self.logger.info(f"Normalized image cached: {image_path} -> {pdf_path}")
+            return pdf_path
         except Exception as e:
-            self.logger.error(f"Failed to convert image {image_path} to PDF: {e}")
-            # Return original path if conversion fails
+            self.logger.error(f"Failed to normalize image {image_path}: {e}")
             return image_path
     
     def _import_llm_function(self):

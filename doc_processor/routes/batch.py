@@ -10,6 +10,8 @@ import logging
 from typing import Dict, Any
 import os
 import json
+import uuid
+import time
 import threading
 from datetime import datetime
 
@@ -20,6 +22,8 @@ from ..database import (
 from ..processing import process_batch, database_connection, process_single_document
 from ..config_manager import app_config
 from ..utils.helpers import create_error_response, create_success_response
+from ..document_detector import get_detector, DocumentAnalysis
+from ..processing import _process_single_documents_as_batch_with_progress, is_image_file, _process_docs_into_fixed_batch_with_progress
 
 # Create Blueprint
 bp = Blueprint('batch', __name__, url_prefix='/batch')
@@ -28,6 +32,283 @@ logger = logging.getLogger(__name__)
 # Global variables for tracking processing state (these should eventually move to a service class)
 processing_status = {}
 processing_lock = threading.Lock()
+# In-memory token store for smart processing orchestration
+smart_tokens: dict[str, dict] = {}
+SMART_TOKEN_TTL_SECONDS = 3600  # 1 hour expiry
+_smart_cleanup_started = False
+
+def _start_smart_token_cleanup_thread():
+    """Start background thread to purge expired smart processing tokens."""
+    global _smart_cleanup_started
+    if _smart_cleanup_started:
+        return
+    _smart_cleanup_started = True
+    def _cleanup_loop():
+        while True:
+            try:
+                now = time.time()
+                expired = [t for t, meta in list(smart_tokens.items()) if now - meta.get('created', 0) > SMART_TOKEN_TTL_SECONDS]
+                for t in expired:
+                    smart_tokens.pop(t, None)
+                if expired:
+                    logger.info(f"[smart] Cleanup removed {len(expired)} expired tokens")
+            except Exception as e:
+                logger.warning(f"[smart] Token cleanup error: {e}")
+            time.sleep(300)  # 5 minutes
+    threading.Thread(target=_cleanup_loop, daemon=True, name='SmartTokenCleanup').start()
+
+
+def _load_cached_intake_analyses(intake_dir: str) -> dict:
+    """Attempt to load cached intake analyses from pickle, return mapping path->DocumentAnalysis."""
+    import os, pickle, logging as _logging
+    cache_file = "/tmp/intake_analysis_cache.pkl"
+    if not os.path.exists(cache_file):
+        return {}
+    try:
+        with open(cache_file, 'rb') as f:
+            raw_list = pickle.load(f)
+        converted = {}
+        for item in raw_list:
+            if isinstance(item, DocumentAnalysis):
+                converted[item.file_path] = item
+            elif isinstance(item, dict):
+                # Legacy key fix: filename -> file_path
+                if 'filename' in item and 'file_path' not in item:
+                    import os as _os
+                    item['file_path'] = os.path.join(intake_dir, item['filename'])
+                    item.pop('filename', None)
+                try:
+                    converted[item['file_path']] = DocumentAnalysis(**item)
+                except Exception as conv_e:
+                    _logging.warning(f"[smart] Failed to convert cached analysis entry: {conv_e}")
+        return converted
+    except Exception as e:
+        _logging.warning(f"[smart] Could not load cached analyses: {e}")
+        return {}
+
+
+def _orchestrate_smart_processing(batch_id: int, strategy_overrides: dict, token: str):
+    """Generator that replicates legacy smart processing progress flow using SSE-friendly yields."""
+    import os, time as _time, json as _json, logging as _logging
+    from ..config_manager import app_config as _cfg
+
+    intake_dir = _cfg.INTAKE_DIR
+    yield {'message': 'Initializing smart processing...', 'progress': 0, 'total': 0}
+
+    if not os.path.exists(intake_dir):
+        yield {'error': f'Intake directory missing: {intake_dir}', 'complete': True}
+        return
+
+    supported = []
+    for f in os.listdir(intake_dir):
+        ext = os.path.splitext(f)[1].lower()
+        if ext in ['.pdf', '.png', '.jpg', '.jpeg']:
+            supported.append(os.path.join(intake_dir, f))
+    total_files = len(supported)
+    if total_files == 0:
+        yield {'message': 'No intake files found', 'progress': 0, 'total': 0, 'complete': True}
+        return
+    yield {'message': f'Loading analysis for {total_files} files...', 'progress': 0, 'total': total_files}
+
+    # Load cached or fresh analysis
+    analyses: list[DocumentAnalysis] = []
+    cached_map = _load_cached_intake_analyses(intake_dir)
+    detector = None
+    for idx, path in enumerate(supported, start=1):
+        fname = os.path.basename(path)
+        analysis = cached_map.get(path)
+        if analysis is None:
+            if detector is None:
+                detector = get_detector(use_llm_for_ambiguous=True)
+            yield {'message': f'Analyzing: {fname}', 'progress': idx-1, 'total': total_files, 'current_file': fname}
+            try:
+                analysis = detector.analyze_pdf(path)
+            except Exception as e:
+                _logging.error(f"[smart] Analysis failed for {fname}: {e}")
+                analysis = DocumentAnalysis(
+                    file_path=path,
+                    file_size_mb=0.0,
+                    page_count=0,
+                    processing_strategy='batch_scan',
+                    confidence=0.0,
+                    reasoning=[f'Analysis error: {e}', 'Defaulting to batch scan']
+                )
+        # Hard rule: raw images always treated as single_document for downstream logic
+        if is_image_file(path):
+            if analysis.processing_strategy != 'single_document':
+                original_strategy = analysis.processing_strategy
+                analysis.processing_strategy = 'single_document'
+                if analysis.reasoning:
+                    analysis.reasoning.append(f'Forced to single_document (image file, was {original_strategy})')
+                else:
+                    analysis.reasoning = [f'Forced to single_document (image file, was {original_strategy})']
+        analyses.append(analysis)
+        yield {'message': f'Analyzed ({idx}/{total_files}): {fname}', 'progress': idx, 'total': total_files}
+
+    # Apply overrides
+    if strategy_overrides:
+        changed = 0
+        for a in analyses:
+            fname = os.path.basename(a.file_path)
+            if fname in strategy_overrides:
+                new_strat = strategy_overrides[fname]
+                if new_strat in ('single_document', 'batch_scan') and a.processing_strategy != new_strat:
+                    orig = a.processing_strategy
+                    a.processing_strategy = new_strat
+                    if a.reasoning:
+                        a.reasoning.append(f'User override: {orig} -> {new_strat}')
+                    else:
+                        a.reasoning = [f'User override: {orig} -> {new_strat}']
+                    changed += 1
+        yield {'message': f'Applied {changed} strategy overrides', 'progress': total_files, 'total': total_files}
+
+    single_docs = [a for a in analyses if a.processing_strategy == 'single_document']
+    batch_scans = [a for a in analyses if a.processing_strategy == 'batch_scan']
+    yield {'message': f'{len(single_docs)} single docs, {len(batch_scans)} batch scans', 'progress': total_files, 'total': total_files}
+
+    # Unified progress across both passes
+    processing_total = len(single_docs) + len(batch_scans)
+    processed = 0
+    if processing_total == 0:
+        yield {'message': 'Nothing to process after analysis', 'complete': True}
+        return
+
+    def _relay(generator, label):
+        nonlocal processed
+        for update in generator:
+            # Cancellation check (lightweight) before yielding heavy updates
+            token_meta = smart_tokens.get(token)
+            if token_meta and token_meta.get('cancelled'):
+                yield {'message': 'Cancellation acknowledged', 'phase': label, 'cancelled': True, 'complete': True}
+                return
+            if 'document_complete' in update:
+                processed = update.get('documents_completed', processed + 1)
+            # Map update to unified fields
+            mapped = {
+                'phase': label,
+                'progress': processed,
+                'total': processing_total,
+                'message': update.get('message') or update.get('status') or update.get('error') or (
+                    f"Processing {update.get('filename')}" if update.get('document_start') else None
+                ),
+                'current_file': update.get('filename'),
+            }
+            mapped.update({k: v for k, v in update.items() if k not in mapped})
+            yield mapped
+
+    single_batch_id = None
+    batch_scan_batch_id = None
+
+    # First pass: single docs (let existing generator create/reuse batch)
+    if single_docs:
+        yield {'message': f'Processing {len(single_docs)} single documents...', 'progress': processed, 'total': processing_total}
+        for out in _relay(_process_single_documents_as_batch_with_progress(single_docs), 'single'):
+            if 'batch_id' in out and single_batch_id is None:
+                single_batch_id = out['batch_id']
+            # Early stop if cancelled propagated
+            if out.get('cancelled'):
+                yield {
+                    'message': 'Smart processing cancelled (single documents phase)',
+                    'progress': processed,
+                    'total': processing_total,
+                    'complete': True,
+                    'single_batch_id': single_batch_id,
+                    'batch_scan_batch_id': batch_scan_batch_id,
+                    'cancelled': True
+                }
+                return
+            yield out
+
+    # Second pass: batch scans (force new dedicated batch if there are docs)
+    if batch_scans:
+        # Create a dedicated batch row manually (status 'processing')
+        try:
+            with database_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO batches (status) VALUES ('processing')")
+                batch_scan_batch_id = cursor.lastrowid
+                conn.commit()
+        except Exception as e:
+            logger.error(f"[smart] Failed to create batch-scan batch: {e}")
+            yield {'error': f'Failed to create batch for batch scans: {e}', 'progress': processed, 'total': processing_total}
+        if batch_scan_batch_id:
+            yield {'message': f'Processing {len(batch_scans)} batch-scan documents in separate batch {batch_scan_batch_id}...', 'progress': processed, 'total': processing_total}
+            for out in _relay(_process_docs_into_fixed_batch_with_progress(batch_scans, batch_scan_batch_id), 'batch_scan'):
+                if 'documents_completed' in out:
+                    processed = out['documents_completed'] + (len(single_docs) if single_docs else 0)
+                    out['progress'] = processed
+                if out.get('cancelled'):
+                    yield {
+                        'message': 'Smart processing cancelled (batch-scan phase)',
+                        'progress': processed,
+                        'total': processing_total,
+                        'complete': True,
+                        'single_batch_id': single_batch_id,
+                        'batch_scan_batch_id': batch_scan_batch_id,
+                        'cancelled': True
+                    }
+                    return
+                yield out
+
+    yield {
+        'message': 'Smart processing complete',
+        'progress': processing_total,
+        'total': processing_total,
+        'complete': True,
+        'redirect': '/batch/control',
+        'single_batch_id': single_batch_id,
+        'batch_scan_batch_id': batch_scan_batch_id
+    }
+
+
+@bp.route('/api/smart_processing_progress')
+def smart_processing_progress_sse():
+    """SSE endpoint streaming smart processing progress based on issued token."""
+    from flask import Response, stream_with_context
+    token = request.args.get('token')
+    if not token or token not in smart_tokens:
+        return jsonify(create_error_response('Invalid or expired token'))
+    meta = smart_tokens.get(token)
+    if not meta:
+        return jsonify(create_error_response('Token metadata unavailable (expired)'))
+    # Defensive access to satisfy static analysis (meta keys validated at creation)
+    batch_id = meta.get('batch_id')
+    if batch_id is None:
+        return jsonify(create_error_response('Token missing batch reference'))
+    strategy_overrides = meta.get('strategy_overrides', {})
+
+    def event_stream():
+        import time as _t
+        last_emit = _t.time()
+        yield f"data: {json.dumps({'message':'Token accepted','progress':0,'total':0})}\n\n"
+        for update in _orchestrate_smart_processing(batch_id, strategy_overrides, token):
+            yield f"data: {json.dumps(update)}\n\n"
+            last_emit = _t.time()
+            if update.get('complete'):
+                break
+            # Heartbeat if silence > 15s (rare because generator usually emits)
+            if _t.time() - last_emit > 15:
+                yield f"data: {json.dumps({'heartbeat': True, 'ts': _t.time()})}\n\n"
+                last_emit = _t.time()
+        smart_tokens.pop(token, None)
+
+    headers = {
+        'Cache-Control': 'no-cache',
+        'Content-Type': 'text/event-stream',
+        'X-Accel-Buffering': 'no'
+    }
+    return Response(stream_with_context(event_stream()), headers=headers)
+
+@bp.route('/api/smart_processing_cancel', methods=['POST'])
+def smart_processing_cancel():
+    """Allow client to request cancellation of an in-flight smart processing run."""
+    data = request.get_json(silent=True) or {}
+    token = data.get('token') or request.form.get('token')
+    if not token or token not in smart_tokens:
+        return jsonify(create_error_response('Invalid or expired token'))
+    smart_tokens[token]['cancelled'] = True
+    logger.info(f"[smart] Cancellation requested for token {token}")
+    return jsonify(create_success_response({'message': 'Cancellation requested', 'token': token}))
 export_status = {}
 export_lock = threading.Lock()
 
@@ -141,63 +422,99 @@ def process_new_batch():
 def process_batch_smart():
     """Start smart processing for a batch."""
     try:
-        batch_id = request.json.get('batch_id') if request.json else None
+        # Accept both JSON and form submissions; avoid forcing JSON content-type
+        data = request.get_json(silent=True) or {}
+        batch_id = data.get('batch_id') or request.form.get('batch_id')
+        raw_overrides = data.get('strategy_overrides') or request.form.get('strategy_overrides')
+
+        # If no batch_id supplied, auto-create a new intake batch (mirrors process_new_batch logic)
         if not batch_id:
-            return jsonify(create_error_response("Batch ID is required"))
+            try:
+                with database_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("INSERT INTO batches (status) VALUES ('intake')")
+                    batch_id = cursor.lastrowid
+                    logger.info(f"[smart] Auto-created new batch {batch_id} (no batch_id supplied)")
+            except Exception as e:
+                logger.error(f"Failed to auto-create batch for smart processing: {e}")
+                return jsonify(create_error_response(f"Could not create batch: {e}"))
+
+        # Attempt to parse strategy overrides if present (JSON string in form submission)
+        strategy_overrides = {}
+        if raw_overrides:
+            try:
+                if isinstance(raw_overrides, str):
+                    strategy_overrides = json.loads(raw_overrides)
+                elif isinstance(raw_overrides, dict):
+                    strategy_overrides = raw_overrides
+            except Exception as e:
+                logger.warning(f"Invalid strategy_overrides payload ignored: {e}")
+        if strategy_overrides:
+            logger.info(f"[smart] Received {len(strategy_overrides)} strategy overrides for batch {batch_id}")
         
-        # Validate batch exists
+        # Validate batch exists (after auto-create logic, so should exist)
         with database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT status FROM batches WHERE id = ?", (batch_id,))
             result = cursor.fetchone()
-            
             if not result:
-                return jsonify(create_error_response("Batch not found"))
-            
-            if result[0] not in ['ready', 'processed']:
-                return jsonify(create_error_response(f"Batch is not ready for smart processing (status: {result[0]})"))
+                # Extremely unlikely if auto-create succeeded; treat as recoverable by creating again
+                try:
+                    cursor.execute("INSERT INTO batches (status) VALUES ('intake')")
+                    batch_id = cursor.lastrowid
+                    logger.warning(f"[smart] Batch vanished; re-created as {batch_id}")
+                    cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
+                except Exception as re_e:
+                    return jsonify(create_error_response(f"Batch not found and re-create failed: {re_e}"))
+            else:
+                if result[0] not in ['ready', 'processed', 'intake']:
+                    return jsonify(create_error_response(f"Batch is not ready for smart processing (status: {result[0]})"))
+                if result[0] == 'intake':
+                    try:
+                        cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
+                        logger.info(f"[smart] Elevated batch {batch_id} status from 'intake' to 'ready'")
+                    except Exception as e:
+                        logger.warning(f"Failed to update batch status to ready: {e}")
         
-        # Start smart processing
-        def smart_process_async():
+        # Instead of starting processing here, create a token & stash parameters for SSE orchestrator
+        # Persist per-document strategies if documents already exist for this batch (best-effort)
+        if strategy_overrides:
             try:
-                with processing_lock:
-                    processing_status[batch_id] = {
-                        'status': 'smart_processing',
-                        'progress': 0,
-                        'message': 'Starting smart processing...'
-                    }
-                
-                # Update batch status
                 with database_connection() as conn:
                     cursor = conn.cursor()
-                    cursor.execute("UPDATE batches SET status = 'smart_processing' WHERE id = ?", (batch_id,))
-                
-                # Process documents with AI classification
-                # This would call the smart processing logic
-                # result = smart_process_batch(batch_id)
-                
-                with processing_lock:
-                    processing_status[batch_id] = {
-                        'status': 'completed',
-                        'progress': 100,
-                        'message': 'Smart processing completed'
-                    }
-                    
-            except Exception as e:
-                logger.error(f"Error in smart processing: {e}")
-                with processing_lock:
-                    processing_status[batch_id] = {
-                        'status': 'error',
-                        'progress': 0,
-                        'message': f"Smart processing error: {str(e)}"
-                    }
-        
-        thread = threading.Thread(target=smart_process_async)
-        thread.start()
-        
+                    cursor.execute("SELECT id, original_filename FROM documents WHERE batch_id = ?", (batch_id,))
+                    rows = cursor.fetchall()
+                    name_to_id = {r[1]: r[0] for r in rows if r[1]}
+                    applied = 0
+                    for fname, strat in strategy_overrides.items():
+                        if strat in ('single_document', 'batch_scan') and fname in name_to_id:
+                            try:
+                                cursor.execute("UPDATE documents SET processing_strategy = ? WHERE id = ?", (strat, name_to_id[fname]))
+                                applied += 1
+                            except Exception as ue:
+                                logger.warning(f"[smart] Failed to persist strategy override for {fname}: {ue}")
+                    conn.commit()
+                    if applied:
+                        logger.info(f"[smart] Persisted {applied} strategy overrides to documents table for batch {batch_id}")
+            except Exception as persist_e:
+                logger.warning(f"[smart] Strategy persistence skipped: {persist_e}")
+        token = uuid.uuid4().hex
+        smart_tokens[token] = {
+            'created': time.time(),
+            'batch_id': batch_id,
+            'strategy_overrides': strategy_overrides or {},
+        }
+        # Lightweight cleanup of expired tokens
+        now = time.time()
+        expired = [t for t, meta in smart_tokens.items() if now - meta.get('created', 0) > SMART_TOKEN_TTL_SECONDS]
+        for t in expired:
+            smart_tokens.pop(t, None)
+        logger.info(f"[smart] Issued token {token} for batch {batch_id} with {len(strategy_overrides)} overrides (expired cleaned: {len(expired)})")
         return jsonify(create_success_response({
-            'message': 'Smart processing started',
-            'batch_id': batch_id
+            'message': 'Smart processing token issued',
+            'batch_id': batch_id,
+            'token': token,
+            'strategy_overrides_count': len(strategy_overrides)
         }))
         
     except Exception as e:

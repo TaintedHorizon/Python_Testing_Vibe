@@ -21,8 +21,16 @@ class AppConfig:
     DATABASE_PATH: str = "documents.db"
     INTAKE_DIR: str = "intake"
     PROCESSED_DIR: str = "processed"
+    # Backwards-compatibility alias used by legacy code paths. Some modules
+    # still reference WIP_DIR; treat it as the same location as PROCESSED_DIR.
+    # We keep an explicit field so type checkers (Pylance) stop flagging
+    # attribute access errors.
+    WIP_DIR: str = "processed"
     ARCHIVE_DIR: str = "archive"
     FILING_CABINET_DIR: str = "filing_cabinet"
+    # Persistent normalized PDF cache (for image->PDF conversions reused across runs)
+    NORMALIZED_DIR: str = "normalized"
+    NORMALIZED_CACHE_MAX_AGE_DAYS: int = 14
 
     # --- AI Service Configuration ---
     OLLAMA_HOST: Optional[str] = None
@@ -117,8 +125,12 @@ class AppConfig:
                 DATABASE_PATH=get_env("DATABASE_PATH", cls.DATABASE_PATH),
                 INTAKE_DIR=validate_directory(get_env("INTAKE_DIR", cls.INTAKE_DIR), "INTAKE"),
                 PROCESSED_DIR=validate_directory(get_env("PROCESSED_DIR", cls.PROCESSED_DIR), "PROCESSED"),
+                # Allow an optional WIP_DIR override; default to PROCESSED_DIR if not set
+                WIP_DIR=validate_directory(get_env("WIP_DIR", get_env("PROCESSED_DIR", cls.PROCESSED_DIR)), "WIP"),
                 ARCHIVE_DIR=validate_directory(get_env("ARCHIVE_DIR", cls.ARCHIVE_DIR), "ARCHIVE"),
                 FILING_CABINET_DIR=validate_directory(get_env("FILING_CABINET_DIR", cls.FILING_CABINET_DIR), "FILING_CABINET"),
+                NORMALIZED_DIR=validate_directory(get_env("NORMALIZED_DIR", cls.NORMALIZED_DIR), "NORMALIZED"),
+                NORMALIZED_CACHE_MAX_AGE_DAYS=int(get_env("NORMALIZED_CACHE_MAX_AGE_DAYS", str(cls.NORMALIZED_CACHE_MAX_AGE_DAYS))),
                 ARCHIVE_RETENTION_DAYS=archive_retention_days,
                 
                 # AI Service Configuration

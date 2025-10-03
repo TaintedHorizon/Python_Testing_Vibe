@@ -17,6 +17,7 @@ import os
 import json
 import threading
 from datetime import datetime
+import hashlib
 
 # Import existing modules (these imports will need to be adjusted)
 from ..database import (
@@ -237,6 +238,84 @@ def finalize_batch(batch_id: int):
         logger.error(f"Error starting batch finalization: {e}")
         return jsonify(create_error_response(f"Failed to start finalization: {str(e)}"))
 
+
+@bp.route('/view_pdf/<path:filename>')
+def view_pdf(filename: str):
+    """Render an internal PDF.js-based viewer for a given intake file.
+
+    Using a PDF.js canvas avoids rotating browser-native PDF UI when applying transforms.
+
+    Query params:
+      - rotation (optional): initial rotation degrees (0/90/180/270)
+    """
+    try:
+        # Build URL to serve the original/converted PDF (existing smart route)
+        pdf_url = url_for('export.serve_original_pdf', filename=filename)
+        # Optional initial rotation
+        rotation = 0
+        try:
+            rotation = int(request.args.get('rotation', 0))
+        except Exception:
+            rotation = 0
+
+        # If no explicit rotation provided, consult persisted rotation in DB so refreshes keep orientation
+        if rotation == 0:
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("CREATE TABLE IF NOT EXISTS intake_rotations (filename TEXT PRIMARY KEY, rotation INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+                row = cur.execute("SELECT rotation FROM intake_rotations WHERE filename = ?", (filename,)).fetchone()
+                if row:
+                    persisted_rot = int(row[0])
+                    # Only override if a non-zero persisted rotation exists, to avoid clobbering an intentional 0 passed in
+                    if persisted_rot in (90, 180, 270):
+                        rotation = persisted_rot
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            except Exception as rot_err:
+                logger.debug(f"Could not load persisted rotation for {filename}: {rot_err}")
+
+        # Provide pdf.js version and flag for showing banner (hide in production unless debug env variable set)
+        pdfjs_version = '4.2.67'
+        show_banner = bool(request.args.get('debug_viewer') or os.environ.get('PDFJS_DEBUG_BANNER'))
+        return render_template('pdf_viewer.html', pdf_url=pdf_url, filename=filename, initial_rotation=rotation, pdfjs_version=pdfjs_version, show_banner=show_banner)
+    except Exception as e:
+        logger.error(f"Error rendering PDF viewer for {filename}: {e}")
+        # Fallback to serving the file directly
+        return redirect(url_for('export.serve_original_pdf', filename=filename))
+
+def _asset_hash(path: str) -> str:
+    try:
+        with open(path, 'rb') as f:
+            h = hashlib.sha256(f.read()).hexdigest()
+        return h[:8]
+    except Exception:
+        return ''
+
+@bp.route('/viewer_health')
+def viewer_health():
+    """Lightweight health endpoint reporting local pdf.js asset availability and hash."""
+    base = os.path.join(os.path.dirname(__file__), '..', 'static', 'vendor', 'pdfjs')
+    base = os.path.abspath(base)
+    core = os.path.join(base, 'pdf.min.js')
+    worker = os.path.join(base, 'pdf.worker.min.js')
+    core_exists = os.path.exists(core)
+    worker_exists = os.path.exists(worker)
+    core_hash = _asset_hash(core) if core_exists else ''
+    worker_hash = _asset_hash(worker) if worker_exists else ''
+    status = 'ok' if core_exists and worker_exists else 'degraded'
+    return jsonify({
+        'status': status,
+        'pdfjs_version': '4.2.67',
+        'core_exists': core_exists,
+        'worker_exists': worker_exists,
+        'core_hash': core_hash,
+        'worker_hash': worker_hash,
+        'timestamp': datetime.utcnow().isoformat() + 'Z'
+    })
+
 @bp.route("/progress")
 def export_progress():
     """Display export progress page."""
@@ -323,6 +402,7 @@ def serve_original_pdf(filename: str):
         from ..config_manager import app_config
         import tempfile
         from pathlib import Path
+        from PIL import Image
         
         # Files should be served from the intake directory for analysis
         intake_dir = app_config.INTAKE_DIR
@@ -335,25 +415,84 @@ def serve_original_pdf(filename: str):
         # Security check - ensure file is within intake directory
         if not os.path.abspath(original_path).startswith(os.path.abspath(intake_dir)):
             return jsonify(create_error_response("Invalid file path")), 403
+
+        # Prefer durable mapping if available: intake_working_files maps filename -> working PDF path
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("CREATE TABLE IF NOT EXISTS intake_working_files (filename TEXT PRIMARY KEY, working_pdf TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+            row = cur.execute("SELECT working_pdf FROM intake_working_files WHERE filename = ?", (filename,)).fetchone()
+            if row:
+                mapped_path = row[0]
+                if mapped_path and os.path.exists(mapped_path):
+                    logger.info(f"Serving mapped working PDF for {filename}: {mapped_path}")
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    return send_file(mapped_path, mimetype='application/pdf', as_attachment=False)
+            try:
+                conn.close()
+            except Exception:
+                pass
+        except Exception as map_err:
+            logger.debug(f"Working-file mapping lookup failed for {filename}: {map_err}")
+            try:
+                conn.close()
+            except Exception:
+                pass
         
         # If the file is already a PDF, serve it directly
         file_ext = Path(filename).suffix.lower()
         if file_ext == '.pdf':
             return send_file(original_path, mimetype='application/pdf', as_attachment=False)
-        
-        # If the file is an image, try to serve the converted PDF first
+
+        # If the file is an image, ensure we serve a PDF (convert on-demand if needed)
         if file_ext in ['.png', '.jpg', '.jpeg']:
-            # Look for converted PDF in temp directory
             temp_dir = tempfile.gettempdir()
             image_name = Path(filename).stem
             converted_pdf_path = os.path.join(temp_dir, f"{image_name}_converted.pdf")
-            
-            if os.path.exists(converted_pdf_path):
-                logger.info(f"Serving converted PDF for image {filename}: {converted_pdf_path}")
-                return send_file(converted_pdf_path, mimetype='application/pdf', as_attachment=False)
-            else:
-                logger.warning(f"Converted PDF not found for {filename}, serving original image")
-                return send_file(original_path)
+
+            if not os.path.exists(converted_pdf_path):
+                try:
+                    # Convert image to PDF on-demand
+                    with Image.open(original_path) as img:
+                        # Normalize to RGB
+                        if img.mode in ('RGBA', 'LA', 'P'):
+                            from PIL import Image as PILImage
+                            # Some type checkers prefer int color; the library accepts both
+                            rgb_img = PILImage.new('RGB', img.size, 0xFFFFFF)
+                            if img.mode == 'P':
+                                img = img.convert('RGBA')
+                            rgb_img.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                            img = rgb_img
+                        elif img.mode != 'RGB':
+                            img = img.convert('RGB')
+                        img.save(converted_pdf_path, 'PDF', resolution=150.0, quality=95)
+                    logger.info(f"On-demand converted {filename} -> {converted_pdf_path}")
+                    # Persist mapping after conversion
+                    try:
+                        conn = get_db_connection()
+                        cur = conn.cursor()
+                        cur.execute("CREATE TABLE IF NOT EXISTS intake_working_files (filename TEXT PRIMARY KEY, working_pdf TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+                        cur.execute("UPDATE intake_working_files SET working_pdf = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?", (converted_pdf_path, filename))
+                        if cur.rowcount == 0:
+                            cur.execute("INSERT INTO intake_working_files (filename, working_pdf) VALUES (?, ?)", (filename, converted_pdf_path))
+                        conn.commit()
+                        conn.close()
+                    except Exception as db_err:
+                        logger.debug(f"Failed to persist on-demand mapping for {filename}: {db_err}")
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                except Exception as conv_err:
+                    logger.error(f"Failed to convert image {filename} to PDF on-demand: {conv_err}")
+                    # Fall back to serving the original image to avoid total failure
+                    return send_file(original_path)
+
+            # Serve the converted PDF
+            return send_file(converted_pdf_path, mimetype='application/pdf', as_attachment=False)
         
         # For other file types, serve the original
         return send_file(original_path)

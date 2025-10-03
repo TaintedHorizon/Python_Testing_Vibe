@@ -52,6 +52,10 @@ documents.db
 *.db
 *.sqlite
 *.sqlite3
+documents.db-wal
+documents.db-shm
+*.db-wal
+*.db-shm
 
 # === Project Specific ===
 # Model weights and backup files

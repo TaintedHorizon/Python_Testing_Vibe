@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Document Viewer - {{ filename }}</title>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    .viewer-root { display: flex; flex-direction: column; height: 100%; }
+    .toolbar { padding: 8px 12px; border-bottom: 1px solid #ddd; display: flex; gap: 8px; align-items: center; }
+    .canvas-wrap { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; background: #f5f7fa; overflow: hidden; }
+    canvas { max-width: 100%; max-height: 100%; background: white; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+    button { padding: 6px 10px; cursor: pointer; }
+  </style>
+  <!-- Prefer hashed vendored PDF.js assets; fall back gracefully -->
+  <script>
+    (function() {
+      const VERSION = '{{ pdfjs_version }}';
+      const HASH = 'd4651721'; // derived from sha256 (first 8 chars) for current vendored files
+      const BASE = "{{ url_for('static', filename='vendor/pdfjs/') }}";
+      const LOCAL_PDFJS_HASHED = BASE + 'pdf.min.' + HASH + '.js';
+      const LOCAL_WORKER_HASHED = BASE + 'pdf.worker.min.' + HASH + '.js';
+      const LOCAL_PDFJS = BASE + 'pdf.min.js';
+      const LOCAL_WORKER = BASE + 'pdf.worker.min.js';
+
+      function tryLoad(srcs, done) {
+        if (!srcs.length) return done(new Error('No sources left'));
+        const src = srcs.shift();
+        const s = document.createElement('script');
+        s.src = src + '?v=' + VERSION;
+        s.onload = () => done(null, src);
+        s.onerror = () => tryLoad(srcs, done);
+        document.head.appendChild(s);
+      }
+      function setWorker(chosen) {
+        if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
+          // Use matching worker preference order
+            const workerCandidates = [LOCAL_WORKER_HASHED, LOCAL_WORKER, 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/' + VERSION + '/pdf.worker.min.js'];
+            (function pick(list){
+              if(!list.length) return;
+              const w = list.shift();
+              const test = document.createElement('link'); // cheap preflight via HEAD would need CORS; we optimistic fallback
+              window.pdfjsLib.GlobalWorkerOptions.workerSrc = w;
+            })(workerCandidates);
+        }
+      }
+      tryLoad([
+        LOCAL_PDFJS_HASHED,
+        LOCAL_PDFJS,
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/' + VERSION + '/pdf.min.js'
+      ], function(err, chosen) {
+        setWorker(chosen);
+        window.__PDFJS_ACTIVE_VERSION__ = VERSION;
+      });
+    })();
+  </script>
+  {% if show_banner %}
+  <style>
+    .viewer-banner { position:absolute; top:4px; right:6px; background:#1d2630; color:#fff; font:12px/1.2 monospace; padding:4px 8px; border-radius:4px; opacity:.85; z-index:50; }
+    .viewer-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:6px 8px; background:#fafbfc; border-bottom:1px solid #ddd; font-family:system-ui,sans-serif; }
+    .viewer-toolbar button { font-size:12px; padding:4px 8px; cursor:pointer; }
+    .viewer-toolbar .spacer { flex:1; }
+  </style>
+  {% endif %}
+</head>
+<body>
+  <div id="viewerRoot" class="viewer-root" data-url="{{ pdf_url }}" data-rotation="{{ initial_rotation|int }}">
+    {% if show_banner %}<div class="viewer-banner" id="versionBanner">PDF.js {{ pdfjs_version }} | init…</div>{% endif %}
+    <div class="viewer-toolbar" id="viewerToolbar" style="display:none;">
+      <button type="button" id="prevPage" disabled>&lt; Prev</button>
+      <span id="pageIndicator">Page 1</span>
+      <button type="button" id="nextPage" disabled>Next &gt;</button>
+      <div class="spacer"></div>
+      <button type="button" data-fit="page" class="fit-btn active" id="fitPageBtn" title="Fit entire page">Fit Page</button>
+      <button type="button" data-fit="width" class="fit-btn" id="fitWidthBtn" title="Fit page width">Fit Width</button>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="pdfCanvas"></canvas>
+    </div>
+  </div>
+
+  <script>
+  const root = document.getElementById('viewerRoot');
+  const url = root?.dataset?.url || '';
+  const initialRotation = parseInt(root?.dataset?.rotation || '0', 10) || 0;
+    const canvas = document.getElementById('pdfCanvas');
+    const ctx = canvas.getContext('2d');
+
+  let pdfDoc = null;
+  let currentPage = 1;
+  let rotation = initialRotation % 360;
+  let fitMode = localStorage.getItem('viewer.fitMode') || 'page'; // 'page' or 'width'
+
+    async function load() {
+      // If PDF.js not available (e.g., CDN blocked), fall back to native browser viewer
+      if (!window.pdfjsLib || !window.pdfjsLib.getDocument) {
+        useIframeFallback();
+        return;
+      }
+      try {
+        const docUrl = url + (url.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+        const loadingTask = window['pdfjsLib'].getDocument({ url: docUrl });
+        pdfDoc = await loadingTask.promise;
+        setupToolbar();
+        await render();
+      } catch (err) {
+        console.error('PDF load error:', err);
+        // As a last resort, attempt iframe fallback to display something
+        useIframeFallback();
+      }
+    }
+
+    async function render() {
+      const page = await pdfDoc.getPage(currentPage);
+      const baseViewport = page.getViewport({ scale: 1, rotation: 0 });
+
+      // Fit to the container based on the rotated bounding dimensions
+      const wrap = document.querySelector('.canvas-wrap');
+      const boxW = wrap.clientWidth || window.innerWidth;
+      const boxH = wrap.clientHeight || window.innerHeight;
+      const isRotated = (rotation % 180) !== 0;
+      const rotW = isRotated ? baseViewport.height : baseViewport.width;
+      const rotH = isRotated ? baseViewport.width : baseViewport.height;
+      let scale;
+      if (fitMode === 'width') {
+        scale = boxW / rotW;
+        // Clamp if it would overflow height badly; allow slight vertical scroll avoidance
+        const heightAtScale = rotH * scale;
+        if (heightAtScale > boxH * 1.15) {
+          scale = Math.min(scale, boxH / rotH);
+        }
+      } else { // 'page'
+        scale = Math.min(boxW / rotW, boxH / rotH);
+      }
+
+      const finalViewport = page.getViewport({ scale, rotation });
+
+      // High-DPI crisp rendering without cropping: size canvas buffer by DPR,
+      // set CSS size to the logical viewport size.
+      const dpr = window.devicePixelRatio || 1;
+      const cssW = Math.floor(finalViewport.width);
+      const cssH = Math.floor(finalViewport.height);
+      canvas.width = Math.floor(cssW * dpr);
+      canvas.height = Math.floor(cssH * dpr);
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const renderContext = { canvasContext: ctx, viewport: finalViewport };
+      await page.render(renderContext).promise;
+      updateNavState();
+      updateBanner();
+    }
+
+    function setupToolbar() {
+      const tb = document.getElementById('viewerToolbar');
+      if (!tb) return;
+      tb.style.display = 'flex';
+      document.getElementById('prevPage').addEventListener('click', () => { if (currentPage > 1) { currentPage--; render(); }});
+      document.getElementById('nextPage').addEventListener('click', () => { if (pdfDoc && currentPage < pdfDoc.numPages) { currentPage++; render(); }});
+      document.getElementById('fitPageBtn').addEventListener('click', () => { setFitMode('page'); });
+      document.getElementById('fitWidthBtn').addEventListener('click', () => { setFitMode('width'); });
+      updateNavState();
+      reflectFitButtons();
+    }
+
+    function setFitMode(mode) {
+      fitMode = mode;
+      localStorage.setItem('viewer.fitMode', mode);
+      reflectFitButtons();
+      if (pdfDoc) render();
+    }
+
+    function reflectFitButtons() {
+      document.querySelectorAll('.fit-btn').forEach(btn => {
+        if (btn.getAttribute('data-fit') === fitMode) btn.classList.add('active'); else btn.classList.remove('active');
+      });
+    }
+
+    function updateNavState() {
+      const prev = document.getElementById('prevPage');
+      const next = document.getElementById('nextPage');
+      const indicator = document.getElementById('pageIndicator');
+      if (!pdfDoc) { prev.disabled = true; next.disabled = true; indicator.textContent = 'Page -'; return; }
+      prev.disabled = currentPage <= 1;
+      next.disabled = currentPage >= pdfDoc.numPages;
+      indicator.textContent = `Page ${currentPage} / ${pdfDoc.numPages}`;
+    }
+
+    function updateBanner() {
+      const banner = document.getElementById('versionBanner');
+      if (!banner) return;
+      const activeVersion = window.__PDFJS_ACTIVE_VERSION__ || '{{ pdfjs_version }}';
+      banner.textContent = `PDF.js ${activeVersion} | Page ${currentPage}${fitMode==='width' ? ' | Fit Width' : ' | Fit Page'}`;
+    }
+
+    function showError(msg) {
+      const wrap = document.querySelector('.canvas-wrap');
+      wrap.innerHTML = '<div style="color:#a00; padding:12px;">' + (msg || 'Unable to display document') + '</div>';
+    }
+
+    let fallbackFrame = null;
+    function useIframeFallback() {
+      const wrap = document.querySelector('.canvas-wrap');
+      // Use only zoom=page-fit to avoid conflicting hints (FitH can fight with page-fit)
+      const docUrl = url + (url.includes('?') ? '&' : '?') + 'cb=' + Date.now() + '#toolbar=0&navpanes=0&scrollbar=0&zoom=page-fit';
+      wrap.innerHTML = '';
+      // Blend with native viewer bars
+      wrap.style.background = '#000';
+      // Prefer a direct <embed> so we can transform it reliably even with Chrome's PDF plugin
+      const embed = document.createElement('embed');
+      embed.type = 'application/pdf';
+      embed.style.border = 'none';
+      embed.style.width = '100%';
+      embed.style.height = '100%';
+      embed.style.transformOrigin = 'center center';
+      embed.style.position = 'absolute';
+      embed.style.left = '50%';
+      embed.style.top = '50%';
+      embed.src = docUrl;
+      wrap.appendChild(embed);
+      fallbackFrame = embed;
+      // Inform parent we’re in fallback mode (rotation controls may rotate toolbar)
+      try { window.parent && window.parent.postMessage(JSON.stringify({ type: 'viewer_fallback' }), '*'); } catch(e) {}
+      // Initial fit
+      requestAnimationFrame(applyFallbackTransform);
+    }
+
+    function applyFallbackTransform() {
+      if (!fallbackFrame) return;
+      const wrap = document.querySelector('.canvas-wrap');
+      const W = wrap.clientWidth;
+      const H = wrap.clientHeight;
+      // The iframe is sized to W x H; after rotation, its bounding box dims are:
+      const rad = (rotation % 360) * Math.PI / 180;
+      const cos = Math.abs(Math.cos(rad));
+      const sin = Math.abs(Math.sin(rad));
+      const rotatedW = W * cos + H * sin;
+      const rotatedH = W * sin + H * cos;
+      // Fit scale, with a small overscan to hide letterboxing from native PDF viewer
+      const fit = Math.max(0.01, Math.min(W / (rotatedW || W), H / (rotatedH || H)));
+  // Keep overscan minimal to avoid cropping and preserve full page visibility (unaltered landscape)
+  const baseOverscan = 1.02;
+  const scale = fit * baseOverscan;
+      fallbackFrame.style.transform = `translate(-50%, -50%) rotate(${rotation}deg) scale(${scale})`;
+    }
+    // Internal rotate controls removed; rotation is controlled by parent via postMessage
+
+    window.addEventListener('resize', () => {
+      if (pdfDoc) {
+        render();
+      } else if (fallbackFrame) {
+        applyFallbackTransform();
+      }
+    });
+    // postMessage API to control rotation from parent
+    window.addEventListener('message', async (evt) => {
+      try {
+        const data = typeof evt.data === 'string' ? JSON.parse(evt.data) : evt.data;
+        if (!data || !data.type) return;
+        let changed = false;
+        switch (data.type) {
+          case 'rotate': {
+            if (typeof data.degrees === 'number') {
+              rotation = ((data.degrees % 360) + 360) % 360;
+              changed = true;
+            } else if (typeof data.delta === 'number') {
+              rotation = ((rotation + data.delta) % 360 + 360) % 360;
+              changed = true;
+            }
+            break;
+          }
+          case 'rotate-left': {
+            rotation = ((rotation - 90) % 360 + 360) % 360;
+            changed = true;
+            break;
+          }
+          case 'rotate-right': {
+            rotation = ((rotation + 90) % 360 + 360) % 360;
+            changed = true;
+            break;
+          }
+          case 'rotate-reset': {
+            rotation = ((initialRotation % 360) + 360) % 360;
+            changed = true;
+            break;
+          }
+        }
+        if (changed) {
+          if (pdfDoc) {
+            await render();
+          } else if (fallbackFrame) {
+            applyFallbackTransform();
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    });
+    load();
+  </script>
+</body>
+</html>
