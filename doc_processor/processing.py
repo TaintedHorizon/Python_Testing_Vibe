@@ -36,6 +36,64 @@ def safe_move(src, dst):
                 pass
         raise OSError(f"Safe move failed from {src} to {dst}: {e}")
 
+# --- FILE HASH / DEDUP HELPERS ---
+def _file_sha256(path: str, chunk_size: int = 1024 * 1024) -> str:
+    """Compute SHA-256 hash of a file (streamed) and return hex digest.
+
+    Uses a 1MB chunk size (tunable) to balance speed and memory. Caller should
+    ensure path exists. Any exception propagates to allow caller to decide on
+    fallback behavior.
+    """
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(chunk_size), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+def _files_identical(a: str, b: str) -> bool:
+    """Return True if two existing files are byte-identical.
+
+    Fast path: compare size; if different -> False.
+    Slow path: compare SHA-256 (streamed). Any hashing error returns False (so
+    caller will proceed with copy to be safe).
+    """
+    try:
+        if not (os.path.exists(a) and os.path.exists(b)):
+            return False
+        if os.path.getsize(a) != os.path.getsize(b):
+            return False
+        return _file_sha256(a) == _file_sha256(b)
+    except Exception:
+        return False
+
+def _lookup_forced_rotation(filename: str) -> Optional[int]:
+    """Return a persisted forced rotation for the given original intake filename, or None.
+
+    Looks up value from intake_rotations table (if present). Filename is expected
+    to match what was stored during /save_rotation (original intake basename).
+    Any error returns None silently to avoid disrupting processing.
+    """
+    try:
+        from .database import get_db_connection  # local import to avoid cycles
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS intake_rotations (filename TEXT PRIMARY KEY, rotation INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+        row = cur.execute("SELECT rotation FROM intake_rotations WHERE filename = ?", (filename,)).fetchone()
+        conn.close()
+        if row is None:
+            return None
+        rot = int(row[0])
+        if rot % 360 not in (0, 90, 180, 270):
+            return (rot % 360)  # normalize unusual values
+        return rot % 360
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return None
+
 # --- IMAGE TO PDF CONVERSION ---
 def convert_image_to_pdf(image_path: str, output_pdf_path: str) -> str:
     """
@@ -212,7 +270,7 @@ from .batch_guard import get_or_create_processing_batch
 from .document_detector import get_detector, DocumentAnalysis
 
 # --- PDF MANIPULATION FUNCTIONS ---
-def create_searchable_pdf(original_pdf_path: str, output_path: str, document_id: Optional[int] = None) -> tuple[str, float, str]:
+def create_searchable_pdf(original_pdf_path: str, output_path: str, document_id: Optional[int] = None, forced_rotation: Optional[int] = None) -> tuple[str, float, str]:
     """
     Create a searchable PDF by adding OCR text as an invisible overlay.
     Includes automatic rotation detection for optimal text extraction.
@@ -273,63 +331,86 @@ def create_searchable_pdf(original_pdf_path: str, output_path: str, document_id:
         # Process each page
         for page_num in range(len(doc)):
             page = doc[page_num]
-            
             # Convert page to image for OCR
-            mat = fitz.Matrix(2.0, 2.0)  # 2x zoom for better OCR
-            pix = page.get_pixmap(matrix=mat)
+            mat = fitz.Matrix(2.0, 2.0)
+            get_pix = getattr(page, 'get_pixmap', None) or getattr(page, 'getPixmap', None)
+            if not get_pix:
+                raise AttributeError('Page object lacks get_pixmap/getPixmap (PyMuPDF API change?)')
+            pix = get_pix(matrix=mat)  # type: ignore[call-arg]
             img_data = pix.tobytes("png")
-            
-            # Convert to PIL Image for OCR and rotation detection
             from PIL import Image
-            import io
+            import io, tempfile
             img = Image.open(io.BytesIO(img_data))
-            
+
+            # Forced rotation path (skip auto-detect entirely)
+            if forced_rotation is not None:
+                try:
+                    if not app_config.DEBUG_SKIP_OCR:
+                        if forced_rotation % 360 != 0:
+                            img = img.rotate(-forced_rotation, expand=True)
+                        ocr_data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+                        page_text = pytesseract.image_to_string(img)
+                        confidences: list[int] = []
+                        for conf_val in ocr_data['conf']:
+                            try:
+                                conf_int = int(conf_val)
+                                if conf_int > 0:
+                                    confidences.append(conf_int)
+                            except (ValueError, TypeError):
+                                continue
+                        page_confidence = (sum(confidences) / len(confidences)) if confidences else 0
+                        ocr_text_pages.append(page_text)
+                        confidence_scores.append(page_confidence)
+                        rotation_info.append({'page': page_num + 1, 'rotation': forced_rotation % 360, 'confidence': 1.0})
+                        if page_text.strip():
+                            _add_invisible_text_overlay(page, page_text)
+                    else:
+                        ocr_text_pages.append(f"[DEBUG MODE - OCR SKIPPED FOR PAGE {page_num + 1}]")
+                        confidence_scores.append(100.0)
+                        rotation_info.append({'page': page_num + 1, 'rotation': forced_rotation % 360, 'confidence': 1.0})
+                except Exception as forced_err:
+                    logging.warning(f"Forced rotation OCR failed for page {page_num + 1}: {forced_err}")
+                    ocr_text_pages.append(f"[OCR FAILED FOR PAGE {page_num + 1}]")
+                    confidence_scores.append(0.0)
+                    rotation_info.append({'page': page_num + 1, 'rotation': forced_rotation % 360, 'confidence': 0.0})
+                continue  # next page
+
+            # Auto-detect path (existing logic)
             try:
                 if not app_config.DEBUG_SKIP_OCR:
-                    # Save temporary image for rotation detection
-                    import tempfile
                     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
                         img.save(temp_file.name)
                         temp_path = temp_file.name
-                    
                     try:
-                        # Detect optimal rotation
                         best_rotation, rotation_confidence, rotated_text = _detect_best_rotation(temp_path)
-                        rotation_info.append({
-                            'page': page_num + 1,
-                            'rotation': best_rotation,
-                            'confidence': rotation_confidence
-                        })
-                        
+                        rotation_info.append({'page': page_num + 1, 'rotation': best_rotation, 'confidence': rotation_confidence})
                         if best_rotation != 0:
                             logging.info(f"  Page {page_num + 1}: Auto-detected rotation {best_rotation}° (confidence: {rotation_confidence:.3f})")
-                            # Apply detected rotation
                             img = img.rotate(-best_rotation, expand=True)
-                        
-                        # Perform OCR with optimal rotation
                         ocr_data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
                         page_text = pytesseract.image_to_string(img)
-                        confidences = [int(conf) for conf in ocr_data['conf'] if int(conf) > 0]
-                        page_confidence = sum(confidences) / len(confidences) if confidences else 0
-                        
+                        confidences: list[int] = []
+                        for conf_val in ocr_data['conf']:
+                            try:
+                                conf_int = int(conf_val)
+                                if conf_int > 0:
+                                    confidences.append(conf_int)
+                            except (ValueError, TypeError):
+                                continue
+                        page_confidence = (sum(confidences) / len(confidences)) if confidences else 0
                         ocr_text_pages.append(page_text)
                         confidence_scores.append(page_confidence)
-                        
-                        # Add invisible text overlay to PDF for searchability
                         if page_text.strip():
                             _add_invisible_text_overlay(page, page_text)
-                            
                     finally:
-                        # Clean up temporary file
                         try:
                             os.unlink(temp_path)
-                        except:
+                        except Exception:
                             pass
                 else:
                     ocr_text_pages.append(f"[DEBUG MODE - OCR SKIPPED FOR PAGE {page_num + 1}]")
                     confidence_scores.append(100.0)
                     rotation_info.append({'page': page_num + 1, 'rotation': 0, 'confidence': 1.0})
-                    
             except Exception as ocr_error:
                 logging.warning(f"OCR failed for page {page_num + 1}: {ocr_error}")
                 ocr_text_pages.append(f"[OCR FAILED FOR PAGE {page_num + 1}]")
@@ -341,9 +422,11 @@ def create_searchable_pdf(original_pdf_path: str, output_path: str, document_id:
         doc.save(output_path)
         doc.close()
         
-        # Log rotation detection summary
+        # Log rotation summary (forced vs auto)
         rotated_pages = [info for info in rotation_info if info['rotation'] != 0]
-        if rotated_pages:
+        if forced_rotation is not None:
+            logging.info(f"  📐 Forced rotation {forced_rotation % 360}° applied to {len(rotation_info)} pages (user/intake override)")
+        elif rotated_pages:
             logging.info(f"  📐 Auto-rotation applied to {len(rotated_pages)} pages:")
             for info in rotated_pages:
                 logging.info(f"    Page {info['page']}: {info['rotation']}° (confidence: {info['confidence']:.3f})")
@@ -353,7 +436,9 @@ def create_searchable_pdf(original_pdf_path: str, output_path: str, document_id:
         avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0
         
         status_msg = "success"
-        if rotated_pages:
+        if forced_rotation is not None:
+            status_msg += f" (forced rotation {forced_rotation % 360}°)"
+        elif rotated_pages:
             status_msg += f" (auto-rotated {len(rotated_pages)} pages)"
         
         # Save OCR results to cache if document_id provided
@@ -1121,29 +1206,41 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                     base_name = os.path.splitext(filename)[0]
                     logging.info(f"Processing {filename} with improved single document workflow...")
                     
-                    # Handle image files - convert to PDF first
+                    # Handle image files - prefer early normalized PDF from analysis if available
                     if is_image_file(analysis.file_path):
-                        logging.info(f"Converting image file {filename} to PDF...")
-                        # Convert image to PDF in batch directory
                         batch_wip_dir = os.path.join(app_config.WIP_DIR, str(batch_id))
                         original_pdfs_dir = os.path.join(batch_wip_dir, "original_pdfs")
                         os.makedirs(original_pdfs_dir, exist_ok=True)
-                        
-                        converted_pdf_path = os.path.join(original_pdfs_dir, f"{base_name}.pdf")
-                        convert_image_to_pdf(analysis.file_path, converted_pdf_path)
-                        
-                        # Archive the original image
-                        archive_dir = os.path.join(app_config.ARCHIVE_DIR, f"batch_{batch_id}_images")
-                        os.makedirs(archive_dir, exist_ok=True)
-                        archived_image_path = os.path.join(archive_dir, filename)
-                        safe_move(analysis.file_path, archived_image_path)
-                        
-                        # Use the converted PDF for further processing
-                        pdf_path_for_processing = converted_pdf_path
+                        normalized_pdf_candidate = getattr(analysis, 'pdf_path', None)
+                        target_pdf_path = os.path.join(original_pdfs_dir, f"{base_name}.pdf")
+                        if normalized_pdf_candidate and normalized_pdf_candidate.lower().endswith('.pdf') and os.path.exists(normalized_pdf_candidate):
+                            try:
+                                if normalized_pdf_candidate != target_pdf_path:
+                                    # Skip copy if identical already exists
+                                    if os.path.exists(target_pdf_path) and _files_identical(normalized_pdf_candidate, target_pdf_path):
+                                        logging.info(f"♻ Skipping copy (identical) normalized PDF for image {filename}")
+                                    else:
+                                        import shutil
+                                        shutil.copy2(normalized_pdf_candidate, target_pdf_path)
+                                logging.info(f"♻ Reusing normalized PDF for image {filename} -> {target_pdf_path}")
+                            except Exception as reuse_e:
+                                logging.warning(f"Failed to reuse normalized PDF for {filename}: {reuse_e}; falling back to fresh conversion")
+                                convert_image_to_pdf(analysis.file_path, target_pdf_path)
+                        else:
+                            logging.info(f"Converting image file {filename} to PDF (no reusable normalized version)")
+                            convert_image_to_pdf(analysis.file_path, target_pdf_path)
+                        # Archive original image (only once, after we have a PDF secured)
+                        try:
+                            archive_dir = os.path.join(app_config.ARCHIVE_DIR, f"batch_{batch_id}_images")
+                            os.makedirs(archive_dir, exist_ok=True)
+                            archived_image_path = os.path.join(archive_dir, filename)
+                            if os.path.exists(analysis.file_path):  # may have been moved already
+                                safe_move(analysis.file_path, archived_image_path)
+                        except Exception as arch_e:
+                            logging.warning(f"Archiving original image failed for {filename}: {arch_e}")
+                        pdf_path_for_processing = target_pdf_path
                         pdf_filename = f"{base_name}.pdf"
-                        logging.info(f"✓ Converted {filename} to {pdf_filename}")
                     else:
-                        # Regular PDF file
                         pdf_path_for_processing = analysis.file_path
                         pdf_filename = filename
                     
@@ -1163,8 +1260,9 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                     
                     # Step 2: Create searchable PDF with OCR (with caching)
                     searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
+                    forced_rotation = _lookup_forced_rotation(os.path.basename(pdf_filename))
                     ocr_text, ocr_confidence, ocr_status = create_searchable_pdf(
-                        pdf_path_for_processing, searchable_pdf_path, doc_id
+                        pdf_path_for_processing, searchable_pdf_path, doc_id, forced_rotation=forced_rotation
                     )
                     
                     if ocr_status != "success" and not ocr_status.startswith("success"):
@@ -1275,39 +1373,40 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                     
                     # Handle image files - convert to PDF first
                     if is_image_file(analysis.file_path):
-                        logging.info(f"Converting image file {filename} to PDF...")
-                        yield {
-                            'message': f'Converting image {filename} to PDF...',
-                            'document_number': i,
-                            'total_documents': len(single_docs)
-                        }
-                        
-                        # Convert image to PDF in batch directory
                         batch_wip_dir = os.path.join(app_config.WIP_DIR, str(batch_id))
                         original_pdfs_dir = os.path.join(batch_wip_dir, "original_pdfs")
                         os.makedirs(original_pdfs_dir, exist_ok=True)
-                        
-                        converted_pdf_path = os.path.join(original_pdfs_dir, f"{base_name}.pdf")
-                        convert_image_to_pdf(analysis.file_path, converted_pdf_path)
-                        
-                        # Archive the original image
-                        archive_dir = os.path.join(app_config.ARCHIVE_DIR, f"batch_{batch_id}_images")
-                        os.makedirs(archive_dir, exist_ok=True)
-                        archived_image_path = os.path.join(archive_dir, filename)
-                        safe_move(analysis.file_path, archived_image_path)
-                        
-                        # Use the converted PDF for further processing
-                        pdf_path_for_processing = converted_pdf_path
+                        normalized_pdf_candidate = getattr(analysis, 'pdf_path', None)
+                        target_pdf_path = os.path.join(original_pdfs_dir, f"{base_name}.pdf")
+                        action_msg = 'Reusing normalized' if (normalized_pdf_candidate and os.path.exists(normalized_pdf_candidate)) else 'Converting'
+                        yield {'message': f'{action_msg} image {filename} to PDF...', 'document_number': i, 'total_documents': len(single_docs)}
+                        if normalized_pdf_candidate and normalized_pdf_candidate.lower().endswith('.pdf') and os.path.exists(normalized_pdf_candidate):
+                            try:
+                                if normalized_pdf_candidate != target_pdf_path:
+                                    if os.path.exists(target_pdf_path) and _files_identical(normalized_pdf_candidate, target_pdf_path):
+                                        logging.info(f"♻ Skipping copy (identical) normalized PDF for image {filename}")
+                                    else:
+                                        import shutil
+                                        shutil.copy2(normalized_pdf_candidate, target_pdf_path)
+                                logging.info(f"♻ Reusing normalized PDF for image {filename} -> {target_pdf_path}")
+                            except Exception as reuse_e:
+                                logging.warning(f"Reuse failed for {filename}: {reuse_e}; converting fresh")
+                                convert_image_to_pdf(analysis.file_path, target_pdf_path)
+                        else:
+                            convert_image_to_pdf(analysis.file_path, target_pdf_path)
+                        # Archive original image safely
+                        try:
+                            archive_dir = os.path.join(app_config.ARCHIVE_DIR, f"batch_{batch_id}_images")
+                            os.makedirs(archive_dir, exist_ok=True)
+                            archived_image_path = os.path.join(archive_dir, filename)
+                            if os.path.exists(analysis.file_path):
+                                safe_move(analysis.file_path, archived_image_path)
+                        except Exception as arch_e:
+                            logging.warning(f"Archiving original image failed for {filename}: {arch_e}")
+                        pdf_path_for_processing = target_pdf_path
                         pdf_filename = f"{base_name}.pdf"
-                        logging.info(f"✓ Converted {filename} to {pdf_filename}")
-                        
-                        yield {
-                            'message': f'✓ Converted {filename} to PDF',
-                            'document_number': i,
-                            'total_documents': len(single_docs)
-                        }
+                        yield {'message': f'✓ Image ready as PDF {pdf_filename}', 'document_number': i, 'total_documents': len(single_docs)}
                     else:
-                        # Regular PDF file
                         pdf_path_for_processing = analysis.file_path
                         pdf_filename = filename
                     
@@ -1327,8 +1426,9 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                     
                     # Step 2: Create searchable PDF with OCR (with caching)
                     searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
+                    forced_rotation = _lookup_forced_rotation(os.path.basename(pdf_filename))
                     ocr_text, ocr_confidence, ocr_status = create_searchable_pdf(
-                        pdf_path_for_processing, searchable_pdf_path, doc_id
+                        pdf_path_for_processing, searchable_pdf_path, doc_id, forced_rotation=forced_rotation
                     )
                     
                     if ocr_status != "success" and not ocr_status.startswith("success"):
@@ -1417,6 +1517,132 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
             'total_documents': len(single_docs)
         }
 
+
+def _process_docs_into_fixed_batch_with_progress(docs: List[DocumentAnalysis], batch_id: int):
+    """Process DocumentAnalysis list into an already-created batch id.
+
+    Mirrors _process_single_documents_as_batch_with_progress but reuses supplied batch_id
+    (never creating or selecting a different batch). Yields the same kinds of progress
+    dictionaries plus an initial {'batch_id': batch_id} indicator.
+    """
+    if not docs:
+        return
+    logging.info(f"Processing {len(docs)} documents into fixed batch {batch_id}...")
+    try:
+        with database_connection() as conn:
+            cursor = conn.cursor()
+            yield {'batch_id': batch_id}
+            batch_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
+            searchable_dir = os.path.join(batch_dir, "searchable_pdfs")
+            os.makedirs(searchable_dir, exist_ok=True)
+            total_documents_processed = 0
+            for i, analysis in enumerate(docs, 1):
+                filename = os.path.basename(analysis.file_path)
+                base_name = os.path.splitext(filename)[0]
+                try:
+                    yield {'document_start': True, 'filename': filename, 'document_number': i, 'total_documents': len(docs)}
+                    if is_image_file(analysis.file_path):
+                        batch_wip_dir = os.path.join(app_config.WIP_DIR, str(batch_id))
+                        original_pdfs_dir = os.path.join(batch_wip_dir, "original_pdfs")
+                        os.makedirs(original_pdfs_dir, exist_ok=True)
+                        normalized_pdf_candidate = getattr(analysis, 'pdf_path', None)
+                        target_pdf_path = os.path.join(original_pdfs_dir, f"{base_name}.pdf")
+                        if normalized_pdf_candidate and normalized_pdf_candidate.lower().endswith('.pdf') and os.path.exists(normalized_pdf_candidate):
+                            yield {'message': f'Reusing normalized image PDF {filename}...', 'document_number': i, 'total_documents': len(docs)}
+                            try:
+                                if normalized_pdf_candidate != target_pdf_path:
+                                    if os.path.exists(target_pdf_path) and _files_identical(normalized_pdf_candidate, target_pdf_path):
+                                        logging.info(f"♻ Skipping copy (identical) normalized PDF for image {filename}")
+                                    else:
+                                        import shutil
+                                        shutil.copy2(normalized_pdf_candidate, target_pdf_path)
+                                logging.info(f"♻ Reused normalized PDF for image {filename}")
+                            except Exception as reuse_e:
+                                logging.warning(f"Reuse failed for {filename}: {reuse_e}; converting freshly")
+                                convert_image_to_pdf(analysis.file_path, target_pdf_path)
+                        else:
+                            yield {'message': f'Converting image {filename} to PDF...', 'document_number': i, 'total_documents': len(docs)}
+                            convert_image_to_pdf(analysis.file_path, target_pdf_path)
+                        # Archive original image once
+                        try:
+                            archive_dir = os.path.join(app_config.ARCHIVE_DIR, f"batch_{batch_id}_images")
+                            os.makedirs(archive_dir, exist_ok=True)
+                            archived_image_path = os.path.join(archive_dir, filename)
+                            if os.path.exists(analysis.file_path):
+                                safe_move(analysis.file_path, archived_image_path)
+                        except Exception as arch_e:
+                            logging.warning(f"Archiving original image failed for {filename}: {arch_e}")
+                        pdf_path_for_processing = target_pdf_path
+                        pdf_filename = f"{base_name}.pdf"
+                        yield {'message': f'✓ Image ready as PDF {pdf_filename}', 'document_number': i, 'total_documents': len(docs)}
+                    else:
+                        pdf_path_for_processing = analysis.file_path
+                        pdf_filename = filename
+                    cursor.execute("""
+                        INSERT INTO single_documents (
+                            batch_id, original_filename, original_pdf_path,
+                            page_count, file_size_bytes, status
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        batch_id, pdf_filename, pdf_path_for_processing,
+                        analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
+                        "processing"
+                    ))
+                    doc_id = cursor.lastrowid
+                    conn.commit()
+                    searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
+                    forced_rotation = _lookup_forced_rotation(os.path.basename(pdf_filename))
+                    ocr_text, ocr_confidence, ocr_status = create_searchable_pdf(
+                        pdf_path_for_processing, searchable_pdf_path, doc_id, forced_rotation=forced_rotation
+                    )
+                    if ocr_status != "success" and not ocr_status.startswith("success"):
+                        yield {'error': f'Failed to create searchable PDF: {ocr_status}', 'filename': filename, 'document_number': i, 'total_documents': len(docs)}
+                        continue
+                    ai_category, ai_filename, ai_confidence, ai_summary = _get_ai_suggestions_for_document(
+                        ocr_text, filename, analysis.page_count, analysis.file_size_mb, doc_id
+                    )
+                    cursor.execute("""
+                        UPDATE single_documents SET 
+                            ai_suggested_category = ?, ai_suggested_filename = ?,
+                            ai_confidence = ?, ai_summary = ?, status = ?
+                        WHERE id = ?
+                    """, (ai_category, ai_filename, ai_confidence, ai_summary, "ready_for_manipulation", doc_id))
+                    conn.commit()
+                    total_documents_processed += 1
+                    yield {
+                        'document_complete': True,
+                        'filename': filename,
+                        'category': ai_category,
+                        'ai_name': ai_filename,
+                        'confidence': ai_confidence,
+                        'document_number': i,
+                        'total_documents': len(docs),
+                        'documents_completed': total_documents_processed
+                    }
+                except Exception as e:
+                    logging.error(f"Error processing {analysis.file_path}: {e}")
+                    yield {'error': f'Error processing document: {e}', 'filename': filename, 'document_number': i, 'total_documents': len(docs)}
+                    continue
+            conn.commit()
+            safe_log_interaction(
+                batch_id=batch_id,
+                document_id=None,
+                user_id=get_current_user_id(),
+                event_type="single_documents_batch_created",
+                step="smart_processing",
+                content=json.dumps({
+                    "documents_processed": total_documents_processed,
+                    "workflow": "fixed_batch_single_document",
+                    "status": "ready_for_manipulation"
+                }),
+                notes=f"Fixed batch workflow - {total_documents_processed} documents ready"
+            )
+            cursor.execute("UPDATE batches SET status = ? WHERE id = ?", (app_config.STATUS_READY_FOR_MANIPULATION, batch_id))
+            conn.commit()
+            logging.info(f"✓ Fixed batch {batch_id} processed {total_documents_processed} documents")
+    except Exception as e:
+        logging.error(f"Error in fixed batch processing: {e}")
+        yield {'error': f'Fixed batch processing failed: {e}', 'filename': None, 'document_number': 0, 'total_documents': len(docs)}
 
 def cleanup_empty_batch_directory(batch_id: int) -> bool:
     """
@@ -1557,7 +1783,13 @@ def _detect_best_rotation(image_path: str) -> tuple[int, float, str]:
                     if ocr_results:
                         # Calculate average confidence and extract text
                         confidences = [conf for (_, _, conf) in ocr_results]
-                        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+                        # Compute average with explicit float conversion for static analyzers
+                        # Defensive cast to int for static analysis (ensure Iterable[int])
+                        if confidences:
+                            int_conf_list: list[int] = [int(x) for x in confidences]
+                            avg_confidence = sum(int_conf_list) / len(int_conf_list)
+                        else:
+                            avg_confidence = 0.0
                         text = " ".join([text for (_, text, _) in ocr_results])
                         
                         # Additional heuristics for better detection
@@ -2510,7 +2742,8 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
             progress_callback(current, total, message, details)
     
     success = True
-    conn = get_db_connection()
+    from .database import get_db_connection as _get_db_conn
+    conn = _get_db_conn()
     cursor = conn.cursor()
     
     # Get all documents

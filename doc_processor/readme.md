@@ -7,9 +7,19 @@
 
 **Current Status:** Production Ready - All core modules (Batch Processing, Verification, Review, Grouping, Ordering, Export) have been tested and are complete. The system includes comprehensive file safety, LLM integration, and audit trail capabilities.
 
-## Recent Changes (September 2025)
+## Recent Changes (September–October 2025)
 
 - **Batch Processing Resilience & Caching System (September 30 - Latest):**
+- **Smart Processing Orchestration (October 3):**
+    - **Unified SSE Progress**: Single event stream for intake analysis + dual-phase processing (single docs + batch scans)
+    - **Dual-Batch Separation**: Mixed intakes produce distinct batch IDs (single-document batch and batch-scan batch) surfaced in the final event
+    - **Token-Based Cancellation**: Secure cancel endpoint terminates orchestration cleanly without corrupting partially processed docs
+    - **Reuse of Early Conversions**: Image normalization reused downstream; no duplicate image→PDF conversions
+    - **Skip-Copy Optimization**: Hash comparison avoids redundant filesystem copies when cached normalized PDF already matches batch-local copy
+    - **Normalized PDF Cache**: Persistent SHA-256 keyed cache (`NORMALIZED_DIR`) with background GC (`NORMALIZED_CACHE_MAX_AGE_DAYS`)
+    - **Forced Rotation Carry-Forward**: User / persisted rotations bypass multi-angle OCR probe for faster searchable PDF creation
+    - **Rescan Flow**: `/rescan_ocr` supports quick rotation + OCR refresh without restarting full orchestration
+
     - **AI Analysis Caching**: LLM responses (category, filename, summary) now cached immediately in database to prevent redundant compute on interruptions
     - **OCR Processing Caching**: OCR results, rotation detection, and searchable PDFs cached to avoid expensive reprocessing
     - **Batch Resumability**: Interrupted batches can now resume from exact failure point instead of restarting from scratch
@@ -95,6 +105,7 @@ This project has recently completed Module 5, which finalizes the document proce
 *   **Enhanced Single Document Workflow**: Streamlined processing with AI-powered category and filename suggestions, manipulation interface, and individual document rescan capabilities
 *   **Intelligent Document Detection**: Multi-point sampling analyzes first, middle, and last pages to accurately distinguish single documents from batch scans
 *   **Automatic Rotation Detection**: OCR confidence-based rotation testing automatically corrects sideways documents during processing
+*   **Forced Rotation Carry-Forward**: Persisted intake rotation now applied directly during OCR (skips expensive re-detection)
 *   **Manual Rotation Controls**: Visual rotation interface in single document workflow with real-time feedback and apply functionality
 *   **AI-Powered Filename Generation**: Intelligent content-based filename suggestions using document analysis and OCR text
 *   **Interactive Manipulation Interface**: Edit AI suggestions with category dropdowns (matching verify workflow) and three filename options: Original, AI-Generated, and Custom
@@ -107,6 +118,8 @@ This project has recently completed Module 5, which finalizes the document proce
 *   **Category Governance**: Add, rename (with historical trace), soft delete/restore, annotate categories with full database persistence
 *   **Modern Flask Web UI**: Guided workflow with batch control, verification, review, grouping, ordering, finalization, and audit views
 *   **Rotation-Safe OCR**: Re-run OCR with in-memory rotation (non-destructive) while persisting logical rotation angles
+*   **Normalized PDF Cache**: Content-hash reuse of image conversions with automatic stale cleanup
+*   **Smart Processing SSE**: Real-time progress + cancellation for batch + single-doc phases
 *   **Smart Document Detection**: Automatically distinguishes single documents from batch scans using LLM analysis with enhanced boundary detection
 *   **Export Formats**: Each document exported as non-searchable PDF, searchable PDF (OCR layer), and structured Markdown logs
 *   **Structured Logging**: JSON-based logging with emoji identifiers for easy troubleshooting and system monitoring

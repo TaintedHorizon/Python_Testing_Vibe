@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2025-10-03] - ⚡ Smart Processing Orchestration, Normalized PDF Cache & Rotation Carry-Forward
+### Added
+- **Smart Processing Orchestrator (SSE)**: Real-time Server-Sent Events stream consolidating analysis + processing phases (single docs + batch scans) into one unified progress channel.
+- **Dual-Batch Finalization**: Mixed intake automatically yields distinct batch IDs: one for single-document workflow, one for traditional batch-scan workflow (when applicable); both surfaced in final SSE event + UI footer.
+- **Cancellation Endpoint**: `/batch/api/smart_processing_cancel` allowing graceful mid-run termination (token-based) with immediate UI feedback.
+- **Token Lifecycle & Cleanup Thread**: In‑memory smart token store with TTL + background cleanup to purge expired orchestration tokens.
+- **Persistent Normalized PDF Cache**: Hash-based (SHA-256) image→PDF normalization stored in `NORMALIZED_DIR` enabling cross-run reuse (eliminates redundant conversions + CPU).
+- **Normalized Cache GC**: Background thread prunes stale cached PDFs older than `NORMALIZED_CACHE_MAX_AGE_DAYS`.
+- **Forced Rotation Carry-Forward**: Persisted per-file rotation overrides now short‑circuit page-by-page auto rotation detection during OCR/searchable PDF creation.
+- **Selective Rescan Flow**: Users can apply rotation and rescan OCR without restarting full smart processing.
+
+### Changed
+- **Processing Generators**: `_process_single_documents_as_batch_with_progress` & fixed-batch variant now reuse `analysis.pdf_path` (no duplicate image conversion) and skip copy when identical (hash compare).
+- **`create_searchable_pdf`**: Accepts `forced_rotation`; bypasses multi-angle confidence probe when override present, reducing OCR latency.
+- **Log Semantics**: Added clear distinction between forced rotation (`📐 Forced rotation`) and auto-rotation summaries; added reuse & skip-copy logs for normalized PDFs.
+- **Image Strategy Enforcement**: Raw intake images are forcibly classified as `single_document` for predictable workflow and reuse alignment.
+
+### Performance
+- Eliminated repeated image→PDF conversions across runs (hash cache) — large batches now start markedly faster on second pass.
+- Reduced OCR rotational probing cost for user-overridden documents (up to 4x speed improvement on those pages).
+- Lower filesystem churn via skip-copy optimization when normalized and batch-local PDFs are byte-identical.
+
+### Developer Experience
+- Centralized helpers: `_file_sha256`, `_files_identical`, `_lookup_forced_rotation` for reuse & clarity.
+- Safer, idempotent rotation persistence integrated with existing `/save_rotation` mechanism (no schema change required—leverages `intake_rotations`).
+
+### Documentation
+- Pending README / subsystem doc updates (this entry) to describe smart processing orchestration, cancellation, normalized cache, and rotation carry-forward.
+
+### Notes
+- Existing tests remain valid; a follow-up lightweight test recommended to assert forced rotation path skips legacy auto-rotation logs.
+
+---
+
 ## [2025-10-02-3] - 🧩 Template Fixes, DB Path Unification, and Safer System Info
 ### Added
 - Minimal admin templates to prevent TemplateNotFound errors:

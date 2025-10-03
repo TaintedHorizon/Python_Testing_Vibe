@@ -21,6 +21,7 @@ Production-ready document processing pipeline with AI integration, human verific
 - **🔧 MAJOR FIX (Oct 1, 2025)**: Fixed critical API contract differences between original and Blueprint implementations
 - **🎯 UX REVOLUTION (Oct 2, 2025)**: Unified PDF display system - all document previews now use consistent iframe approach with automatic image-to-PDF conversion
 - **🔧 CRITICAL UI FIXES (Oct 2, 2025)**: Fixed OCR rescan functionality, eliminated popup alerts, improved PDF scaling, implemented rotation persistence, added LLM reanalysis capabilities
+- **⚡ SMART PROCESSING (Oct 3, 2025)**: Unified SSE progress stream (analysis + processing), token-based cancellation, dual-batch separation, normalized PDF cache, forced rotation carry-forward for OCR
 
 **Key Features:**
 - End-to-end document workflow: Intake → OCR → AI Classification → Human Verification → Export
@@ -35,6 +36,9 @@ Production-ready document processing pipeline with AI integration, human verific
 - RAG-ready data structure for future AI integration
 - Modern Flask web interface with guided workflows
 - **Modular Blueprint Architecture**: 6 route modules + 3 service layers for maximum maintainability
+- **Smart Processing Orchestration**: Real-time Server-Sent Events (SSE) progress with cancellation support and consolidated UI feedback
+- **Persistent Normalized PDF Cache**: Hash-based image→PDF conversion reuse across runs with automatic garbage collection
+- **Forced Rotation Carry-Forward**: User or analysis-detected rotation instantly applied during OCR (skips multi-angle auto detection)
 
 **Architecture:**
 - **Modular Design**: Routes organized by functionality (intake, batch, manipulation, export, admin, api)
@@ -111,6 +115,7 @@ Access the web interface at `http://localhost:5000`.
 Important:
 - Always use `./start_app.sh`. It activates the correct venv and runs `python -m doc_processor.app` from the repo root.
 - Don’t run `python app.py` or run from the `doc_processor/` subdirectory—imports will fail.
+- Smart processing workflow lives under `Batch Control` → “Smart Process” (streams progress and exposes cancel button when active).
 
 ### For Utility Tools:
 ```bash
