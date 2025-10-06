@@ -236,6 +236,11 @@
 </div>
 
 <script>
+// Shared rotation utilities
+// (served from static) - ensure loaded before handlers below
+</script>
+<script src="{{ url_for('static', filename='js/rotation_utils.js') }}"></script>
+<script>
 // Global variables for rotation tracking
 let documentRotations = {};
 try { const initDocId = parseInt("{{ current_doc.id if current_doc.id is not none else -1 }}", 10); if(!isNaN(initDocId)) { documentRotations[initDocId] = 0; } } catch(e) { console.warn('Init rotation set failed', e); }
@@ -340,8 +345,8 @@ function rotateHandler(docId, degrees) {
     }
     // Live visual rotation: apply CSS transform to iframe for immediate feedback
     const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
-    if(iframe){
-        applyScaledRotation(iframe, documentRotations[docId]);
+    if(iframe && window.RotationUtils){
+        window.RotationUtils.applyScaledRotation(iframe, documentRotations[docId]);
     }
 }
 function resetHandler(docId) {
@@ -351,7 +356,7 @@ function resetHandler(docId) {
     const applyButton = document.getElementById(`apply-rotation-${docId}`);
     if (applyButton) applyButton.style.display = 'none';
     const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
-    if(iframe){ iframe.style.transform='rotate(0deg)'; }
+    if(iframe && window.RotationUtils){ window.RotationUtils.reset(iframe); }
 }
 function applyHandler(docId) {
     docId = parseInt(docId, 10);
@@ -365,7 +370,7 @@ function applyHandler(docId) {
         .then(r=>r.json())
                         .then(data=>{ if(data.success){ applyButton.style.display='none'; documentRotations[docId]=0; 
                                     const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
-                                    if(iframe){ const base = iframe.src.split('?')[0]; iframe.style.transform='rotate(0deg)'; iframe.src = `${base}?t=${Date.now()}`; }
+                                      if(iframe){ const base = iframe.src.split('?')[0]; if(window.RotationUtils){ window.RotationUtils.reset(iframe);} iframe.src = `${base}?t=${Date.now()}`; }
                                 } else { throw new Error(data.error||'Failed to apply rotation'); } })
         .catch(err=>{ console.error('Rotation error:', err); alert(`Failed to apply rotation: ${err.message}`); })
         .finally(()=>{ applyButton.disabled=false; applyButton.innerHTML='✅ Apply Rotation'; });
@@ -378,7 +383,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if(ifr){
             const docIdAttr = (ifr.src.match(/serve_single_pdf\/(\d+)/)||[])[1];
             const pending = docIdAttr ? documentRotations[parseInt(docIdAttr,10)] : 0;
-            if(pending){ applyScaledRotation(ifr, pending); }
+            if(pending && window.RotationUtils){ window.RotationUtils.applyScaledRotation(ifr, pending); }
         }
     }, 400);
   // Rescan OCR buttons
@@ -405,23 +410,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// Helper: scale rotated content to fit container bounds for 90/270 rotations
-function applyScaledRotation(iframe, angle){
-    if(!iframe) return;
-    if(angle === 0){ iframe.style.transform='rotate(0deg)'; return; }
-    const container = iframe.parentElement;
-    if(!container){ iframe.style.transform=`rotate(${angle}deg)`; return; }
-    const cw = container.clientWidth;
-    const ch = container.clientHeight;
-    if(angle % 180 === 0){
-         iframe.style.transform = `rotate(${angle}deg)`;
-         return;
-    }
-    // After 90/270 rotation width/height swap; compute uniform scale so rotated content fits
-    // We approximate original aspect by using current iframe box (pre-rotation). Use bounding box math:
-    // scale = min(cw / ch, ch / cw) tends to keep within square-ish container.
-    const scale = Math.min(cw / ch, ch / cw) || 0.75;
-    iframe.style.transform = `rotate(${angle}deg) scale(${scale})`;
-}
+// (applyScaledRotation now provided by RotationUtils)
 </script>
 {% endblock %}

@@ -675,6 +675,10 @@
 {% endif %}
 
 <script>
+// Shared rotation utilities
+</script>
+<script src="{{ url_for('static', filename='js/rotation_utils.js') }}"></script>
+<script>
 // Status notification system
 function showStatusNotification(type, title, details) {
     const container = document.getElementById('status-notifications');
@@ -748,6 +752,7 @@ function rotateDocument(filename, degrees) {
     if (iframe && iframe.contentWindow) {
         iframe.contentWindow.postMessage(JSON.stringify({ type: 'rotate', degrees: newRotation }), '*');
         iframe.setAttribute('data-rotation', String(newRotation));
+        if(window.RotationUtils){ window.RotationUtils.applyScaledRotation(iframe, newRotation); }
     }
 
     // Legacy image fallback
@@ -775,6 +780,7 @@ function resetRotation(filename) {
     if (iframe && iframe.contentWindow) {
         iframe.contentWindow.postMessage(JSON.stringify({ type: 'rotate', degrees: originalRotation }), '*');
         iframe.setAttribute('data-rotation', String(originalRotation));
+        if(window.RotationUtils){ window.RotationUtils.applyScaledRotation(iframe, originalRotation); }
     }
 
     // Legacy image
