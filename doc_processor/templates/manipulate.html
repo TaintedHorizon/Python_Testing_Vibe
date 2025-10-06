@@ -336,6 +336,13 @@ function rotateHandler(docId, degrees) {
     if (applyButton) {
         applyButton.style.display = documentRotations[docId] === 0 ? 'none' : 'inline-block';
     }
+    // Live visual rotation: apply CSS transform to iframe for immediate feedback
+    const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
+    if(iframe){
+        iframe.style.transformOrigin='center center';
+        iframe.style.transition='transform 0.25s ease';
+        iframe.style.transform=`rotate(${documentRotations[docId]}deg)`;
+    }
 }
 function resetHandler(docId) {
     docId = parseInt(docId, 10);
@@ -343,6 +350,8 @@ function resetHandler(docId) {
     documentRotations[docId] = 0;
     const applyButton = document.getElementById(`apply-rotation-${docId}`);
     if (applyButton) applyButton.style.display = 'none';
+    const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
+    if(iframe){ iframe.style.transform='rotate(0deg)'; }
 }
 function applyHandler(docId) {
     docId = parseInt(docId, 10);
@@ -354,12 +363,10 @@ function applyHandler(docId) {
     applyButton.disabled = true; applyButton.innerHTML = '⏳ Applying...';
     fetch(`/api/rotate_document/${docId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rotation }) })
         .then(r=>r.json())
-        .then(data=>{ if(data.success){ applyButton.style.display='none'; documentRotations[docId]=0; 
-              // Reload iframe src with cache-busting param so rotated PDF appears immediately
-              const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
-              if(iframe){ const base = iframe.src.split('?')[0]; iframe.src = `${base}?t=${Date.now()}`; }
-              alert(`✅ Applied ${rotation}° rotation`);
-            } else { throw new Error(data.error||'Failed to apply rotation'); } })
+                .then(data=>{ if(data.success){ applyButton.style.display='none'; documentRotations[docId]=0; 
+                            const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
+                            if(iframe){ const base = iframe.src.split('?')[0]; iframe.style.transform='rotate(0deg)'; iframe.src = `${base}?t=${Date.now()}`; }
+                        } else { throw new Error(data.error||'Failed to apply rotation'); } })
         .catch(err=>{ console.error('Rotation error:', err); alert(`Failed to apply rotation: ${err.message}`); })
         .finally(()=>{ applyButton.disabled=false; applyButton.innerHTML='✅ Apply Rotation'; });
 }
