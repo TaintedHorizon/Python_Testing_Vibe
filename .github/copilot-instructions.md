@@ -59,6 +59,10 @@ with database_connection() as conn:
 ## Project Overview
 This is a human-in-the-loop document processing system with a **modular Flask Blueprint architecture**. The system was completely refactored from a monolithic design to eliminate maintenance issues.
 
+For a layered breakdown and full file map, see `../ARCHITECTURE.md` and the Comprehensive File Map table in the root `README.md`.
+
+> Quick Reference: A complete file/layer map now lives in `ARCHITECTURE.md` (root) and the root `README.md` under "Comprehensive File Map". Use those when you need to locate modules or justify code placement.
+
 ### Core Architecture (Post-Refactoring)
 - **`doc_processor/app.py`**: Main Flask application factory with Blueprint registration (309 lines)
 - **`doc_processor/routes/`**: 6 specialized Blueprint modules (intake, batch, manipulation, export, admin, api)

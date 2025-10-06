@@ -1,3 +1,5 @@
+from typing import Optional  # Early import needed for annotations used before bulk imports
+
 # --- SAFE FILE MOVE UTILITY ---
 def safe_move(src, dst):
     """
@@ -1243,6 +1245,24 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                     else:
                         pdf_path_for_processing = analysis.file_path
                         pdf_filename = filename
+
+                    # --- Pre-OCR Rotation Normalization ---
+                    try:
+                        forced_rotation = _lookup_forced_rotation(os.path.basename(pdf_filename))
+                        if forced_rotation and forced_rotation % 360 in (90, 180, 270):
+                            import fitz  # PyMuPDF already in requirements
+                            doc_pre = fitz.open(pdf_path_for_processing)
+                            # Avoid double rotate: if first page already rotated to desired angle, skip
+                            already = (doc_pre[0].rotation if doc_pre.page_count else 0)
+                            if already != forced_rotation:
+                                for pg in doc_pre:
+                                    pg.set_rotation((pg.rotation + forced_rotation) % 360)
+                                # Overwrite original path (safe because earlier steps archived originals for images)
+                                doc_pre.save(pdf_path_for_processing, incremental=False, deflate=True)
+                                logging.info(f"Applied pre-OCR rotation {forced_rotation}° to {pdf_filename}")
+                            doc_pre.close()
+                    except Exception as pre_rot_err:
+                        logging.warning(f"Pre-OCR rotation normalization failed for {pdf_filename}: {pre_rot_err}")
                     
                     # Step 1: Insert document first with basic info (no OCR yet)
                     cursor.execute("""
@@ -1260,9 +1280,9 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                     
                     # Step 2: Create searchable PDF with OCR (with caching)
                     searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
-                    forced_rotation = _lookup_forced_rotation(os.path.basename(pdf_filename))
+                    # After normalization, forced_rotation should be 0 for OCR creation to avoid re-rotating
                     ocr_text, ocr_confidence, ocr_status = create_searchable_pdf(
-                        pdf_path_for_processing, searchable_pdf_path, doc_id, forced_rotation=forced_rotation
+                        pdf_path_for_processing, searchable_pdf_path, doc_id, forced_rotation=0
                     )
                     
                     if ocr_status != "success" and not ocr_status.startswith("success"):

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 
 ## [Unreleased]
+- Enhancement: Hydrated manipulation UI for single document workflow. Added `get_single_documents_for_batch` accessor, real data population (AI + OCR) and improved empty-state UX. Added basic tests for route.
+- Enhancement: Grouped-document parity (Level A) in manipulation route with first-page OCR preview and filename editing.
+- Feature: Added `/document/api/rotate_document/<id>` and `/document/api/rescan_document/<id>` Tier 2 endpoints (AI refresh) for single-document workflow.
+- Performance: Added active category caching with explicit invalidation on insert and new-category creation.
+- Test: Added auto-save integration test verifying JSON success and persistence.
+- Test: Added `test_grouped_rotation.py` covering grouped-document rotation parity (via single-doc route) and double-rotation prevention logic.
+- Test: Added `conftest.py` with reusable fixtures (`temp_db_path`, `app`, `client`, `seed_conn`) to standardize isolated DB + app factory usage.
+- Quality: Ensured no double-rotation when physical PDF rotation matches stored rotation (cache reuse asserted).
 
 ## [2025-10-03] - ⚡ Smart Processing Orchestration, Normalized PDF Cache & Rotation Carry-Forward
 ### Added

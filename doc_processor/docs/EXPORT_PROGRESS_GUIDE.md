@@ -3,6 +3,8 @@
 ## Summary
 I've created a complete export progress system similar to your smart processing progress. Here's what I've built:
 
+> Architecture Context: Export progress UI belongs to the Presentation layer (`templates/export_progress.html`) and the Export route (`routes/export.py`). Long-running export work is implemented in the Processing + Export Service layers (`processing.py`, `services/export_service.py`) with state surfaced through route endpoints. See `../../ARCHITECTURE.md`.
+
 ## Files Created:
 1. **export_progress.html** - Progress page template (✅ CREATED)
 2. **export_progress_routes_to_add.py** - New Flask routes (✅ CREATED)

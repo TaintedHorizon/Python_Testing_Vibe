@@ -32,4 +32,4 @@ with database_connection() as conn:
 - ❌ `source doc_processor_env/bin/activate`
 
 ## 📖 Full Instructions
-See `.github/copilot-instructions.md` for complete details.
+See `.github/copilot-instructions.md` for complete details. For architecture and file map orientation, also consult `ARCHITECTURE.md` (root) and the Comprehensive File Map section in `README.md`.

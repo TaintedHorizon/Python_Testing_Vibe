@@ -406,11 +406,12 @@ def serve_original_pdf(filename: str):
         
         # Files should be served from the intake directory for analysis
         intake_dir = app_config.INTAKE_DIR
+        requested_filename = filename  # keep what the client asked for (may be a synthetic .pdf)
         original_path = os.path.join(intake_dir, filename)
-        
-        # Check if the original file exists
+
+        # Basic existence check (no path hunting now that manipulation uses direct DB paths)
         if not os.path.exists(original_path):
-            return jsonify(create_error_response(f"File not found: {filename}")), 404
+            return jsonify(create_error_response(f"File not found: {requested_filename}")), 404
         
         # Security check - ensure file is within intake directory
         if not os.path.abspath(original_path).startswith(os.path.abspath(intake_dir)):
@@ -443,7 +444,7 @@ def serve_original_pdf(filename: str):
                 pass
         
         # If the file is already a PDF, serve it directly
-        file_ext = Path(filename).suffix.lower()
+        file_ext = Path(original_path).suffix.lower()
         if file_ext == '.pdf':
             return send_file(original_path, mimetype='application/pdf', as_attachment=False)
 
@@ -496,7 +497,6 @@ def serve_original_pdf(filename: str):
         
         # For other file types, serve the original
         return send_file(original_path)
-        
     except Exception as e:
         logger.error(f"Error serving original PDF {filename}: {e}")
         return jsonify(create_error_response(f"Error serving file: {str(e)}")), 500

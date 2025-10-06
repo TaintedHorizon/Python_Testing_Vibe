@@ -7,6 +7,68 @@ A multi-purpose development repository containing various Python projects and ut
 
 ## Repository Structure
 
+### 📁 Comprehensive File Map (High-Level)
+This map lists active, support, legacy, and runtime directories/files for fast orientation.
+
+| Path | Type | Purpose |
+|------|------|---------|
+| `start_app.sh` | Script | Canonical launcher: activates venv + runs module entrypoint |
+| `validate_environment.py` | Script | (Planned) Environment validation helper (currently light/placeholder) |
+| `doc_processor/app.py` | Core | Flask application entrypoint (Blueprint registration & global setup) |
+| `doc_processor/config_manager.py` | Core | Central configuration loader & typed config object |
+| `doc_processor/database.py` | Core | SQLite access helpers + connection context manager |
+| `doc_processor/db_utils.py` | Support | Supplemental DB utilities/migrations |
+| `doc_processor/processing.py` | Core | OCR, AI, normalization cache, rotation, export helpers |
+| `doc_processor/document_detector.py` | Core | Intake document & image analysis + normalization pipeline |
+| `doc_processor/llm_utils.py` | Core | Ollama / LLM interaction helpers |
+| `doc_processor/security.py` | Support | Filename & path sanitization helpers |
+| `doc_processor/exceptions.py` | Support | Custom exception classes |
+| `doc_processor/batch_guard.py` | Support | Prevent phantom/duplicate batch creation |
+| `doc_processor/utils/helpers.py` | Support | General shared helper functions |
+| `doc_processor/routes/` | Package | Flask Blueprints (segmented route handlers) |
+| `doc_processor/routes/intake.py` | Route | Intake analysis, rotation save, initial AI classification |
+| `doc_processor/routes/batch.py` | Route | Batch control, smart processing orchestration (SSE + cancel) |
+| `doc_processor/routes/manipulation.py` | Route | Verification, grouping, ordering workflows |
+| `doc_processor/routes/export.py` | Route | Export & finalization, file serving, PDF viewer endpoints |
+| `doc_processor/routes/admin.py` | Route | System / maintenance endpoints |
+| `doc_processor/routes/api.py` | Route | Lightweight AJAX/REST auxiliary endpoints |
+| `doc_processor/services/` | Package | Business logic layer modules |
+| `doc_processor/services/document_service.py` | Service | Document-centric operations |
+| `doc_processor/services/batch_service.py` | Service | Batch orchestration & state transitions |
+| `doc_processor/services/export_service.py` | Service | Export assembly & finalization |
+| `doc_processor/templates/` | Templates | All Jinja2 UI templates |
+| `doc_processor/templates/pdf_viewer.html` | Template | Embedded local PDF.js viewer |
+| `doc_processor/static/pdfjs/` | Assets | Vendored PDF.js (offline, deterministic) |
+| `doc_processor/intake/` | Runtime Dir | User-provided source files awaiting processing |
+| `doc_processor/processed/` | Runtime Dir | Batch working directory (intermediate state) |
+| `doc_processor/filing_cabinet/` | Runtime Dir | Final exported documents (categorized) |
+| `doc_processor/archive/` | Runtime Dir | (Currently unused) Potential archival store |
+| `normalized/` | Runtime Dir | Global normalized (image→PDF) hash cache (outside package) |
+| `doc_processor/logs/` | Runtime Dir | Application logs (e.g., app.log) |
+| `doc_processor/instance/` | Runtime Dir | Flask instance artifacts |
+| `doc_processor/documents.db` | Data | Primary SQLite database (git-ignored) |
+| `doc_processor/dev_tools/` | Tools | Admin & maintenance scripts (DB, cleanup, diagnostics) |
+| `doc_processor/tests/` | Tests | Pytest tests for processor modules |
+| `tests/` | Tests | Root-level tests (broader or integration) |
+| `doc_processor/test_complete_workflow.py` | Script/Test | Manual/integration workflow runner |
+| `doc_processor/test_pdf_conversion.py` | Script/Test | Conversion / OCR path validation |
+| `doc_processor/CHANGELOG.md` | Docs | Chronological change log |
+| `doc_processor/CONTRIBUTING.md` | Docs | Contribution guidelines (processor scope) |
+| `doc_processor/docs/USAGE.md` | Docs | Detailed usage instructions |
+| `.github/copilot-instructions.md` | Docs | AI assistant operational guardrails |
+| `COPILOT_QUICK_REFERENCE.md` | Docs | Quick assistant reference (consider merging) |
+| `README.md` | Docs | Repository overview & quick start |
+| `doc_processor/readme.md` | Docs | In-depth processor documentation |
+| `LICENSE` | Legal | MIT License (root) |
+| `doc_processor/requirements.txt` | Dependencies | Processor dependencies list |
+| `Document_Scanner_Gemini_outdated/` | Legacy | Deprecated Gemini-based scanner (archive only) |
+| `Document_Scanner_Ollama_outdated/` | Legacy | Deprecated early Ollama implementation (archive only) |
+| `tools/` | Misc Tools | Independent utility sub-projects |
+
+Legend: Core = essential runtime; Support = ancillary active; Legacy = historical only; Runtime Dir = generated/working; Service/Route/Template = layered architecture components.
+
+> Cleanup candidates after stability window: unused `archive/` dir (after confirming no workflow dependency).
+
 ### 🏠 Main Projects
 
 #### **`doc_processor/`** - Human-in-the-Loop Document Processing System
@@ -39,6 +101,7 @@ Production-ready document processing pipeline with AI integration, human verific
 - **Smart Processing Orchestration**: Real-time Server-Sent Events (SSE) progress with cancellation support and consolidated UI feedback
 - **Persistent Normalized PDF Cache**: Hash-based image→PDF conversion reuse across runs with automatic garbage collection
 - **Forced Rotation Carry-Forward**: User or analysis-detected rotation instantly applied during OCR (skips multi-angle auto detection)
+ - **Runtime Rotation Serving & Cache**: On-demand rotation application (90/180/270) with timestamp-based cache invalidation and double-rotation prevention.
 
 **Architecture:**
 - **Modular Design**: Routes organized by functionality (intake, batch, manipulation, export, admin, api)
@@ -177,3 +240,29 @@ This repository is licensed under the MIT License. See [LICENSE](LICENSE) for de
 ---
 
 *This repository serves as both a development playground and a collection of production-ready utilities. The main focus is the document processing system in `doc_processor/`, with various supporting tools in `tools/`.*
+
+---
+
+## Rotation Handling & Testing
+
+The system implements a two-tier rotation model:
+
+1. Pre-OCR Normalization: Any persisted rotation override in `intake_rotations` is applied before OCR/searchable PDF generation so downstream AI & text extraction operate on correctly oriented pages.
+2. Dynamic Serving Layer: The manipulation preview route (`/document/serve_single_pdf/<id>`) applies rotation on-the-fly (PyMuPDF) and caches the transformed PDF in `/tmp` keyed by `(doc_id, rotation)` with regeneration triggered when `updated_at` changes.
+
+Safety & Performance Characteristics:
+- Timestamp-Based Invalidation: Cached rotated PDFs are regenerated only when the corresponding rotation row’s `updated_at` advances.
+- Double-Rotation Prevention: If the stored PDF’s first page already has a matching physical rotation, dynamic rotation is skipped (prevents 90° → 180° compounding artifacts).
+- Directory Whitelisting: Served paths validated against allowed roots (intake/processed/normalized/archive) to mitigate path traversal.
+
+Test Coverage (New):
+- `test_rotation_serving.py`: Validates cache regeneration when rotation angle changes.
+- `test_grouped_rotation.py::test_grouped_document_rotation_serving`: Asserts grouped-document parity expectations using single-document route until a native grouped route is added.
+- `test_grouped_rotation.py::test_no_double_rotation`: Ensures no byte changes when a physically rotated PDF matches declared rotation (cache reuse, no duplicate transform).
+- `tests/conftest.py`: Provides reusable fixtures (`temp_db_path`, `app`, `client`, `seed_conn`) standardizing isolated ephemeral DB + app factory lifecycle.
+
+Planned Enhancements:
+- Dedicated grouped-document serving endpoint assembling multi-page PDFs with rotation normalization.
+- Lightweight assertion test for pre-OCR normalization side-effects (e.g., verifying searchable text alignment vs rotation).
+
+---

@@ -3,6 +3,8 @@
 ## 🎯 Overview
 Successfully implemented support for common image file types (PNG, JPG, JPEG) in the document processing system. Images are now processed through the same workflow as PDFs, with automatic conversion to PDF format during intake.
 
+> Architecture Context: Image intake & normalization live in `document_detector.py` (detection + normalization) and `processing.py` (conversion + downstream OCR integration). Triggered via the Intake route (`routes/intake.py`) and reused by batch orchestration (`routes/batch.py`). See `../../ARCHITECTURE.md` for layering and root `README.md` for the file map.
+
 ## ✅ What Was Implemented
 
 ### 1. **Image File Detection**

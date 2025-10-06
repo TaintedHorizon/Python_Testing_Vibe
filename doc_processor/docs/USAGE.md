@@ -1,5 +1,7 @@
 # Usage Guide for doc_processor
 
+> For a full architectural breakdown and layer responsibilities, see `../../ARCHITECTURE.md`. For a high-level file map, see the Comprehensive File Map section in the root `README.md`.
+
 ## Quick Start
 
 1. Install dependencies:
@@ -49,6 +51,10 @@ OLLAMA_CTX_TITLE_GENERATION=4096  # Document naming (needs more context)
 ```
 
 ## Troubleshooting
+Need to understand where a function or route lives? Consult:
+- `ARCHITECTURE.md` (layer overview & dependency flow)
+- Root `README.md` (high-level file map table)
+- `doc_processor/readme.md` (internal module quick reference)
 - Set `DEBUG_SKIP_OCR=true` in `.env` to bypass OCR for testing.
 - Use scripts in `dev_tools/` for database resets and diagnostics.
 - Check logs for errors and review the database for stuck batches.

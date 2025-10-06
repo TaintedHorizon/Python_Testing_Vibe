@@ -2,6 +2,8 @@
 
 ## Overview
 
+> Architecture Context: Detection lives in the Processing & Intelligence layer (`document_detector.py` for heuristic + sampling logic, `llm_utils.py` for model calls) and is invoked from the Intake route (`routes/intake.py`). See `../../ARCHITECTURE.md` for layer boundaries and root `README.md` for the comprehensive file map.
+
 The document processing system now leverages AI (LLM) to improve batch vs single document classification accuracy. This hybrid approach combines fast heuristics with deep AI analysis for optimal results.
 
 ## 🎯 Detection Strategy

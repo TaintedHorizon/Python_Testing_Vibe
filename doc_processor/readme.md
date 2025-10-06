@@ -427,3 +427,41 @@ For detailed usage instructions and troubleshooting, see `docs/USAGE.md`. The ba
 5.  **Group**: Once verification is complete, click the "Group" button. On this screen, select pages from the same category and give them a document name (e.g., "January 2024 Bank Statement").
 6.  **Order**: After grouping, click the "Order Pages" button. This will show you all documents with more than one page. Click "Order Pages" on a document to go to the drag-and-drop interface to set the correct page sequence.
 7.  **Finalize & Export**: Once all documents are ordered, click the "Finalize & Export" button. On this screen, you can review and edit the AI-suggested filenames before clicking "Export All Documents". The final files will be saved to your `FILING_CABINET_DIR`.
+---
+## Internal Module Map (Quick Reference)
+
+| Component | Path | Role |
+|-----------|------|------|
+| App Entry | `app.py` | Flask app creation & Blueprint registration |
+| Config | `config_manager.py` | Load & validate environment (.env) into typed object |
+| Database | `database.py` | Connection context & SQL helpers |
+| Processing Engine | `processing.py` | OCR, AI analysis, normalization reuse, rotation, export primitives |
+| Detection | `document_detector.py` | Intake doc sampling, image→PDF normalization, cache GC |
+| LLM Utilities | `llm_utils.py` | Ollama request helpers & prompt functions |
+| Security | `security.py` | Filename/path sanitization & safety checks |
+| Exceptions | `exceptions.py` | Custom exception definitions |
+| Batch Guard | `batch_guard.py` | Prevents duplicate batch init on restart |
+| Helpers | `utils/helpers.py` | Small shared pure utility functions |
+| Routes: Intake | `routes/intake.py` | Intake analysis, rotation persistence |
+| Routes: Batch | `routes/batch.py` | Smart processing orchestration (SSE + cancel) |
+| Routes: Manipulation | `routes/manipulation.py` | Verification, grouping, ordering, manipulation |
+| Routes: Export | `routes/export.py` | Export, finalize, file serving, pdf viewer |
+| Routes: Admin | `routes/admin.py` | System status, logs, config endpoints |
+| Routes: API | `routes/api.py` | Lightweight AJAX / status mutations |
+| Services: Document | `services/document_service.py` | Document naming, grouping logic |
+| Services: Batch | `services/batch_service.py` | Batch orchestration & separation logic |
+| Services: Export | `services/export_service.py` | Finalization & filing cabinet writes |
+| Templates | `templates/` | All Jinja2 UI (iframe PDF display unified) |
+| PDF Viewer | `templates/pdf_viewer.html` | Embedded local PDF.js integration |
+| PDF.js Assets | `static/pdfjs/` | Vendored PDF.js build (offline deterministic) |
+| Normalized Cache | `../normalized/` | Hash-keyed reusable normalized PDFs |
+| Intake Dir | `intake/` | User-provided raw documents |
+| Processed Dir | `processed/` | Batch WIP structures |
+| Filing Cabinet | `filing_cabinet/` | Final exported artifacts |
+| Logs | `logs/` | Runtime logs (app.log etc.) |
+| Dev/Ops Scripts | `dev_tools/` | Setup, migration, recovery, diagnostics |
+| Tests | `tests/` | Pytest suite (add new coverage here) |
+
+Cleanup Candidates (post-stability): unused `archive/`.
+
+Refer to root `ARCHITECTURE.md` for deeper layering & dependency flow.
