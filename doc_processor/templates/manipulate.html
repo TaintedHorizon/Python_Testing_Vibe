@@ -53,6 +53,8 @@
     .rotate-buttons { margin-top: 10px; }
     .rotate-buttons button { padding: 8px 16px; margin: 0 5px; border: none; border-radius: 4px; background-color: #6c757d; color: white; cursor: pointer; }
     .rotate-buttons button:hover { background-color: #5a6268; }
+    /* Smooth rotation + scaling for preview */
+    .pdf-viewer iframe { transition: transform 0.25s ease; transform-origin: center center; }
 </style>
 
 <h1>🛠️ Manipulate Documents - Batch #{{ batch_id }}</h1>
@@ -339,9 +341,7 @@ function rotateHandler(docId, degrees) {
     // Live visual rotation: apply CSS transform to iframe for immediate feedback
     const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
     if(iframe){
-        iframe.style.transformOrigin='center center';
-        iframe.style.transition='transform 0.25s ease';
-        iframe.style.transform=`rotate(${documentRotations[docId]}deg)`;
+        applyScaledRotation(iframe, documentRotations[docId]);
     }
 }
 function resetHandler(docId) {
@@ -363,15 +363,24 @@ function applyHandler(docId) {
     applyButton.disabled = true; applyButton.innerHTML = '⏳ Applying...';
     fetch(`/api/rotate_document/${docId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rotation }) })
         .then(r=>r.json())
-                .then(data=>{ if(data.success){ applyButton.style.display='none'; documentRotations[docId]=0; 
-                            const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
-                            if(iframe){ const base = iframe.src.split('?')[0]; iframe.style.transform='rotate(0deg)'; iframe.src = `${base}?t=${Date.now()}`; }
-                        } else { throw new Error(data.error||'Failed to apply rotation'); } })
+                        .then(data=>{ if(data.success){ applyButton.style.display='none'; documentRotations[docId]=0; 
+                                    const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
+                                    if(iframe){ const base = iframe.src.split('?')[0]; iframe.style.transform='rotate(0deg)'; iframe.src = `${base}?t=${Date.now()}`; }
+                                } else { throw new Error(data.error||'Failed to apply rotation'); } })
         .catch(err=>{ console.error('Rotation error:', err); alert(`Failed to apply rotation: ${err.message}`); })
         .finally(()=>{ applyButton.disabled=false; applyButton.innerHTML='✅ Apply Rotation'; });
 }
 document.addEventListener('DOMContentLoaded', () => {
   bindRotationButtons();
+    // Re-apply any pending visual rotation after iframe reload (rare edge case)
+    setTimeout(()=>{
+        const ifr = document.querySelector("iframe[src*='serve_single_pdf']");
+        if(ifr){
+            const docIdAttr = (ifr.src.match(/serve_single_pdf\/(\d+)/)||[])[1];
+            const pending = docIdAttr ? documentRotations[parseInt(docIdAttr,10)] : 0;
+            if(pending){ applyScaledRotation(ifr, pending); }
+        }
+    }, 400);
   // Rescan OCR buttons
   document.querySelectorAll('.btn-rescan-ocr').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -395,5 +404,24 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 });
+
+// Helper: scale rotated content to fit container bounds for 90/270 rotations
+function applyScaledRotation(iframe, angle){
+    if(!iframe) return;
+    if(angle === 0){ iframe.style.transform='rotate(0deg)'; return; }
+    const container = iframe.parentElement;
+    if(!container){ iframe.style.transform=`rotate(${angle}deg)`; return; }
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    if(angle % 180 === 0){
+         iframe.style.transform = `rotate(${angle}deg)`;
+         return;
+    }
+    // After 90/270 rotation width/height swap; compute uniform scale so rotated content fits
+    // We approximate original aspect by using current iframe box (pre-rotation). Use bounding box math:
+    // scale = min(cw / ch, ch / cw) tends to keep within square-ish container.
+    const scale = Math.min(cw / ch, ch / cw) || 0.75;
+    iframe.style.transform = `rotate(${angle}deg) scale(${scale})`;
+}
 </script>
 {% endblock %}
