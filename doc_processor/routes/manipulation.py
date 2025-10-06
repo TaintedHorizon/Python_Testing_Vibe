@@ -235,6 +235,20 @@ def serve_single_pdf(doc_id: int):
             if rot_row:
                 rotation_degrees = int(rot_row[0]) % 360
                 rotation_updated_at = rot_row[1]
+            else:
+                # Fallback: attempt to infer from first page rotation_angle if pages table links exist
+                try:
+                    fallback = cur.execute("""
+                        SELECT p.rotation_angle FROM pages p
+                        JOIN document_pages dp ON p.id = dp.page_id
+                        JOIN documents d ON d.id = dp.document_id
+                        WHERE d.id = ? ORDER BY dp.sequence ASC LIMIT 1
+                    """, (doc_id,)).fetchone()
+                    if fallback and fallback[0]:
+                        rotation_degrees = int(fallback[0]) % 360
+                        rotation_updated_at = None
+                except Exception as fb_err:
+                    logger.debug(f"Rotation fallback failed doc {doc_id}: {fb_err}")
             conn.close()
         except Exception as rot_err:
             try:

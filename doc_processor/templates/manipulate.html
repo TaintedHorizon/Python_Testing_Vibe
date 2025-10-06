@@ -354,7 +354,12 @@ function applyHandler(docId) {
     applyButton.disabled = true; applyButton.innerHTML = '⏳ Applying...';
     fetch(`/api/rotate_document/${docId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rotation }) })
         .then(r=>r.json())
-        .then(data=>{ if(data.success){ applyButton.style.display='none'; documentRotations[docId]=0; alert(`✅ Applied ${rotation}° rotation - OCR updated`);} else { throw new Error(data.error||'Failed to apply rotation'); } })
+        .then(data=>{ if(data.success){ applyButton.style.display='none'; documentRotations[docId]=0; 
+              // Reload iframe src with cache-busting param so rotated PDF appears immediately
+              const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
+              if(iframe){ const base = iframe.src.split('?')[0]; iframe.src = `${base}?t=${Date.now()}`; }
+              alert(`✅ Applied ${rotation}° rotation`);
+            } else { throw new Error(data.error||'Failed to apply rotation'); } })
         .catch(err=>{ console.error('Rotation error:', err); alert(`Failed to apply rotation: ${err.message}`); })
         .finally(()=>{ applyButton.disabled=false; applyButton.innerHTML='✅ Apply Rotation'; });
 }

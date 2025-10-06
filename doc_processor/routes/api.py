@@ -104,26 +104,52 @@ def suggest_order(document_id: int):
 
 @bp.route("/rotate_document/<int:doc_id>", methods=['POST'])
 def rotate_document_api(doc_id: int):
-    """Rotate a document by specified degrees."""
+    """Persist rotation for a single-document workflow record.
+
+    This updates the intake_rotations table keyed by original_filename, which is
+    then used by the manipulation serving route to apply dynamic rotation (or
+    pre-OCR normalization on subsequent rescans).
+    """
     try:
-        data = request.get_json()
-        rotation = data.get('rotation', 90)
-        
-        if rotation not in [0, 90, 180, 270]:
-            return jsonify(create_error_response("Invalid rotation value. Must be 0, 90, 180, or 270"))
-        
-        # Perform document rotation
-        # result = rotate_document(doc_id, rotation)
-        
+        data = request.get_json(force=True) or {}
+        rotation = int(data.get('rotation', 0))
+        if rotation not in (0, 90, 180, 270):
+            return jsonify(create_error_response("Invalid rotation value. Must be 0,90,180,270")), 400
+        # Lookup original_filename for doc_id
+        conn = get_db_connection()
+        cur = conn.cursor()
+        row = cur.execute("SELECT original_filename FROM single_documents WHERE id=?", (doc_id,)).fetchone()
+        if not row:
+            conn.close()
+            return jsonify(create_error_response("Document not found", 404)), 404
+        filename = row[0]
+        # Upsert into intake_rotations
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS intake_rotations (
+              filename TEXT PRIMARY KEY,
+              rotation INTEGER NOT NULL DEFAULT 0,
+              updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("SELECT 1 FROM intake_rotations WHERE filename=?", (filename,))
+        if cur.fetchone():
+            cur.execute("UPDATE intake_rotations SET rotation=?, updated_at=CURRENT_TIMESTAMP WHERE filename=?", (rotation, filename))
+        else:
+            cur.execute("INSERT INTO intake_rotations (filename, rotation) VALUES (?, ?)", (filename, rotation))
+        conn.commit()
+        conn.close()
         return jsonify(create_success_response({
-            'message': f'Document rotated by {rotation} degrees',
+            'message': f'Rotation set to {rotation}°',
             'document_id': doc_id,
-            'new_rotation': rotation
+            'rotation': rotation
         }))
-        
     except Exception as e:
         logger.error(f"Error rotating document {doc_id}: {e}")
-        return jsonify(create_error_response(f"Failed to rotate document: {str(e)}"))
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return jsonify(create_error_response(f"Failed to rotate document: {str(e)}")), 500
 
 @bp.route("/rescan_document/<int:doc_id>", methods=['POST'])
 def rescan_document_api(doc_id: int):
