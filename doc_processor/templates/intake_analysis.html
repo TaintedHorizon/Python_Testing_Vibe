@@ -444,6 +444,7 @@
                     <button type="button" onclick="rotateDocument('{{ analysis.filename }}', -90)">
                         ↺ Rotate Left
                     </button>
+                    <button type="button" onclick="cycleFitModeFor('{{ analysis.filename }}', this)" title="Cycle fit mode (auto → width → height)">🖼️ Fit: Auto</button>
                     <button type="button" onclick="resetRotation('{{ analysis.filename }}')">
                         🔄 Reset
                     </button>
@@ -735,115 +736,46 @@ window.documentRotations['{{ analysis.filename }}'] = {{ analysis.detected_rotat
 {% endfor %}
 {% endif %}
 
-// Rotation functions
-function rotateDocument(filename, degrees) {
-    const currentRotation = window.documentRotations[filename] || 0;
-    const newRotation = (currentRotation + degrees + 360) % 360;
-    window.documentRotations[filename] = newRotation;
-
-    // Persist
-    saveRotation(filename, newRotation);
-
-    // Update display
-    updateRotationDisplay(filename);
-
-    // Notify embedded viewer to rotate (avoids rotating native toolbar)
-    const iframe = document.querySelector(`iframe[data-filename="${filename}"]`);
-    if (iframe && iframe.contentWindow) {
-        iframe.contentWindow.postMessage(JSON.stringify({ type: 'rotate', degrees: newRotation }), '*');
-        iframe.setAttribute('data-rotation', String(newRotation));
-        if(window.RotationUtils){ window.RotationUtils.applyScaledRotation(iframe, newRotation); }
-    }
-
-    // Legacy image fallback
-    const img = document.querySelector(`img[data-filename="${filename}"]`);
-    if (img) {
-        img.style.transform = `rotate(${newRotation}deg)`;
-        img.setAttribute('data-rotation', String(newRotation));
-    }
-
-    console.log(`Rotated ${filename} by ${degrees}° to ${newRotation}°`);
+// Rotation functions (delegated to RotationUtils)
+function rotateDocument(filename, degrees){
+  const current = window.documentRotations[filename] || 0;
+  const next = (current + degrees + 360) % 360;
+  window.documentRotations[filename] = next;
+  applyRotationVisual(filename, next);
+  persistRotation(filename, next);
 }
-
-function resetRotation(filename) {
-    const originalRotation = window.originalRotations[filename] || 0;
-    window.documentRotations[filename] = originalRotation;
-
-    // Persist
-    saveRotation(filename, originalRotation);
-
-    // Update display
-    updateRotationDisplay(filename);
-
-    // Notify embedded viewer
-    const iframe = document.querySelector(`iframe[data-filename="${filename}"]`);
-    if (iframe && iframe.contentWindow) {
-        iframe.contentWindow.postMessage(JSON.stringify({ type: 'rotate', degrees: originalRotation }), '*');
-        iframe.setAttribute('data-rotation', String(originalRotation));
-        if(window.RotationUtils){ window.RotationUtils.applyScaledRotation(iframe, originalRotation); }
-    }
-
-    // Legacy image
-    const img = document.querySelector(`img[data-filename="${filename}"]`);
-    if (img) {
-        img.style.transform = `rotate(${originalRotation}deg)`;
-        img.setAttribute('data-rotation', String(originalRotation));
-    }
-
-    console.log(`Reset rotation for ${filename} to original ${originalRotation}°`);
+function resetRotation(filename){
+  const base = window.originalRotations[filename] || 0;
+  window.documentRotations[filename] = base;
+  applyRotationVisual(filename, base, true);
+  persistRotation(filename, base);
 }
-
-// Save rotation to server for persistence
-function saveRotation(filename, rotation) {
-    fetch('/save_rotation', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            filename: filename,
-            rotation: rotation
-        })
-    })
-    .then(response => {
-        if (!response.ok) {
-            showError('Rotation Not Saved', 'The server did not accept the rotation update. It may not persist on refresh.');
-        }
-    })
-    .catch(error => {
-        showError('Rotation Save Error', (error && error.message) ? error.message : 'Network or server error');
-    });
+function cycleFitModeFor(filename, btn){
+  const iframe = document.querySelector(`iframe[data-filename="${filename}"]`);
+  if(!iframe || !window.RotationUtils) return;
+  const mode = window.RotationUtils.cycleFitMode(iframe);
+  const angle = window.documentRotations[filename] || 0;
+  window.RotationUtils.applyScaledRotation(iframe, angle);
+  btn.textContent = `🖼️ Fit: ${mode.charAt(0).toUpperCase()+mode.slice(1)}`;
 }
-
-function updateInlineViewerRotation(filename, rotation) {
-    const section = document.querySelector(`[data-filename="${filename}"]`);
-    if (!section) return;
-    const iframe = section.querySelector('iframe[data-filename]');
-    if (iframe && iframe.contentWindow) {
-        iframe.contentWindow.postMessage(JSON.stringify({ type: 'rotate', degrees: rotation }), '*');
-        iframe.setAttribute('data-rotation', String(rotation));
-    }
-    const img = section.querySelector('img[data-filename]');
-    if (img) img.style.transform = `rotate(${rotation}deg)`;
+function applyRotationVisual(filename, angle, isReset=false){
+  const section = document.querySelector(`[data-filename="${filename}"]`);
+  if(!section) return;
+  const rotSpan = section.querySelector('.current-rotation');
+  if(rotSpan){
+    rotSpan.textContent = `${angle}°`;
+    const original = window.originalRotations[filename] || 0;
+    rotSpan.className = 'current-rotation ' + (angle !== original ? 'text-warning':'text-info');
+  }
+  const iframe = section.querySelector('iframe[data-filename]');
+  if(iframe && window.RotationUtils){
+    if(isReset){ window.RotationUtils.reset(iframe); } else { window.RotationUtils.applyScaledRotation(iframe, angle); }
+  }
 }
-
-function updateRotationDisplay(filename) {
-    const section = document.querySelector(`[data-filename="${filename}"]`);
-    if (!section) return;
-    
-    const currentRotationSpan = section.querySelector('.current-rotation');
-    const originalRotation = window.originalRotations[filename] || 0;
-    const currentRotation = window.documentRotations[filename] || 0;
-    
-    if (currentRotationSpan) {
-        currentRotationSpan.textContent = `${currentRotation}°`;
-        
-        if (currentRotation !== originalRotation) {
-            currentRotationSpan.className = 'current-rotation text-warning';
-        } else {
-            currentRotationSpan.className = 'current-rotation text-info';
-        }
-    }
+function persistRotation(filename, rotation){
+  fetch('/save_rotation', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ filename, rotation }) })
+    .then(r=>{ if(!r.ok) showError('Rotation Not Saved', 'Server did not accept update'); })
+    .catch(e=> showError('Rotation Save Error', e.message||'Network error'));
 }
 
 // Strategy override functions
@@ -1108,6 +1040,26 @@ function updateStrategySummary() {
 
 document.addEventListener('DOMContentLoaded', () => {
     updateStrategySummary();
+    // Attach load handlers to each analysis iframe to record intrinsic dimensions & re-apply scaling
+    document.querySelectorAll('.document-section iframe[data-filename]').forEach(ifr => {
+        ifr.addEventListener('load', () => {
+            try {
+                const doc = ifr.contentDocument || ifr.contentWindow.document;
+                const body = doc && doc.body;
+                const w = body ? body.scrollWidth : ifr.clientWidth;
+                const h = body ? body.scrollHeight : ifr.clientHeight;
+                if(w && h){
+                    ifr.dataset.intrinsicWidth = w;
+                    ifr.dataset.intrinsicHeight = h;
+                    if(window.RotationUtils){
+                        const fname = ifr.getAttribute('data-filename');
+                        const angle = window.documentRotations && fname ? (window.documentRotations[fname] || 0) : 0;
+                        window.RotationUtils.applyScaledRotation(ifr, angle);
+                    }
+                }
+            } catch(e){ /* ignore cross-origin errors */ }
+        }, { once:false });
+    });
 });
 
 function capitalizeWords(str) {

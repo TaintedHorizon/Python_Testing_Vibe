@@ -68,10 +68,8 @@
             <button type="button" onclick="rotateDocument({{ current_page.id }}, -90)">↺ Rotate Left</button>
             <button type="button" onclick="rotateDocument({{ current_page.id }}, 90)">↻ Rotate Right</button>
             <button type="button" onclick="resetRotation({{ current_page.id }})">🔄 Reset</button>
-            <button type="button" id="apply-rotation-{{ current_page.id }}" 
-                    onclick="applyRotation({{ current_page.id }})" style="display: none; background: #28a745;">
-                ✅ Apply Rotation
-            </button>
+            <button type="button" onclick="cycleFitModeFor({{ current_page.id }}, this)">🖼️ Fit: Auto</button>
+            <button type="button" id="apply-rotation-{{ current_page.id }}" onclick="applyRotation({{ current_page.id }})" style="display:none;background:#28a745;">✅ Apply Rotation</button>
         </div>
     </div>
 
@@ -117,70 +115,21 @@
 </div>
 
 <script>
-    // Global variables for rotation tracking
-    let documentRotations = {};
-    documentRotations[{{ current_page.id }}] = 0;
+    window.documentRotations = window.documentRotations || {};
+    window.documentRotations[{{ current_page.id }}] = 0;
 
-    function rotateDocument(docId, degrees) {
-        // Update rotation state
-        documentRotations[docId] = (documentRotations[docId] + degrees + 360) % 360;
-        
-        // Update apply button visibility
-        const applyButton = document.getElementById(`apply-rotation-${docId}`);
-        if (documentRotations[docId] === 0) {
-            applyButton.style.display = 'none';
-        } else {
-            applyButton.style.display = 'inline-block';
-        }
-        
-        console.log(`Document ${docId} rotated to ${documentRotations[docId]}°`);
+    function getIframeFor(docId){ return document.querySelector('.pdf-viewer iframe'); }
+    function rotateDocument(docId, degrees){
+        const iframe = getIframeFor(docId); if(!iframe) return;
+        const next = ((window.documentRotations[docId]||0) + degrees + 360) % 360;
+        window.documentRotations[docId] = next;
+        if(window.RotationUtils){ window.RotationUtils.applyScaledRotation(iframe, next); }
+        const btn = document.getElementById(`apply-rotation-${docId}`);
+        if(btn){ btn.style.display = next===0?'none':'inline-block'; }
     }
-
-    function resetRotation(docId) {
-        documentRotations[docId] = 0;
-        const applyButton = document.getElementById(`apply-rotation-${docId}`);
-        applyButton.style.display = 'none';
-    }
-
-    function applyRotation(docId) {
-        const rotation = documentRotations[docId];
-        if (rotation === 0) {
-            alert('No rotation to apply');
-            return;
-        }
-        
-        const applyButton = document.getElementById(`apply-rotation-${docId}`);
-        applyButton.disabled = true;
-        applyButton.innerHTML = '⏳ Applying...';
-        
-        fetch(`/api/rotate_document/${docId}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                rotation: rotation
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                applyButton.style.display = 'none';
-                documentRotations[docId] = 0;
-                alert(`✅ Applied ${rotation}° rotation - OCR updated`);
-            } else {
-                throw new Error(data.error || 'Failed to apply rotation');
-            }
-        })
-        .catch(error => {
-            console.error('Rotation error:', error);
-            alert(`Failed to apply rotation: ${error.message}`);
-        })
-        .finally(() => {
-            applyButton.disabled = false;
-            applyButton.innerHTML = '✅ Apply Rotation';
-        });
-    }
+    function resetRotation(docId){ window.documentRotations[docId]=0; const iframe=getIframeFor(docId); if(iframe&&window.RotationUtils) window.RotationUtils.reset(iframe); const btn=document.getElementById(`apply-rotation-${docId}`); if(btn) btn.style.display='none'; }
+    function cycleFitModeFor(docId, btn){ const iframe=getIframeFor(docId); if(!iframe||!window.RotationUtils) return; const mode=window.RotationUtils.cycleFitMode(iframe); const angle=window.documentRotations[docId]||0; window.RotationUtils.applyScaledRotation(iframe, angle); btn.textContent=`🖼️ Fit: ${mode.charAt(0).toUpperCase()+mode.slice(1)}`; }
+    function applyRotation(docId){ const rotation=window.documentRotations[docId]||0; if(rotation===0){ alert('No rotation to apply'); return; } const btn=document.getElementById(`apply-rotation-${docId}`); btn.disabled=true; btn.textContent='⏳ Applying...'; fetch(`/api/rotate_document/${docId}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rotation})}).then(r=>r.json()).then(data=>{ if(!data.success) throw new Error(data.error||'Failed'); window.documentRotations[docId]=0; btn.style.display='none'; alert(`✅ Applied ${rotation}° rotation - OCR updated`); }).catch(err=>{ console.error(err); alert('Failed to apply rotation: '+err.message); }).finally(()=>{ btn.disabled=false; btn.textContent='✅ Apply Rotation'; }); }
 
     document.addEventListener('DOMContentLoaded', () => {
         // Logic to show/hide the "New Category Name" input field.
@@ -194,5 +143,7 @@
             });
         }
     });
+    document.addEventListener('DOMContentLoaded', ()=>{ const iframe=document.querySelector('.pdf-viewer iframe'); if(iframe && window.RotationUtils){ window.RotationUtils.applyScaledRotation(iframe, 0); } });
 </script>
+<script src="{{ url_for('static', filename='js/rotation_utils.js') }}"></script>
 {% endblock %}

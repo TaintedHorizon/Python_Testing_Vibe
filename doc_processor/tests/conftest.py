@@ -62,3 +62,10 @@ def ensure_minimal_grouped_schema(conn):
     cur.execute("""CREATE TABLE IF NOT EXISTS document_pages (document_id INTEGER, page_id INTEGER, sequence INTEGER, PRIMARY KEY(document_id,page_id))""")
     cur.execute("""CREATE TABLE IF NOT EXISTS intake_rotations (filename TEXT PRIMARY KEY, rotation INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
     conn.commit()
+
+# Global warning filters for FAST_TEST_MODE to reduce noisy OCR-related deprecations.
+if os.getenv('FAST_TEST_MODE','0').lower() in ('1','true','t'):
+    import warnings
+    warnings.filterwarnings('ignore', category=DeprecationWarning, module=r'pytesseract')
+    warnings.filterwarnings('ignore', category=DeprecationWarning, module=r'easyocr')
+    warnings.filterwarnings('ignore', category=DeprecationWarning, message=r'.*SwigPy.*')

@@ -52,9 +52,15 @@ class AppConfig:
     LOG_BACKUP_COUNT: int = 5  # Keep 5 backup files
     LOG_LEVEL: str = "INFO"
 
+    # --- OCR / Rescan Tuning ---
+    OCR_RESCAN_DPI: int = 180  # Default DPI for rescan OCR rasterization
+    OCR_RENDER_SCALE: float = 2.0  # Scale factor applied when rasterizing PDF pages for OCR (2.0 ~= 144 DPI if base 72)
+    OCR_OVERLAY_TEXT_LIMIT: int = 2000  # Max characters of OCR text embedded per page (invisible layer)
+
     # --- Debugging and Feature Flags ---
     DEBUG_SKIP_OCR: bool = False
     ENABLE_TAG_EXTRACTION: bool = True  # Enable LLM-powered tag extraction during export
+    FAST_TEST_MODE: bool = False  # When true, bypass heavy OCR/LLM for tests
 
     # --- Status Constants ---
     # These are application-level constants and are not meant to be configured
@@ -156,6 +162,10 @@ class AppConfig:
                 # Debugging and Feature Flags
                 DEBUG_SKIP_OCR=get_env("DEBUG_SKIP_OCR", str(cls.DEBUG_SKIP_OCR)).lower() in ("true", "1", "t"),
                 ENABLE_TAG_EXTRACTION=get_env("ENABLE_TAG_EXTRACTION", str(cls.ENABLE_TAG_EXTRACTION)).lower() in ("true", "1", "t"),
+                FAST_TEST_MODE=get_env("FAST_TEST_MODE", str(cls.FAST_TEST_MODE)).lower() in ("true", "1", "t"),
+                OCR_RESCAN_DPI=int(get_env("RESCAN_OCR_DPI", str(cls.OCR_RESCAN_DPI))),
+                OCR_RENDER_SCALE=float(get_env("OCR_RENDER_SCALE", str(cls.OCR_RENDER_SCALE))),
+                OCR_OVERLAY_TEXT_LIMIT=int(get_env("OCR_OVERLAY_TEXT_LIMIT", str(cls.OCR_OVERLAY_TEXT_LIMIT))),
                 
                 # Status Constants (these are not loaded from environment)
                 STATUS_PENDING_VERIFICATION=cls.STATUS_PENDING_VERIFICATION,

@@ -20,7 +20,7 @@ from pathlib import Path
 
 # Import modules (adjust imports as needed)
 from ..database import get_db_connection, get_documents_for_batch, get_batch_by_id
-from ..processing import safe_move, database_connection
+from ..processing import safe_move, database_connection, _create_single_document_markdown_content
 from ..config_manager import app_config
 
 logger = logging.getLogger(__name__)
@@ -356,9 +356,116 @@ class ExportService:
         return {'success': True, 'files_created': []}
     
     def _finalize_as_grouped_documents(self, batch_id: int) -> Dict[str, Any]:
-        """Finalize documents grouped by AI suggestions."""
-        # Implementation for grouped finalization
-        return {'success': True, 'files_created': []}
+        """Finalize documents grouped by AI suggestions (group = each logical document).
+
+        For each document in `documents` table:
+          - Fetch ordered pages
+          - Assemble standard PDF and searchable PDF (if page images + OCR available)
+          - Build enriched markdown (using unified single doc generator) combining all page OCR
+        Returns list of created file paths.
+        """
+        files = []
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            docs = cur.execute("SELECT id, final_filename_base, document_name FROM documents WHERE batch_id = ? ORDER BY id", (batch_id,)).fetchall()
+            cabinet = app_config.FILING_CABINET_DIR
+            os.makedirs(cabinet, exist_ok=True)
+            total = len(docs) or 1
+            for idx, d in enumerate(docs):
+                doc_id = d[0]
+                final_base = d[1] or d[2] or f"document_{doc_id}"
+                # Get pages for document
+                pages = cur.execute(
+                    """
+                    SELECT p.id, p.processed_image_path, p.ocr_text, p.ai_suggested_category, p.ai_suggested_filename,
+                           p.human_verified_category, p.rotation
+                    FROM pages p
+                    JOIN document_pages dp ON p.id = dp.page_id
+                    WHERE dp.document_id = ?
+                    ORDER BY dp.sequence ASC
+                    """,
+                    (doc_id,)
+                ).fetchall()
+                if not pages:
+                    continue
+                # Build PDFs
+                from PIL import Image
+                import fitz
+                category = pages[0][5] or pages[0][3] or 'Uncategorized'
+                cat_dir = os.path.join(cabinet, category.replace(' ', '_'))
+                os.makedirs(cat_dir, exist_ok=True)
+                standard_pdf = os.path.join(cat_dir, f"{final_base}.pdf")
+                searchable_pdf = os.path.join(cat_dir, f"{final_base}_ocr.pdf")
+                images = []
+                for pg in pages:
+                    img_path = pg[1]
+                    if img_path and os.path.exists(img_path):
+                        im = Image.open(img_path)
+                        if im.mode != 'RGB':
+                            im = im.convert('RGB')
+                        images.append(im)
+                if images:
+                    images[0].save(standard_pdf, save_all=True, append_images=images[1:])
+                    for im in images:
+                        im.close()
+                    files.append(standard_pdf)
+                # Searchable PDF
+                with fitz.open() as out_doc:
+                    for pg in pages:
+                        img_path = pg[1]
+                        ocr_text = pg[2] or ''
+                        if not img_path or not os.path.exists(img_path):
+                            continue
+                        with fitz.open(img_path) as img_doc:
+                            rect = img_doc[0].rect
+                            # Use helper from processing if available to abstract version differences
+                            try:
+                                from ..processing import _doc_new_page as _compat_new_page  # type: ignore
+                                new_page = _compat_new_page(out_doc, width=rect.width, height=rect.height)
+                            except Exception:
+                                # Fallback: attempt generic new_page via getattr (satisfy differing versions)
+                                try:
+                                    new_page = getattr(out_doc, 'new_page')(width=rect.width, height=rect.height)  # type: ignore
+                                except Exception:
+                                    # Last resort: use page insertion via a rect clone (may no-op if unsupported)
+                                    new_page = out_doc.insert_page(len(out_doc), width=rect.width, height=rect.height)  # type: ignore
+                            new_page.insert_image(rect, filename=img_path)
+                            if ocr_text:
+                                new_page.insert_text((0,0), ocr_text, render_mode=3)
+                    if out_doc.page_count:
+                        out_doc.save(searchable_pdf, garbage=4, deflate=True)
+                        files.append(searchable_pdf)
+                # Markdown
+                full_ocr = '\n\n---\n\n'.join([(pg[2] or '') for pg in pages])
+                ai_cat = pages[0][3]
+                ai_file = pages[0][4]
+                verified_cat = pages[0][5]
+                rotation = pages[0][6]
+                md = _create_single_document_markdown_content(
+                    original_filename=final_base,
+                    category=category,
+                    ocr_text=full_ocr,
+                    ai_suggested_category=ai_cat,
+                    ai_suggested_filename=ai_file,
+                    final_category=verified_cat or category,
+                    final_filename=final_base,
+                    rotation=rotation,
+                )
+                md_path = os.path.join(cat_dir, f"{final_base}.md")
+                with open(md_path, 'w', encoding='utf-8') as f:
+                    f.write(md)
+                files.append(md_path)
+                # Progress update
+                with self.export_lock:
+                    if batch_id in self.export_status:
+                        self.export_status[batch_id]['progress'] = int(((idx+1)/total)*100)
+                        self.export_status[batch_id]['message'] = f"Grouped export {idx+1}/{total}"
+            conn.close()
+            return {'success': True, 'files_created': files}
+        except Exception as e:
+            logger.error(f"Grouped export failed: {e}")
+            return {'success': False, 'error': str(e), 'files_created': files}
     
     def _finalize_as_combined_document(self, batch_id: int) -> Dict[str, Any]:
         """Finalize all documents as a single combined file."""

@@ -24,17 +24,33 @@ from ..database import (
     get_db_connection, get_documents_for_batch, get_batch_by_id,
     get_all_categories
 )
-from ..processing import safe_move
+from ..processing import (
+    safe_move,
+    finalize_single_documents_batch_with_progress,
+)
 from ..config_manager import app_config
 from ..utils.helpers import create_error_response, create_success_response
+from ..services.export_service import ExportService
 
 # Create Blueprint
 bp = Blueprint('export', __name__, url_prefix='/export')
 logger = logging.getLogger(__name__)
 
-# Global variables for export tracking (should move to service layer)
-export_status = {}
-export_lock = threading.Lock()
+# Instantiate service (thread-safe internal locks inside service)
+export_service = ExportService()
+
+# Wrapper status dict (backward compatibility for existing JS polling hitting /export/api/progress)
+_route_status_lock = threading.Lock()
+_route_status_cache: Dict[int, Dict[str, Any]] = {}
+
+def _merge_status(batch_id: int, service_snapshot: Dict[str, Any]):
+    """Merge service status into route cache (thin compatibility layer).
+
+    The historical frontend expects a nested dict keyed by batch id when calling
+    /export/api/progress. We mirror the service's per-batch status there.
+    """
+    with _route_status_lock:
+        _route_status_cache[batch_id] = service_snapshot
 
 @bp.route("/finalize/<int:batch_id>")
 def finalize_page(batch_id: int):
@@ -70,169 +86,96 @@ def export_batch(batch_id: int):
         #     if batch_status not in ['ordered', 'ready_for_export']:
         #         return jsonify(create_error_response(f"Batch not ready for export (status: {batch_status})"))
         
-        # Start export process in background
-        def export_async():
-            try:
-                with export_lock:
-                    export_status[batch_id] = {
-                        'status': 'starting',
-                        'progress': 0,
-                        'message': 'Preparing export...',
-                        'files_created': []
-                    }
-                
-                # Update batch status
-                # with database_connection() as conn:
-                #     cursor = conn.cursor()
-                #     cursor.execute("UPDATE batches SET status = 'exporting' WHERE id = ?", (batch_id,))
-                
-                # Perform the export
-                # export_result = export_batch_documents(batch_id, export_format, include_originals)
-                
-                with export_lock:
-                    export_status[batch_id] = {
-                        'status': 'completed',
-                        'progress': 100,
-                        'message': 'Export completed successfully',
-                        'files_created': [],  # List of created files
-                        'download_links': []  # Links to download files
-                    }
-                    
-            except Exception as e:
-                logger.error(f"Error in export process: {e}")
-                with export_lock:
-                    export_status[batch_id] = {
-                        'status': 'error',
-                        'progress': 0,
-                        'message': f"Export failed: {str(e)}",
-                        'files_created': []
-                    }
-        
-        thread = threading.Thread(target=export_async)
-        thread.start()
-        
-        return jsonify(create_success_response({
-            'message': f'Export started for batch {batch_id}',
-            'batch_id': batch_id,
-            'export_format': export_format
-        }))
+        # Integrate with service (placeholder documents until grouping export implemented)
+        service_result = export_service.export_batch(batch_id, export_format=export_format, include_originals=bool(include_originals))
+        return jsonify(service_result if service_result.get('success') else create_error_response(service_result.get('error', 'Unknown error')))
         
     except Exception as e:
         logger.error(f"Error starting export for batch {batch_id}: {e}")
         return jsonify(create_error_response(f"Failed to start export: {str(e)}"))
 
 @bp.route("/finalize_single_documents_batch/<int:batch_id>", methods=["POST"])
-def finalize_single_documents_batch(batch_id: int):
-    """Finalize a batch as individual single-page documents."""
+def finalize_single_documents_batch_route(batch_id: int):
+    """Finalize ALL single-document records for this batch.
+
+    Implements Phase 1 real export pipeline by delegating to
+    finalize_single_documents_batch_with_progress. Progress is surfaced via
+    /export/api/progress and /export/api/batch_status/<batch_id>.
+    Query params / form:
+      - force: if '1', ignore existing destination files.
+      - json_sidecar: if '1', create a parallel JSON summary next to markdown.
+    """
     try:
-        # Start finalization process
-        def finalize_async():
+        force = request.form.get('force') == '1' or request.args.get('force') == '1'
+        json_sidecar = request.form.get('json_sidecar') == '1' or request.args.get('json_sidecar') == '1'
+
+        # Short-circuit if an export is already running
+        existing = export_service.get_export_status(batch_id)
+        if existing.get('status') in {'starting', 'finalizing', 'finalizing_single'}:
+            return jsonify(create_error_response("Export already in progress for this batch")), 409
+
+        def progress_callback(current, total, message, details):
+            snapshot = {
+                'status': 'running' if current < total else 'completed',
+                'mode': 'single_documents',
+                'progress': int((current / total) * 100) if total else 0,
+                'message': message,
+                'details': details,
+                'current': current,
+                'total': total,
+                'batch_id': batch_id
+            }
+            _merge_status(batch_id, snapshot)
+
+        def worker():
             try:
-                with export_lock:
-                    export_status[batch_id] = {
-                        'status': 'finalizing_single',
-                        'progress': 0,
-                        'message': 'Finalizing as single documents...',
-                        'files_created': []
-                    }
-                
-                # Get all documents in batch
-                # with database_connection() as conn:
-                #     cursor = conn.cursor()
-                #     documents = get_documents_by_batch(batch_id)
-                
-                # Create individual PDFs for each document
-                # total_docs = len(documents)
-                # processed = 0
-                
-                # for doc in documents:
-                #     try:
-                #         create_single_document_pdf(doc)
-                #         processed += 1
-                #         
-                #         with export_lock:
-                #             export_status[batch_id]['progress'] = int(processed / total_docs * 100)
-                #             export_status[batch_id]['message'] = f'Processed {processed}/{total_docs} documents'
-                #             
-                #     except Exception as e:
-                #         logger.error(f"Error processing document {doc['id']}: {e}")
-                
-                with export_lock:
-                    export_status[batch_id] = {
-                        'status': 'completed',
-                        'progress': 100,
-                        'message': 'Single document finalization completed',
-                        'files_created': []  # List of created files
-                    }
-                    
+                start_snapshot = {
+                    'status': 'starting',
+                    'mode': 'single_documents',
+                    'progress': 0,
+                    'message': 'Initializing export',
+                    'details': 'Preparing file list',
+                    'batch_id': batch_id
+                }
+                _merge_status(batch_id, start_snapshot)
+
+                # Delegate to processing layer (already handles tags, markdown)
+                success = finalize_single_documents_batch_with_progress(batch_id, progress_callback)
+
+                # Optionally create JSON sidecars for each markdown (Phase 2 enhancement integrated early)
+                if success and json_sidecar:
+                    try:
+                        _create_json_sidecars_for_batch(batch_id, force=force)
+                    except Exception as side_e:
+                        logger.error(f"Failed creating JSON sidecars for batch {batch_id}: {side_e}")
+
+                final_snapshot = _route_status_cache.get(batch_id, {}).copy()
+                final_snapshot['status'] = 'completed' if success else 'error'
+                final_snapshot['message'] = 'Export completed' if success else 'Export had errors (see logs)'
+                _merge_status(batch_id, final_snapshot)
             except Exception as e:
-                logger.error(f"Error in single document finalization: {e}")
-                with export_lock:
-                    export_status[batch_id] = {
-                        'status': 'error',
-                        'progress': 0,
-                        'message': f"Finalization failed: {str(e)}",
-                        'files_created': []
-                    }
-        
-        thread = threading.Thread(target=finalize_async)
-        thread.start()
-        
-        return jsonify(create_success_response({
-            'message': f'Single document finalization started for batch {batch_id}',
-            'batch_id': batch_id
-        }))
-        
+                logger.exception(f"Unhandled export failure for batch {batch_id}: {e}")
+                fail_snapshot = {
+                    'status': 'error',
+                    'progress': 0,
+                    'message': f'Failed: {e}',
+                    'batch_id': batch_id
+                }
+                _merge_status(batch_id, fail_snapshot)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return jsonify(create_success_response({'message': f'Started single-document export for batch {batch_id}', 'batch_id': batch_id, 'force': force, 'json_sidecar': json_sidecar}))
     except Exception as e:
-        logger.error(f"Error starting single document finalization: {e}")
-        return jsonify(create_error_response(f"Failed to start finalization: {str(e)}"))
+        logger.error(f"Error launching single-doc export for batch {batch_id}: {e}")
+        return jsonify(create_error_response(f"Failed to start export: {e}")), 500
 
 @bp.route("/finalize_batch/<int:batch_id>", methods=["POST"])
 def finalize_batch(batch_id: int):
     """Finalize a batch as grouped multi-page documents."""
     try:
         grouping_method = request.form.get('grouping_method', 'ai_suggested')
-        
-        # Start finalization process
-        def finalize_batch_async():
-            try:
-                with export_lock:
-                    export_status[batch_id] = {
-                        'status': 'finalizing_batch',
-                        'progress': 0,
-                        'message': f'Finalizing batch with {grouping_method} grouping...',
-                        'files_created': []
-                    }
-                
-                # Perform batch finalization
-                # result = finalize_batch_documents(batch_id, grouping_method)
-                
-                with export_lock:
-                    export_status[batch_id] = {
-                        'status': 'completed',
-                        'progress': 100,
-                        'message': 'Batch finalization completed',
-                        'files_created': []  # List of created files
-                    }
-                    
-            except Exception as e:
-                logger.error(f"Error in batch finalization: {e}")
-                with export_lock:
-                    export_status[batch_id] = {
-                        'status': 'error',
-                        'progress': 0,
-                        'message': f"Batch finalization failed: {str(e)}",
-                        'files_created': []
-                    }
-        
-        thread = threading.Thread(target=finalize_batch_async)
-        thread.start()
-        
-        return jsonify(create_success_response({
-            'message': f'Batch finalization started for batch {batch_id}',
-            'batch_id': batch_id,
-            'grouping_method': grouping_method
-        }))
+        # Placeholder: until grouped export implemented, return 501 or call service with grouping placeholder
+        return jsonify(create_error_response('Grouped finalization not yet implemented in refactor')), 501
         
     except Exception as e:
         logger.error(f"Error starting batch finalization: {e}")
@@ -323,25 +266,24 @@ def export_progress():
 
 @bp.route("/api/progress")
 def api_export_progress():
-    """API endpoint for export progress."""
+    """Return merged progress for all batches (route cache).
+
+    Historical contract: success payload with dict keyed by batch id.
+    """
     try:
-        with export_lock:
-            return jsonify(create_success_response(export_status))
+        with _route_status_lock:
+            return jsonify(create_success_response(_route_status_cache))
     except Exception as e:
         logger.error(f"Error getting export progress: {e}")
         return jsonify(create_error_response(f"Failed to get progress: {str(e)}"))
 
 @bp.route("/reset_state")
 def reset_export_state():
-    """Reset export state for debugging."""
+    """Reset all cached progress (does not delete files)."""
     try:
-        with export_lock:
-            export_status.clear()
-        
-        return jsonify(create_success_response({
-            'message': 'Export state reset successfully'
-        }))
-        
+        with _route_status_lock:
+            _route_status_cache.clear()
+        return jsonify(create_success_response({'message': 'Export state reset successfully'}))
     except Exception as e:
         logger.error(f"Error resetting export state: {e}")
         return jsonify(create_error_response(f"Failed to reset state: {str(e)}"))
@@ -504,21 +446,99 @@ def serve_original_pdf(filename: str):
 # Export status and utilities
 @bp.route("/api/batch_status/<int:batch_id>")
 def get_batch_export_status(batch_id: int):
-    """Get export status for a specific batch."""
+    """Get export status for a specific batch from route cache."""
     try:
-        with export_lock:
-            batch_status = export_status.get(batch_id, {
+        with _route_status_lock:
+            batch_status = _route_status_cache.get(batch_id, {
                 'status': 'not_started',
                 'progress': 0,
-                'message': 'Export not started',
-                'files_created': []
+                'message': 'No export started'
             })
-        
         return jsonify(create_success_response(batch_status))
-        
     except Exception as e:
         logger.error(f"Error getting batch export status: {e}")
         return jsonify(create_error_response(f"Failed to get status: {str(e)}"))
+
+
+# ----------------- Helper: JSON Sidecar Creation (Phase 2) -----------------
+def _create_json_sidecars_for_batch(batch_id: int, force: bool = False):
+    """Create JSON sidecar files mirroring markdown content for each exported single doc.
+
+    Sidecar schema (v1): {
+        'filename_base': str,
+        'category': str,
+        'exported_at': iso8601,
+        'ai': { 'suggested_category': ..., 'suggested_filename': ..., 'confidence': float, 'summary': str },
+        'tags': { category: [tags] },
+        'paths': { 'original_pdf': path, 'searchable_pdf': path, 'markdown': path }
+    }
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        rows = cur.execute("""
+            SELECT id, final_category, final_filename, ai_suggested_category, ai_suggested_filename, ai_confidence, ai_summary
+            FROM single_documents WHERE batch_id = ?
+        """, (batch_id,)).fetchall()
+        for r in rows:
+            doc_id = r[0]
+            final_category = r[1] or r[3] or 'Uncategorized'
+            filename_base = r[2] or r[4] or f'document_{doc_id}'
+            cat_dir = os.path.join(app_config.FILING_CABINET_DIR, final_category.replace(' ', '_'))
+            markdown_path = os.path.join(cat_dir, f"{filename_base}.md")
+            if not os.path.exists(markdown_path):
+                continue  # skip if markdown absent
+            json_path = os.path.join(cat_dir, f"{filename_base}.json")
+            if os.path.exists(json_path) and not force:
+                continue
+            # Attempt to extract tags from markdown (simple heuristic: lines after '## Extracted Tags')
+            tags_section = {}
+            try:
+                with open(markdown_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                if 'Extracted Tags' in content:
+                    after = content.split('Extracted Tags', 1)[1]
+                    lines = after.splitlines()
+                    for line in lines:
+                        if line.startswith('## '):
+                            break
+                        if line.startswith('**') and '**:' in line:
+                            # **Category Name**: tag1, tag2
+                            try:
+                                raw = line.strip('*')
+                            except Exception:
+                                raw = line
+            except Exception:
+                pass
+            payload = {
+                'filename_base': filename_base,
+                'category': final_category,
+                'exported_at': datetime.utcnow().isoformat() + 'Z',
+                'ai': {
+                    'suggested_category': r[3],
+                    'suggested_filename': r[4],
+                    'confidence': r[5],
+                    'summary': r[6]
+                },
+                'tags': tags_section,
+                'paths': {
+                    'markdown': markdown_path,
+                    'original_pdf': os.path.join(cat_dir, f"{filename_base}_original.pdf"),
+                    'searchable_pdf': os.path.join(cat_dir, f"{filename_base}_searchable.pdf")
+                },
+                'schema_version': 1
+            }
+            try:
+                with open(json_path, 'w', encoding='utf-8') as jf:
+                    json.dump(payload, jf, indent=2)
+                logger.debug(f"Created JSON sidecar: {json_path}")
+            except Exception as w_e:
+                logger.error(f"Failed writing JSON sidecar {json_path}: {w_e}")
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 @bp.route("/api/available_exports")
 def get_available_exports():

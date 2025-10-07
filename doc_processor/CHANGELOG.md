@@ -12,6 +12,12 @@ All notable changes to this project will be documented in this file.
 - Test: Added `test_grouped_rotation.py` covering grouped-document rotation parity (via single-doc route) and double-rotation prevention logic.
 - Test: Added `conftest.py` with reusable fixtures (`temp_db_path`, `app`, `client`, `seed_conn`) to standardize isolated DB + app factory usage.
 - Quality: Ensured no double-rotation when physical PDF rotation matches stored rotation (cache reuse asserted).
+ - Feature: Added OCR file-signature caching & invalidation (size+mtime+SHA1 first 64KB) for searchable PDF reuse.
+ - Feature: Added fallback searchable PDF generation in FAST_TEST_MODE for deterministic tests.
+ - Config: New env vars `FAST_TEST_MODE`, `OCR_RENDER_SCALE`, `OCR_OVERLAY_TEXT_LIMIT` documented in `.env.sample` & `docs/CONFIGURATION.md`.
+ - Test: Added `test_cached_searchable.py` and `test_ocr_cache_invalidation.py` covering cached reuse & signature invalidation paths.
+ - Refactor: Extracted `_ensure_searchable_pdf_fallback` helper to centralize finalization fallback logic.
+ - Docs: Created `doc_processor/docs/CONFIGURATION.md`; updated `.env.sample` with new tuning flags.
 
 ## [2025-10-03] - ⚡ Smart Processing Orchestration, Normalized PDF Cache & Rotation Carry-Forward
 ### Added

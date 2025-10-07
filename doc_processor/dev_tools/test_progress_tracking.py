@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""
-Test script for verifying smart processing progress tracking functionality.
+"""Legacy diagnostic script (excluded from automated pytest).
 
-This script simulates the smart processing workflow to ensure that:
-1. Progress updates are generated correctly
-2. Document processing is tracked step-by-step
-3. Completion messages are sent only when processing is actually done
+Provides manual verification of smart processing progress events.
 """
+import pytest  # type: ignore
+pytest.skip("Legacy dev_tools diagnostic script - skipping in automated test run", allow_module_level=True)
 
 import sys
 import os

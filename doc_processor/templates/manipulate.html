@@ -55,6 +55,13 @@
     .rotate-buttons button:hover { background-color: #5a6268; }
     /* Smooth rotation + scaling for preview */
     .pdf-viewer iframe { transition: transform 0.25s ease; transform-origin: center center; }
+    .nav-disabled { pointer-events: none; opacity: 0.5; }
+    .save-status { font-size: 0.8em; margin-left: 12px; }
+    .save-status.saving { color: #ffc107; }
+    .save-status.success { color: #28a745; }
+    .save-status.error { color: #dc3545; }
+    .spinner-inline { display: inline-block; width: 14px; height: 14px; border: 2px solid #ccc; border-top-color: #007BFF; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; margin-right:4px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 
 <h1>🛠️ Manipulate Documents - Batch #{{ batch_id }}</h1>
@@ -63,13 +70,14 @@
 {% if total_docs and total_docs > 0 %}
 <div class="pagination">
     {% if current_doc_num > 1 %}
-    <a href="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch_id, doc_num=current_doc_num - 1) }}">&laquo; Previous Document</a>
+    <a href="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch_id, doc_num=current_doc_num - 1) }}" class="nav-prev" data-target-doc="{{ current_doc_num - 1 }}">&laquo; Previous Document</a>
     {% else %}
         <span>&laquo; Previous Document</span>
     {% endif %}
     <strong>Document {{ current_doc_num }} of {{ total_docs }}</strong>
+    <span id="save-state" class="save-status" style="display:none;"></span>
     {% if current_doc_num < total_docs %}
-    <a href="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch_id, doc_num=current_doc_num + 1) }}">Next Document &raquo;</a>
+    <a href="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch_id, doc_num=current_doc_num + 1) }}" class="nav-next" data-target-doc="{{ current_doc_num + 1 }}">Next Document &raquo;</a>
     {% else %}
         <span>Next Document &raquo;</span>
     {% endif %}
@@ -86,7 +94,7 @@
     <div class="image-pane">
         <div class="pdf-viewer">
             {% if current_doc.original_pdf_path %}
-                <iframe src="{{ url_for('manipulation.serve_single_pdf', doc_id=current_doc.id) }}"
+                <iframe src="{{ url_for('manipulation.serve_single_pdf', doc_id=current_doc.id) }}#toolbar=0&navpanes=0&scrollbar=0"
                         width="100%" height="100%"
                         style="border: none;">
                     <div class="pdf-placeholder">
@@ -107,9 +115,8 @@
             <button type="button" data-doc-id="{{ current_doc.id }}" class="btn-rotate-left">↺ Rotate Left</button>
             <button type="button" data-doc-id="{{ current_doc.id }}" class="btn-rotate-right">↻ Rotate Right</button>
             <button type="button" data-doc-id="{{ current_doc.id }}" class="btn-rotate-reset">🔄 Reset</button>
-            <button type="button" id="apply-rotation-{{ current_doc.id }}" data-doc-id="{{ current_doc.id }}" style="display: none; background: #28a745;" class="btn-rotate-apply">
-                ✅ Apply Rotation
-            </button>
+            <button type="button" data-doc-id="{{ current_doc.id }}" class="btn-fit-mode" title="Cycle fit mode (auto → width → height)">🖼️ Fit: Auto</button>
+            <span id="rotation-save-status" style="margin-left:8px;font-size:0.85em;color:#28a745;display:none;">Saved</span>
         </div>
     </div>
 
@@ -118,17 +125,36 @@
         <form method="post" action="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch_id, doc_num=current_doc_num) }}">
             <input type="hidden" name="doc_id" value="{{ current_doc.id }}">
             <input type="hidden" id="action-input" name="action" value="finish_batch">
+
+            <!-- Rescan Mode Controls (separate box) -->
+            <div class="info-box" style="border-color:#17a2b8;">
+                <div class="info-header" style="margin-bottom:10px; align-items:center;">
+                    <h3 style="margin:0; display:flex; gap:8px; align-items:center;">
+                        <span class="rescan-icon" aria-hidden="true" style="display:inline-flex; width:20px; height:20px;">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#17a2b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Rescan">
+                                <polyline points="23 4 23 10 17 10" />
+                                <polyline points="1 20 1 14 7 14" />
+                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+                                <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+                            </svg>
+                        </span>
+                        <span>Rescan Tools</span>
+                        <span style="font-size:0.6em;font-weight:normal;cursor:help;" title="Choose what to re-run:\n• OCR Only: Refresh extracted text, keep previous AI suggestions.\n• AI Only: Re-run AI classification using existing OCR text.\n• Full Rescan: Run OCR then AI in sequence.\nDPI for OCR configurable via RESCAN_OCR_DPI in .env">❔</span>
+                    </h3>
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button type="button" class="btn-rescan btn-rescan-ocr-only" data-doc-id="{{ current_doc.id }}" title="Run OCR only (do not change AI suggestions)">🅾️ OCR Only</button>
+                    <button type="button" class="btn-rescan btn-rescan-llm-only" data-doc-id="{{ current_doc.id }}" title="Run AI only (reuse current OCR text)">🤖 AI Only</button>
+                    <button type="button" class="btn-rescan btn-rescan-full" data-doc-id="{{ current_doc.id }}" title="Run OCR then AI (full pipeline)">🔄 Full Rescan</button>
+                </div>
+                <div style="margin-top:10px;font-size:0.8em;color:#555;">
+                    Tip: Use OCR Only after fixing rotation or DPI settings; use AI Only if text already looks good; use Full for a clean end-to-end refresh.
+                </div>
+            </div>
             
             <!-- OCR Analysis Box -->
             <div class="info-box">
-                <div class="info-header">
-                    <h3>🔍 OCR Analysis</h3>
-                    <div>
-            <button type="button" class="btn-rescan btn-rescan-ocr" data-doc-id="{{ current_doc.id }}" title="Re-extract text and re-analyze">
-                            🔍 Rescan OCR
-                        </button>
-                    </div>
-                </div>
+                <div class="info-header"><h3>🔍 OCR Analysis</h3></div>
                 
                 <div class="ocr-stats">
                     <span>
@@ -164,10 +190,8 @@
             <div class="info-box">
                 <div class="info-header">
                     <h3>🤖 AI Analysis</h3>
-                    <div>
-            <button type="button" class="btn-rescan btn-rescan-llm" data-doc-id="{{ current_doc.id }}" title="Re-analyze with AI">
-                            🤖 Rescan LLM
-                        </button>
+                    <div style="font-size:0.8em; color:#555; max-width:220px; text-align:right;">
+                        Use the buttons above to rescan OCR / AI. AI summary and confidence update only on AI / Full.
                     </div>
                 </div>
                 
@@ -182,10 +206,10 @@
                 
                 <div class="form-group">
                     <label for="category-select">Category</label>
-                    <select id="category-select" name="category_dropdown" class="form-control">
-                        <option value="" disabled selected>-- AI Suggestion: {{ current_doc.ai_suggested_category or 'None' }} --</option>
+                    <select id="category-select" name="category_dropdown" class="form-control" data-existing-final="{{ current_doc.final_category or '' }}">
+                        <option value="" disabled {% if current_doc.final_category %}{% else %}selected{% endif %}>-- AI Suggestion: {{ current_doc.ai_suggested_category or 'None' }} --</option>
                         {% for cat in categories %}
-                            <option value="{{ cat }}">{{ cat }}</option>
+                            <option value="{{ cat }}" {% if current_doc.final_category == cat %}selected{% endif %}>{{ cat }}</option>
                         {% endfor %}
                         <option value="other_new">Other (Create New)...</option>
                     </select>
@@ -201,25 +225,26 @@
                     <label>Filename</label>
                     <div class="radio-group">
                         <div class="radio-option">
-                            <input type="radio" id="filename-original" name="filename_choice" value="original">
+                            <input type="radio" id="filename-original" name="filename_choice" value="original" {% if current_doc.final_filename and current_doc.final_filename == (current_doc.original_filename.rsplit('.', 1)[0] if '.' in current_doc.original_filename else current_doc.original_filename) %}checked{% endif %}>
                             <label for="filename-original">
                                 <strong>Original:</strong> {{ current_doc.original_filename.rsplit('.', 1)[0] if '.' in current_doc.original_filename else current_doc.original_filename }}
                             </label>
                         </div>
                         <div class="radio-option">
-                            <input type="radio" id="filename-ai" name="filename_choice" value="ai" checked>
+                            <input type="radio" id="filename-ai" name="filename_choice" value="ai" {% if not current_doc.final_filename or current_doc.final_filename == current_doc.ai_suggested_filename %}checked{% endif %}>
                             <label for="filename-ai">
                                 <strong>AI Suggested:</strong> {{ current_doc.ai_suggested_filename or 'None' }}
                                 <small style="color: #666; display: block;">Based on document content analysis</small>
                             </label>
                         </div>
                         <div class="radio-option">
-                            <input type="radio" id="filename-custom" name="filename_choice" value="custom">
+                            <input type="radio" id="filename-custom" name="filename_choice" value="custom" {% if current_doc.final_filename and current_doc.final_filename not in [current_doc.ai_suggested_filename, (current_doc.original_filename.rsplit('.', 1)[0] if '.' in current_doc.original_filename else current_doc.original_filename)] %}checked{% endif %}>
                             <label for="filename-custom"><strong>Custom:</strong></label>
-                            <input type="text" id="custom-filename" name="custom_filename" 
-                                   placeholder="Enter custom filename" class="form-control" 
-                                   style="margin-left: 20px; max-width: 300px;"
-                                   onclick="document.getElementById('filename-custom').checked = true;">
+                <input type="text" id="custom-filename" name="custom_filename" 
+                    placeholder="Enter custom filename" class="form-control" 
+                    style="margin-left: 20px; max-width: 300px;"
+                    value="{% if current_doc.final_filename and current_doc.final_filename not in [current_doc.ai_suggested_filename, (current_doc.original_filename.rsplit('.', 1)[0] if '.' in current_doc.original_filename else current_doc.original_filename)] %}{{ current_doc.final_filename }}{% endif %}"
+                    onclick="document.getElementById('filename-custom').checked = true;">
                         </div>
                     </div>
                 </div>
@@ -265,10 +290,72 @@ document.addEventListener('DOMContentLoaded', function() {
             if (actionInput) actionInput.value = this.getAttribute('data-action');
         });
     });
+    // Intercept pagination links for auto-save
+    function interceptNav(selector){
+        document.querySelectorAll(selector).forEach(a => {
+            a.addEventListener('click', function(evt){
+                evt.preventDefault();
+                const targetDoc = this.getAttribute('data-target-doc');
+                autoSaveThenNavigate(parseInt(targetDoc,10));
+            });
+        });
+    }
+    interceptNav('a.nav-next');
+    interceptNav('a.nav-prev');
+    bindRescanButtons();
 });
 
+let rescanInFlight = false;
+function setRescanBusy(state){
+    rescanInFlight = state;
+    document.querySelectorAll('.btn-rescan').forEach(b=>{
+        if(state){ b.setAttribute('disabled','disabled'); b.dataset.prevText = b.textContent; b.textContent='⏳'; }
+        else { b.removeAttribute('disabled'); if(b.dataset.prevText){ b.textContent = b.dataset.prevText; delete b.dataset.prevText; } }
+    });
+}
+
+function bindRescanButtons(){
+    const docId = parseInt("{{ current_doc.id }}",10);
+    const endpoint = `/api/rescan_document/${docId}`;
+    function doRescan(mode){
+        if(rescanInFlight) return; // debounce
+        setRescanBusy(true);
+        fetch(endpoint, {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({rescan_type: mode})
+        }).then(r=>r.json().catch(()=>({success:false,error:'Bad JSON'}))).then(data=>{
+            if(!data.success){
+                alert('Rescan failed: ' + (data.error || 'Unknown error'));
+            } else {
+                // Minimal refresh strategy: reload page to reflect updated OCR/AI fields
+                location.reload();
+            }
+        }).catch(err=>{
+            alert('Rescan error: '+err.message);
+        }).finally(()=> setRescanBusy(false));
+    }
+    document.querySelector('.btn-rescan-ocr-only')?.addEventListener('click', ()=>doRescan('ocr'));
+    document.querySelector('.btn-rescan-llm-only')?.addEventListener('click', ()=>doRescan('llm_only'));
+    document.querySelector('.btn-rescan-full')?.addEventListener('click', ()=>doRescan('ocr_and_llm'));
+}
+
 // Auto-save navigation function
-function navigateToDocument(docNum) {
+function setNavDisabled(disabled){
+    document.querySelectorAll('.pagination a.nav-next, .pagination a.nav-prev').forEach(a=>{
+        if(disabled){ a.classList.add('nav-disabled'); } else { a.classList.remove('nav-disabled'); }
+    });
+}
+function updateSaveState(state, msg){
+    const el = document.getElementById('save-state');
+    if(!el) return;
+    el.style.display='inline';
+    el.className='save-status';
+    if(state==='saving'){ el.classList.add('saving'); el.innerHTML='<span class="spinner-inline"></span>Saving…'; }
+    else if(state==='success'){ el.classList.add('success'); el.textContent= msg || 'Saved'; setTimeout(()=>{ el.style.display='none'; },1200); }
+    else if(state==='error'){ el.classList.add('error'); el.textContent= msg || 'Save Failed'; }
+}
+function autoSaveThenNavigate(docNum) {
     // Auto-save current form data before navigation
     const form = document.querySelector('form');
     if (form) {
@@ -301,16 +388,27 @@ function navigateToDocument(docNum) {
         document.body.appendChild(autoSaveForm);
         
         // Submit auto-save and then navigate
+        setNavDisabled(true); updateSaveState('saving');
         fetch(window.location.href, {
             method: 'POST',
             body: new FormData(autoSaveForm)
-        }).then(() => {
+        }).then(async (resp) => {
+            let js = null;
+            try { js = await resp.clone().json(); } catch(e){}
+            if(!resp.ok || (js && js.success === false)){
+                const msg = js && js.error ? ('Save Error: '+ js.error) : ('Save Error HTTP '+resp.status);
+                updateSaveState('error', msg);
+                setNavDisabled(false);
+                return;
+            }
+            if(js && js.success){ updateSaveState('success'); }
+            else { updateSaveState('success'); }
             // Navigate to the new document
             window.location.href = `/batch/{{ batch_id }}/manipulate/${docNum}`;
         }).catch((error) => {
             console.error('Auto-save failed:', error);
-            // Navigate anyway
-            window.location.href = `/batch/{{ batch_id }}/manipulate/${docNum}`;
+            updateSaveState('error', 'Save Error: '+error.message);
+            setNavDisabled(false);
         }).finally(() => {
             document.body.removeChild(autoSaveForm);
         });
@@ -330,8 +428,8 @@ function bindRotationButtons() {
     document.querySelectorAll('.btn-rotate-reset').forEach(btn => {
         btn.addEventListener('click', () => resetHandler(btn.dataset.docId));
     });
-    document.querySelectorAll('.btn-rotate-apply').forEach(btn => {
-        btn.addEventListener('click', () => applyHandler(btn.dataset.docId));
+    document.querySelectorAll('.btn-fit-mode').forEach(btn => {
+        btn.addEventListener('click', () => cycleFitMode(btn));
     });
 }
 
@@ -339,10 +437,7 @@ function rotateHandler(docId, degrees) {
     docId = parseInt(docId, 10);
     if (!docId || docId < 0) return;
     documentRotations[docId] = ((documentRotations[docId] || 0) + degrees + 360) % 360;
-    const applyButton = document.getElementById(`apply-rotation-${docId}`);
-    if (applyButton) {
-        applyButton.style.display = documentRotations[docId] === 0 ? 'none' : 'inline-block';
-    }
+    persistRotation(docId);
     // Live visual rotation: apply CSS transform to iframe for immediate feedback
     const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
     if(iframe && window.RotationUtils){
@@ -353,61 +448,69 @@ function resetHandler(docId) {
     docId = parseInt(docId, 10);
     if (!docId || docId < 0) return;
     documentRotations[docId] = 0;
-    const applyButton = document.getElementById(`apply-rotation-${docId}`);
-    if (applyButton) applyButton.style.display = 'none';
+    persistRotation(docId);
     const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
     if(iframe && window.RotationUtils){ window.RotationUtils.reset(iframe); }
 }
-function applyHandler(docId) {
-    docId = parseInt(docId, 10);
-    if (!docId || docId < 0) return;
-    const rotation = documentRotations[docId] || 0;
-    if (rotation === 0) { alert('No rotation to apply'); return; }
-    const applyButton = document.getElementById(`apply-rotation-${docId}`);
-    if (!applyButton) return;
-    applyButton.disabled = true; applyButton.innerHTML = '⏳ Applying...';
-    fetch(`/api/rotate_document/${docId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rotation }) })
-        .then(r=>r.json())
-                        .then(data=>{ if(data.success){ applyButton.style.display='none'; documentRotations[docId]=0; 
-                                    const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
-                                      if(iframe){ const base = iframe.src.split('?')[0]; if(window.RotationUtils){ window.RotationUtils.reset(iframe);} iframe.src = `${base}?t=${Date.now()}`; }
-                                } else { throw new Error(data.error||'Failed to apply rotation'); } })
-        .catch(err=>{ console.error('Rotation error:', err); alert(`Failed to apply rotation: ${err.message}`); })
-        .finally(()=>{ applyButton.disabled=false; applyButton.innerHTML='✅ Apply Rotation'; });
+function persistRotation(docId){
+    const angle = documentRotations[docId] || 0;
+    const status = document.getElementById('rotation-save-status');
+    if(window.RotationUtils){
+        window.RotationUtils.saveRotation(docId, angle).then(ok=>{
+            if(status){
+                status.style.display='inline';
+                status.style.color = ok ? '#28a745' : '#dc3545';
+                status.textContent = ok ? 'Saved' : 'Save Failed';
+                clearTimeout(status._hideTimer);
+                status._hideTimer = setTimeout(()=>{ status.style.display='none'; }, 1600);
+            }
+        });
+    }
+}
+
+function cycleFitMode(button){
+    const docId = parseInt(button.dataset.docId,10);
+    const iframe = document.querySelector(`iframe[src*='serve_single_pdf'][src*='${docId}']`);
+    if(!iframe || !window.RotationUtils) return;
+    const mode = window.RotationUtils.cycleFitMode(iframe);
+    const currentAngle = documentRotations[docId] || 0;
+    window.RotationUtils.applyScaledRotation(iframe, currentAngle);
+    button.textContent = `🖼️ Fit: ${mode.charAt(0).toUpperCase()+mode.slice(1)}`;
 }
 document.addEventListener('DOMContentLoaded', () => {
   bindRotationButtons();
-    // Re-apply any pending visual rotation after iframe reload (rare edge case)
-    setTimeout(()=>{
-        const ifr = document.querySelector("iframe[src*='serve_single_pdf']");
-        if(ifr){
-            const docIdAttr = (ifr.src.match(/serve_single_pdf\/(\d+)/)||[])[1];
-            const pending = docIdAttr ? documentRotations[parseInt(docIdAttr,10)] : 0;
-            if(pending && window.RotationUtils){ window.RotationUtils.applyScaledRotation(ifr, pending); }
-        }
-    }, 400);
-  // Rescan OCR buttons
-  document.querySelectorAll('.btn-rescan-ocr').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const docId = btn.dataset.docId; if(!docId) return;
-      btn.disabled = true; btn.innerHTML='⏳ Rescanning OCR...';
-      fetch(`/api/rescan_document/${docId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rescan_type:'ocr_and_llm' }) })
-        .then(r=>r.json())
-        .then(data=>{ if(data.success){ window.location.reload(); } else { alert(`OCR rescan failed: ${data.error||'Unknown error'}`); btn.disabled=false; btn.innerHTML='🔍 Rescan OCR'; }})
-        .catch(err=>{ console.error('OCR rescan error:', err); alert('Failed to rescan OCR. Please try again.'); btn.disabled=false; btn.innerHTML='🔍 Rescan OCR'; });
-    });
-  });
-  // Rescan LLM buttons
-  document.querySelectorAll('.btn-rescan-llm').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const docId = btn.dataset.docId; if(!docId) return;
-      btn.disabled = true; btn.innerHTML='⏳ Rescanning LLM...';
-      fetch(`/api/rescan_document/${docId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rescan_type:'llm_only' }) })
-        .then(r=>r.json())
-        .then(data=>{ if(data.success){ window.location.reload(); } else { alert(`LLM rescan failed: ${data.error||'Unknown error'}`); btn.disabled=false; btn.innerHTML='🤖 Rescan LLM'; }})
-        .catch(err=>{ console.error('LLM rescan error:', err); alert('Failed to rescan LLM analysis. Please try again.'); btn.disabled=false; btn.innerHTML='🤖 Rescan LLM'; });
-    });
-  });
+    // Capture intrinsic dimensions once iframe loads (best-effort; PDF intrinsic size unknown, we approximate using its scroll size)
+    const ifr = document.querySelector("iframe[src*='serve_single_pdf']");
+    if(ifr){
+        ifr.addEventListener('load', ()=>{
+            try {
+                // Attempt to probe internal document (same-origin assumption). If cross-origin this will throw.
+                const doc = ifr.contentDocument || ifr.contentWindow.document;
+                const body = doc.body;
+                const w = body ? body.scrollWidth : ifr.clientWidth;
+                const h = body ? body.scrollHeight : ifr.clientHeight;
+                if(w && h){
+                    ifr.dataset.intrinsicWidth = w;
+                    ifr.dataset.intrinsicHeight = h;
+                    if(window.RotationUtils){
+                        const docIdAttr = (ifr.src.match(/serve_single_pdf\/(\d+)/)||[])[1];
+                        const angle = docIdAttr ? (documentRotations[parseInt(docIdAttr,10)]||0) : 0;
+                        window.RotationUtils.applyScaledRotation(ifr, angle);
+                    }
+                }
+            } catch(e){ /* silently ignore cross-origin issues */ }
+        });
+    }
+    // Fetch stored logical rotation and apply
+    const docIdAttr = (ifr && ifr.src.match(/serve_single_pdf\/(\d+)/)||[])[1];
+    if(docIdAttr && window.RotationUtils){
+        const dId = parseInt(docIdAttr,10);
+        window.RotationUtils.fetchRotation(dId).then(angle=>{
+            documentRotations[dId] = angle;
+            if(window.RotationUtils && ifr){ window.RotationUtils.applyScaledRotation(ifr, angle); }
+        });
+    }
+    // legacy single-mode buttons removed in favor of new tri-mode controls
 });
 
 // (applyScaledRotation now provided by RotationUtils)

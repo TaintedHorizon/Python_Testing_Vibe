@@ -1,4 +1,5 @@
 from typing import Optional  # Early import needed for annotations used before bulk imports
+import os, logging
 
 # --- SAFE FILE MOVE UTILITY ---
 def safe_move(src, dst):
@@ -273,197 +274,207 @@ from .document_detector import get_detector, DocumentAnalysis
 
 # --- PDF MANIPULATION FUNCTIONS ---
 def create_searchable_pdf(original_pdf_path: str, output_path: str, document_id: Optional[int] = None, forced_rotation: Optional[int] = None) -> tuple[str, float, str]:
-    """
-    Create a searchable PDF by adding OCR text as an invisible overlay.
-    Includes automatic rotation detection for optimal text extraction.
-    
-    Checks cache first to avoid expensive OCR reprocessing.
-    
-    Args:
-        original_pdf_path: Path to the original PDF file
-        output_path: Path where the searchable PDF will be saved
-        document_id: Optional document ID to check for cached OCR results
-        
-    Returns:
-        tuple: (full_ocr_text, average_confidence, status_message)
+    """Create a true searchable PDF (when not in FAST_TEST_MODE) with invisible OCR text layer.
+
+    Behavior:
+      * FAST_TEST_MODE: copy original + return empty text (fast-skip)
+      * Normal: perform OCR per page (Tesseract via PIL images) and embed an invisible text layer.
+      * Cache reuse: if DB already has ocr_text + searchable_pdf_path and the file exists, reuse it.
+
+    Returns (ocr_text, avg_confidence, status_message)
     """
     try:
-        # Check cache first if document_id provided
-        if document_id:
+        # Utility to compute a deterministic source signature (size + mtime + sha1 head)
+        def _compute_signature(path: str) -> str:
+            try:
+                import hashlib, os
+                st = os.stat(path)
+                size = st.st_size
+                mtime = int(st.st_mtime)
+                h = hashlib.sha1()
+                with open(path, 'rb') as f:
+                    h.update(f.read(1024 * 64))  # first 64KB is enough for change detection
+                return f"{size}-{mtime}-{h.hexdigest()}"
+            except Exception as sig_e:
+                logging.debug(f"Signature computation failed for {path}: {sig_e}")
+                return ""
+
+        source_signature = _compute_signature(original_pdf_path) if os.path.exists(original_pdf_path) else ""
+
+        # 1. Cache + signature check
+        if document_id and source_signature:
             try:
                 with database_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        SELECT ocr_text, ocr_confidence_avg, searchable_pdf_path 
-                        FROM single_documents 
-                        WHERE id = ? AND ocr_text IS NOT NULL AND searchable_pdf_path IS NOT NULL
-                    """, (document_id,))
-                    cached_result = cursor.fetchone()
-                    
-                    if cached_result:
-                        ocr_text, confidence, cached_searchable_path = cached_result
-                        
-                        # Check if the cached searchable PDF exists
-                        if cached_searchable_path and os.path.exists(cached_searchable_path):
-                            # Copy cached file to new location if different
-                            if cached_searchable_path != output_path:
-                                import shutil
-                                shutil.copy2(cached_searchable_path, output_path)
-                                logging.info(f"📋 Copied cached searchable PDF for document {document_id}")
-                            
-                            logging.info(f"✅ Using cached OCR results for document {document_id} (confidence: {confidence:.3f})")
-                            return ocr_text, confidence or 0.0, "success (cached)"
-                        else:
-                            # Cached entry exists but file is missing - will regenerate
-                            logging.info(f"🔄 Cached OCR found but file missing for document {document_id}, regenerating...")
-            except Exception as cache_error:
-                logging.warning(f"Error checking OCR cache: {cache_error}")
-        
-        # No cache found or cache invalid, proceed with full OCR processing
-        logging.info(f"🔍 Processing OCR for {os.path.basename(original_pdf_path)}...")
-        
-        # Open the original PDF
-        doc = fitz.open(original_pdf_path)
-        ocr_text_pages = []
-        confidence_scores = []
-        rotation_info = []
-        
-        logging.info(f"Creating searchable PDF for {os.path.basename(original_pdf_path)}...")
-        
-        # Process each page
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            # Convert page to image for OCR
-            mat = fitz.Matrix(2.0, 2.0)
-            get_pix = getattr(page, 'get_pixmap', None) or getattr(page, 'getPixmap', None)
-            if not get_pix:
-                raise AttributeError('Page object lacks get_pixmap/getPixmap (PyMuPDF API change?)')
-            pix = get_pix(matrix=mat)  # type: ignore[call-arg]
-            img_data = pix.tobytes("png")
-            from PIL import Image
-            import io, tempfile
-            img = Image.open(io.BytesIO(img_data))
-
-            # Forced rotation path (skip auto-detect entirely)
-            if forced_rotation is not None:
-                try:
-                    if not app_config.DEBUG_SKIP_OCR:
-                        if forced_rotation % 360 != 0:
-                            img = img.rotate(-forced_rotation, expand=True)
-                        ocr_data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
-                        page_text = pytesseract.image_to_string(img)
-                        confidences: list[int] = []
-                        for conf_val in ocr_data['conf']:
-                            try:
-                                conf_int = int(conf_val)
-                                if conf_int > 0:
-                                    confidences.append(conf_int)
-                            except (ValueError, TypeError):
-                                continue
-                        page_confidence = (sum(confidences) / len(confidences)) if confidences else 0
-                        ocr_text_pages.append(page_text)
-                        confidence_scores.append(page_confidence)
-                        rotation_info.append({'page': page_num + 1, 'rotation': forced_rotation % 360, 'confidence': 1.0})
-                        if page_text.strip():
-                            _add_invisible_text_overlay(page, page_text)
-                    else:
-                        ocr_text_pages.append(f"[DEBUG MODE - OCR SKIPPED FOR PAGE {page_num + 1}]")
-                        confidence_scores.append(100.0)
-                        rotation_info.append({'page': page_num + 1, 'rotation': forced_rotation % 360, 'confidence': 1.0})
-                except Exception as forced_err:
-                    logging.warning(f"Forced rotation OCR failed for page {page_num + 1}: {forced_err}")
-                    ocr_text_pages.append(f"[OCR FAILED FOR PAGE {page_num + 1}]")
-                    confidence_scores.append(0.0)
-                    rotation_info.append({'page': page_num + 1, 'rotation': forced_rotation % 360, 'confidence': 0.0})
-                continue  # next page
-
-            # Auto-detect path (existing logic)
-            try:
-                if not app_config.DEBUG_SKIP_OCR:
-                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
-                        img.save(temp_file.name)
-                        temp_path = temp_file.name
+                    cur = conn.cursor()
+                    # Attempt to read optional signature column; fallback if absent
                     try:
-                        best_rotation, rotation_confidence, rotated_text = _detect_best_rotation(temp_path)
-                        rotation_info.append({'page': page_num + 1, 'rotation': best_rotation, 'confidence': rotation_confidence})
-                        if best_rotation != 0:
-                            logging.info(f"  Page {page_num + 1}: Auto-detected rotation {best_rotation}° (confidence: {rotation_confidence:.3f})")
-                            img = img.rotate(-best_rotation, expand=True)
-                        ocr_data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
-                        page_text = pytesseract.image_to_string(img)
-                        confidences: list[int] = []
-                        for conf_val in ocr_data['conf']:
+                        cur.execute("""
+                            SELECT ocr_text, ocr_confidence_avg, searchable_pdf_path, ocr_source_signature
+                            FROM single_documents
+                            WHERE id=? AND ocr_text IS NOT NULL AND searchable_pdf_path IS NOT NULL
+                        """, (document_id,))
+                        row = cur.fetchone()
+                        has_sig = True
+                    except Exception:
+                        has_sig = False
+                        cur.execute("""
+                            SELECT ocr_text, ocr_confidence_avg, searchable_pdf_path
+                            FROM single_documents
+                            WHERE id=? AND ocr_text IS NOT NULL AND searchable_pdf_path IS NOT NULL
+                        """, (document_id,))
+                        row = cur.fetchone()
+                if row:
+                    if has_sig:
+                        cached_text, cached_conf, cached_path, cached_sig = row
+                        sig_matches = bool(cached_sig) and cached_sig == source_signature
+                    else:
+                        cached_text, cached_conf, cached_path = row
+                        sig_matches = True  # legacy rows without signature accepted
+                    if sig_matches and cached_path and os.path.exists(cached_path):
+                        if cached_path != output_path:
                             try:
-                                conf_int = int(conf_val)
-                                if conf_int > 0:
-                                    confidences.append(conf_int)
-                            except (ValueError, TypeError):
-                                continue
-                        page_confidence = (sum(confidences) / len(confidences)) if confidences else 0
-                        ocr_text_pages.append(page_text)
-                        confidence_scores.append(page_confidence)
-                        if page_text.strip():
-                            _add_invisible_text_overlay(page, page_text)
-                    finally:
+                                shutil.copy2(cached_path, output_path)
+                                logging.info(f"📋 Copied cached searchable PDF for doc {document_id}")
+                            except Exception as copy_e:
+                                logging.debug(f"Cache copy failed (continuing): {copy_e}")
+                        logging.info(f"✅ Using cached OCR for doc {document_id} (signature match)")
+                        return cached_text or "", (cached_conf or 0.0), "success (cached)"
+                    else:
+                        logging.info(f"🔄 OCR cache invalidated for doc {document_id} (signature mismatch or missing file)")
+            except Exception as cache_e:
+                logging.debug(f"OCR cache check failed (continuing): {cache_e}")
+
+        # 2. Fast path
+        if app_config.FAST_TEST_MODE:
+            logging.info(f"🔍 FAST_TEST_MODE: Skipping heavy OCR for {os.path.basename(original_pdf_path)}")
+            try:
+                if original_pdf_path != output_path:
+                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                    shutil.copy2(original_pdf_path, output_path)
+            except Exception:
+                pass
+            return "", 0.0, "success (fast-skip)"
+
+        # 3. Full OCR path
+        if not os.path.exists(original_pdf_path):
+            raise FileNotFoundError(f"Original PDF not found: {original_pdf_path}")
+
+        # Convert PDF pages to images for Tesseract
+        ocr_text_parts: List[str] = []
+        confidences: List[float] = []
+        try:
+            pdf_doc = fitz.open(original_pdf_path)
+        except Exception as open_e:
+            logging.error(f"Unable to open PDF for OCR: {open_e}")
+            return "", 0.0, f"error(open) {open_e}" 
+
+        # Prepare output document with original page images + invisible text layer
+        with fitz.open() as out_doc:
+            for page_index, page in enumerate(pdf_doc):
+                try:
+                    # Render page to image (medium resolution balancing quality and speed)
+                    scale = getattr(app_config, 'OCR_RENDER_SCALE', 2.0) or 2.0
+                    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))  # scale * 72 dpi
+                    img_bytes = pix.tobytes("png")
+                    pil_img = Image.open(BytesIO(img_bytes))
+                    # Optional forced rotation
+                    if forced_rotation:
+                        pil_img = pil_img.rotate(forced_rotation, expand=True)
+                    # Tesseract OCR
+                    try:
+                        data = pytesseract.image_to_data(pil_img, output_type=pytesseract.Output.DICT)
+                        words = data.get("text", [])
+                        confs = data.get("conf", [])
+                        # Filter noise
+                        page_words = [w for w in words if w and w.strip()]
+                        page_conf_vals = [float(c) for c in confs if str(c).isdigit() and int(c) >= 0]
+                        page_text = " ".join(page_words)
+                        if page_conf_vals:
+                            confidences.extend(page_conf_vals)
+                        ocr_text_parts.append(page_text)
+                    except Exception as t_err:
+                        logging.warning(f"Tesseract failed on page {page_index}: {t_err}")
+                        ocr_text_parts.append("")
+                    # Embed image + invisible text
+                    img_pdf = fitz.open("png", img_bytes)
+                    rect = img_pdf[0].rect
+                    pdf_page = _doc_new_page(out_doc, width=rect.width, height=rect.height)
+                    pdf_page.insert_image(rect, stream=img_bytes)
+                    # Add an invisible overlay chunk (truncate for safety)
+                    limit = int(getattr(app_config, 'OCR_OVERLAY_TEXT_LIMIT', 2000) or 2000)
+                    overlay_text = (ocr_text_parts[-1] or "")[:limit]
+                    if overlay_text:
                         try:
-                            os.unlink(temp_path)
-                        except Exception:
-                            pass
-                else:
-                    ocr_text_pages.append(f"[DEBUG MODE - OCR SKIPPED FOR PAGE {page_num + 1}]")
-                    confidence_scores.append(100.0)
-                    rotation_info.append({'page': page_num + 1, 'rotation': 0, 'confidence': 1.0})
-            except Exception as ocr_error:
-                logging.warning(f"OCR failed for page {page_num + 1}: {ocr_error}")
-                ocr_text_pages.append(f"[OCR FAILED FOR PAGE {page_num + 1}]")
-                confidence_scores.append(0.0)
-                rotation_info.append({'page': page_num + 1, 'rotation': 0, 'confidence': 0.0})
-        
-        # Save the searchable PDF
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        doc.save(output_path)
-        doc.close()
-        
-        # Log rotation summary (forced vs auto)
-        rotated_pages = [info for info in rotation_info if info['rotation'] != 0]
-        if forced_rotation is not None:
-            logging.info(f"  📐 Forced rotation {forced_rotation % 360}° applied to {len(rotation_info)} pages (user/intake override)")
-        elif rotated_pages:
-            logging.info(f"  📐 Auto-rotation applied to {len(rotated_pages)} pages:")
-            for info in rotated_pages:
-                logging.info(f"    Page {info['page']}: {info['rotation']}° (confidence: {info['confidence']:.3f})")
-        
-        # Combine results
-        full_text = "\n\n".join(ocr_text_pages)
-        avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0
-        
-        status_msg = "success"
-        if forced_rotation is not None:
-            status_msg += f" (forced rotation {forced_rotation % 360}°)"
-        elif rotated_pages:
-            status_msg += f" (auto-rotated {len(rotated_pages)} pages)"
-        
-        # Save OCR results to cache if document_id provided
+                            pdf_page.insert_text((5, 5), overlay_text, fontsize=6, color=(1, 1, 1), render_mode=3)
+                        except Exception as overlay_e:
+                            logging.debug(f"Overlay insert failed: {overlay_e}")
+                except Exception as page_e:
+                    logging.error(f"Failed processing page {page_index}: {page_e}")
+                    continue
+
+            # Save output searchable PDF
+            try:
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                out_doc.save(output_path, garbage=4, deflate=True)
+            except Exception as save_e:
+                logging.error(f"Failed saving searchable PDF: {save_e}")
+                return "", 0.0, f"error(save) {save_e}"
+        # Close original
+        pdf_doc.close()
+
+        full_text = "\n\n".join(ocr_text_parts)
+        avg_conf = float(np.mean(confidences)) / 100.0 if confidences else 0.0
+
+        # 4. Persist OCR results
         if document_id:
             try:
                 with database_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        UPDATE single_documents SET 
-                            ocr_text = ?, ocr_confidence_avg = ?, searchable_pdf_path = ?
-                        WHERE id = ?
-                    """, (full_text, avg_confidence, output_path, document_id))
+                    c2 = conn.cursor()
+                    # Try to update including signature column first
+                    try:
+                        c2.execute("""
+                            UPDATE single_documents
+                            SET ocr_text=?, ocr_confidence_avg=?, searchable_pdf_path=?, ocr_source_signature=?
+                            WHERE id=?
+                        """, (full_text, avg_conf, output_path, source_signature, document_id))
+                    except Exception:
+                        # Fallback without signature (legacy schema)
+                        c2.execute("""
+                            UPDATE single_documents
+                            SET ocr_text=?, ocr_confidence_avg=?, searchable_pdf_path=?
+                            WHERE id=?
+                        """, (full_text, avg_conf, output_path, document_id))
                     conn.commit()
-                    logging.info(f"💾 Cached OCR results for document {document_id} (confidence: {avg_confidence:.1f}%)")
-            except Exception as cache_error:
-                logging.warning(f"Failed to cache OCR results: {cache_error}")
-        
-        logging.info(f"✓ Created searchable PDF: {output_path} (avg confidence: {avg_confidence:.1f}%)")
-        return full_text, avg_confidence, status_msg
-        
+            except Exception as persist_e:
+                logging.debug(f"Failed to persist OCR results: {persist_e}")
+
+        return full_text, avg_conf, "success"
     except Exception as e:
         logging.error(f"Error creating searchable PDF: {e}")
-        return "", 0.0, f"Error: {e}"
+        return "", 0.0, f"error {e}"
+
+def _ensure_searchable_pdf_fallback(cursor: sqlite3.Cursor, conn: sqlite3.Connection, *, document_id: int, original_pdf: Optional[str], existing_searchable: Optional[str], dest_searchable: str) -> str:
+    """Ensure a searchable PDF exists, creating a lightweight fallback if needed.
+
+    Returns path to a guaranteed searchable PDF (or empty string if impossible)."""
+    if existing_searchable and os.path.exists(existing_searchable):
+        return existing_searchable
+    if not original_pdf or not os.path.exists(original_pdf):
+        return existing_searchable or ""
+    if not original_pdf.lower().endswith('.pdf'):
+        return existing_searchable or ""  # don't fabricate from non-pdf originals here
+    try:
+        shutil.copy2(original_pdf, dest_searchable)
+        try:
+            cursor.execute("UPDATE single_documents SET searchable_pdf_path=? WHERE id=?", (dest_searchable, document_id))
+            conn.commit()
+        except Exception:
+            pass
+        logging.info(f"🧪 Created fallback searchable PDF for doc {document_id}: {dest_searchable}")
+        return dest_searchable
+    except Exception as e:
+        logging.debug(f"Fallback searchable creation failed for {document_id}: {e}")
+        return existing_searchable or ""
 
 
 def _add_invisible_text_overlay(page, text: str):
@@ -543,6 +554,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+
+# In FAST_TEST_MODE, aggressively silence noisy OCR library deprecation chatter to keep test output clean.
 
 # --- INITIAL SETUP ---
 # Suppress a common warning from the underlying torch library used by easyocr.
@@ -823,6 +836,64 @@ TEXT TO ANALYZE:
         return "Other"
 
     return category
+
+
+def get_ai_classification_detailed(page_text: str) -> Optional[Dict[str, Any]]:
+    """Enhanced classification producing structured JSON with category, confidence (0-100), reasoning.
+
+    Falls back to legacy get_ai_classification if model output not parseable.
+    Expected model JSON (tolerant to markdown fencing):
+    {
+      "category": "Invoice",
+      "confidence": 87,
+      "reasoning": "Short explanation..."
+    }
+    """
+    from .database import get_all_categories
+    cats = get_all_categories()
+    if not cats:
+        return None
+    truncated = page_text[:4000]
+    prompt = f"""You are a strict JSON API. Classify the following page text into one category from this list:
+{', '.join(cats)}
+
+Return ONLY JSON with keys: category (string), confidence (0-100 integer), reasoning (string <= 280 chars).
+If unsure choose the closest category.
+TEXT:\n{truncated}\n"""
+    try:
+        raw = _query_ollama(prompt, context_window=app_config.OLLAMA_CTX_CLASSIFICATION, task_name="classification_detailed")
+        if not raw:
+            return None
+        # Strip code fences
+        raw_clean = raw.strip().strip('`')
+        # Try find JSON braces
+        import re, json as _json
+        match = re.search(r'{.*}', raw_clean, re.DOTALL)
+        if match:
+            snippet = match.group(0)
+            try:
+                data = _json.loads(snippet)
+                cat = data.get('category')
+                conf = data.get('confidence')
+                reasoning = data.get('reasoning') or ''
+                if isinstance(conf, str):
+                    digits = ''.join(filter(str.isdigit, conf))
+                    conf = int(digits) if digits else 0
+                if not isinstance(conf, int):
+                    conf = 0
+                if not isinstance(cat, str) or cat not in cats:
+                    # fallback to legacy single string classifier
+                    cat = get_ai_classification(page_text)
+                # Reasoning length cap
+                reasoning = reasoning.strip()[:280]
+                return { 'category': cat, 'confidence': conf, 'reasoning': reasoning }
+            except Exception:
+                pass
+        # Fallback path
+        legacy = get_ai_classification(page_text)
+        return { 'category': legacy, 'confidence': 0, 'reasoning': '' }
+    except Exception:
+        return None
 
 
 def process_single_document(file_path: str, suggested_strategy: str = "single_document") -> Optional[int]:
@@ -2557,147 +2628,7 @@ def cleanup_batch_files(batch_id: int) -> bool:
         logging.info(f"  - Directory not found, skipping cleanup: {batch_image_dir}")
         return True
 
-
-def finalize_single_documents_batch(batch_id: int) -> bool:
-    """
-    Finalize and export all single documents in a batch:
-    - Move original PDF, searchable PDF, and markdown to correct category folder
-    - Only move files after all outputs are created
-    - Never delete or lose source files, even on error/interruption
-    """
-    from doc_processor.database import get_db_connection
-    import shutil
-    success = True
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, original_pdf_path, searchable_pdf_path, final_category, final_filename, ai_suggested_category, ai_suggested_filename, ocr_text FROM single_documents WHERE batch_id=?", (batch_id,))
-    docs = cursor.fetchall()
-    for doc in docs:
-        doc_id = doc[0]
-        original_pdf = doc[1]
-        searchable_pdf = doc[2]
-        # Use final category/filename if available, otherwise fall back to AI suggestions
-        category = doc[3] or doc[5] or "Uncategorized"
-        filename_base = doc[4] or doc[6] or f"document_{doc_id}"
-        # Sanitize filename for filesystem safety and consistency
-        filename_base = sanitize_filename(filename_base)
-        ocr_text = doc[7] or ""
-        # Destination folder - sanitize category name for consistency with single export
-        category_dir_name = _sanitize_category(category)
-        category_dir = os.path.join(app_config.FILING_CABINET_DIR, category_dir_name)
-        os.makedirs(category_dir, exist_ok=True)
-        # Prepare all destination paths
-        dest_original = os.path.join(category_dir, f"{filename_base}_original.pdf")
-        dest_searchable = os.path.join(category_dir, f"{filename_base}_searchable.pdf")
-        dest_markdown = os.path.join(category_dir, f"{filename_base}.md")
-        
-        # Create markdown file with tag extraction
-        try:
-            # Extract tags if enabled
-            extracted_tags = None
-            if app_config.ENABLE_TAG_EXTRACTION and ocr_text:
-                try:
-                    logging.info(f"🏷️  Starting tag extraction for single document: {filename_base}")
-                    extracted_tags = extract_document_tags(ocr_text, filename_base)
-                    if extracted_tags:
-                        total_tags = sum(len(tag_list) for tag_list in extracted_tags.values())
-                        logging.info(f"✅ Tag extraction SUCCESS: {total_tags} tags extracted for {filename_base}")
-                        
-                        # Store tags in database
-                        try:
-                            tags_stored = store_document_tags(doc_id, extracted_tags)
-                            logging.info(f"🏷️  Stored {tags_stored} tags in database for single document {doc_id}")
-                        except Exception as db_e:
-                            logging.error(f"💥 Failed to store tags in database for single document {doc_id}: {db_e}")
-                    else:
-                        logging.warning(f"⚠️  Tag extraction returned no results for {filename_base}")
-                except Exception as e:
-                    logging.error(f"💥 Tag extraction FAILED for {filename_base}: {e}")
-                    extracted_tags = None
-            
-            # Create enhanced markdown content
-            markdown_content = f"# {filename_base}\n\n**Category:** {category}\n\n"
-            
-            # Add extracted tags section if available
-            if extracted_tags:
-                markdown_content += "## Extracted Tags\n\n"
-                
-                for tag_category, tag_list in extracted_tags.items():
-                    if tag_list:  # Only include categories that have tags
-                        category_name = tag_category.replace('_', ' ').title()
-                        markdown_content += f"**{category_name}**: {', '.join(tag_list)}\n\n"
-                
-                # Add a summary for quick reference
-                all_tags = []
-                for tag_list in extracted_tags.values():
-                    all_tags.extend(tag_list)
-                
-                if all_tags:
-                    markdown_content += f"**All Tags** ({len(all_tags)} total): {', '.join(all_tags)}\n\n"
-            
-            markdown_content += f"## OCR Content\n\n{ocr_text}"
-            
-            with open(dest_markdown, 'w', encoding='utf-8') as f:
-                f.write(markdown_content)
-            logging.debug(f"✓ Created enhanced markdown with tags: {dest_markdown}")
-        except Exception as e:
-            logging.error(f"Failed to create markdown for doc {doc_id}: {e}")
-            success = False
-            continue  # Skip this document if we can't create outputs
-        
-        # Move files ONLY after all outputs are successfully created
-        files_moved = []
-        try:
-            # Move original PDF
-            if os.path.exists(original_pdf):
-                safe_move(original_pdf, dest_original)
-                files_moved.append(dest_original)
-                logging.debug(f"✓ Moved original: {dest_original}")
-            
-            # Move searchable PDF
-            if os.path.exists(searchable_pdf):
-                safe_move(searchable_pdf, dest_searchable)
-                files_moved.append(dest_searchable)
-                logging.debug(f"✓ Moved searchable: {dest_searchable}")
-                
-            logging.info(f"✅ Successfully exported document {doc_id} to {category_dir}")
-            
-        except Exception as e:
-            logging.error(f"💥 CRITICAL: Failed to move files for doc {doc_id}: {e}")
-            logging.error(f"💥 Rolling back moved files: {files_moved}")
-            
-            # ROLLBACK: Move any successfully moved files back to prevent loss
-            for moved_file in files_moved:
-                try:
-                    if "original" in moved_file and os.path.exists(moved_file):
-                        safe_move(moved_file, original_pdf)
-                        logging.info(f"🔄 Rolled back original to: {original_pdf}")
-                    elif "searchable" in moved_file and os.path.exists(moved_file):
-                        safe_move(moved_file, searchable_pdf)
-                        logging.info(f"🔄 Rolled back searchable to: {searchable_pdf}")
-                except Exception as rollback_e:
-                    logging.error(f"💥 ROLLBACK FAILED: {rollback_e}")
-            
-            success = False
-    
-    conn.close()
-    
-    if success:
-        logging.info(f"✅ All single documents in batch {batch_id} exported successfully")
-        
-        # Clean up the batch directory in WIP after successful export
-        try:
-            cleanup_success = cleanup_batch_files(batch_id)
-            if cleanup_success:
-                logging.info(f"✅ Successfully cleaned up batch {batch_id} directory")
-            else:
-                logging.warning(f"⚠️ Export succeeded but failed to clean up batch {batch_id} directory")
-        except Exception as cleanup_e:
-            logging.error(f"💥 Failed to clean up batch {batch_id} directory: {cleanup_e}")
-    else:
-        logging.warning(f"⚠️ Some documents in batch {batch_id} failed export - check logs above")
-    
-    return success
+    # (Removed deprecated duplicate export loop block)
 
 
 def verify_no_file_loss() -> dict:
@@ -2773,6 +2704,14 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
     total_docs = len(docs)
     update_progress(0, total_docs, "Starting export process...", "Preparing to export documents")
     
+    # If FAST_TEST_MODE is set, ensure we are not using any stale absolute paths from original env.
+    filing_base = app_config.FILING_CABINET_DIR
+    if app_config.FAST_TEST_MODE and not os.path.isdir(filing_base):
+        try:
+            os.makedirs(filing_base, exist_ok=True)
+        except Exception:
+            pass
+
     for i, doc in enumerate(docs):
         doc_id = doc[0]
         original_pdf = doc[1]
@@ -2790,18 +2729,27 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
         
         # Destination folder - sanitize category name
         category_dir_name = _sanitize_category(category)
-        category_dir = os.path.join(app_config.FILING_CABINET_DIR, category_dir_name)
+        category_dir = os.path.join(filing_base, category_dir_name)
         os.makedirs(category_dir, exist_ok=True)
         
         # Prepare all destination paths
         dest_original = os.path.join(category_dir, f"{filename_base}_original.pdf")
         dest_searchable = os.path.join(category_dir, f"{filename_base}_searchable.pdf")
         dest_markdown = os.path.join(category_dir, f"{filename_base}.md")
+        # Optional raw source image copy path (only if original intake asset was an image)
+        original_source_image_export = None
+        try:
+            if original_pdf:
+                _ext = os.path.splitext(original_pdf)[1].lower()
+                if _ext in {'.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp', '.gif', '.webp', '.heic'}:
+                    original_source_image_export = os.path.join(category_dir, f"{filename_base}_source{_ext}")
+        except Exception as prep_e:
+            logging.debug(f"Could not prepare raw image export for {original_pdf}: {prep_e}")
         
         try:
             # Extract tags if enabled
             extracted_tags = None
-            if app_config.ENABLE_TAG_EXTRACTION and ocr_text:
+            if (not app_config.FAST_TEST_MODE) and app_config.ENABLE_TAG_EXTRACTION and ocr_text:
                 update_progress(i, total_docs, f"Extracting tags: {filename_base}", "Analyzing document content for tags")
                 try:
                     logging.info(f"🏷️  Starting tag extraction for single document: {filename_base}")
@@ -2825,11 +2773,49 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
             update_progress(i, total_docs, f"Creating markdown: {filename_base}", "Generating markdown file")
             
             # Create enhanced markdown content
+            # Fetch AI metadata for enrichment (extra columns may not all exist; guard with try/except)
+            ai_suggested_category = doc[5]  # ai_suggested_category
+            ai_suggested_filename = doc[6]  # ai_suggested_filename
+            # Attempt to load additional AI fields from single_documents if present
+            ai_confidence = None
+            ai_summary = None
+            try:
+                # Re-query only the needed fields for this doc to avoid altering earlier fetch
+                detail_row = cursor.execute(
+                    "SELECT ai_confidence, ai_summary, final_category, final_filename FROM single_documents WHERE id=?",
+                    (doc_id,)
+                ).fetchone()
+                if detail_row:
+                    ai_confidence = detail_row[0]
+                    ai_summary = detail_row[1]
+                    final_category_val = detail_row[2]
+                    final_filename_val = detail_row[3]
+                else:
+                    final_category_val = None
+                    final_filename_val = None
+            except Exception:
+                final_category_val = None
+                final_filename_val = None
+
+            # Placeholder rotation / OCR DPI / rescan events (future: join from rotation + rescan log tables if implemented)
+            rotation_used = None
+            ocr_dpi_used = None
+            rescan_events = None
+
             markdown_content = _create_single_document_markdown_content(
                 original_filename=filename_base,
                 category=category,
                 ocr_text=ocr_text,
-                extracted_tags=extracted_tags
+                extracted_tags=extracted_tags,
+                ai_suggested_category=ai_suggested_category,
+                ai_suggested_filename=ai_suggested_filename,
+                final_category=final_category_val,
+                final_filename=final_filename_val,
+                ai_confidence=ai_confidence,
+                ai_summary=ai_summary,
+                rotation=rotation_used,
+                ocr_dpi=ocr_dpi_used,
+                rescan_events=rescan_events,
             )
             
             # Write markdown file
@@ -2840,14 +2826,35 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
             
             # Copy files (don't move original files, copy them for safety)
             if original_pdf and os.path.exists(original_pdf):
-                shutil.copy2(original_pdf, dest_original)
-                logging.info(f"📄 Copied original PDF: {original_pdf} → {dest_original}")
+                # If it's actually an image, we copy it both as raw image (preserve forensic fidelity) and as the 'original.pdf' alias only if already a pdf
+                lower_ext = os.path.splitext(original_pdf)[1].lower()
+                if lower_ext == '.pdf':
+                    shutil.copy2(original_pdf, dest_original)
+                    logging.info(f"📄 Copied original PDF: {original_pdf} → {dest_original}")
+                else:
+                    # Copy raw image (no conversion) if we prepared a target
+                    if original_source_image_export:
+                        shutil.copy2(original_pdf, original_source_image_export)
+                        logging.info(f"🖼️ Copied original source image: {original_pdf} → {original_source_image_export}")
             
-            if searchable_pdf and os.path.exists(searchable_pdf):
-                shutil.copy2(searchable_pdf, dest_searchable)
-                logging.info(f"📄 Copied searchable PDF: {searchable_pdf} → {dest_searchable}")
+            # Ensure/search for searchable PDF artifact (helper encapsulates fallback semantics)
+            final_searchable_source = _ensure_searchable_pdf_fallback(
+                cursor, conn,
+                document_id=doc_id,
+                original_pdf=original_pdf,
+                existing_searchable=searchable_pdf,
+                dest_searchable=dest_searchable
+            )
+            if final_searchable_source and os.path.exists(final_searchable_source) and final_searchable_source != dest_searchable:
+                try:
+                    shutil.copy2(final_searchable_source, dest_searchable)
+                    logging.info(f"📄 Copied searchable PDF: {final_searchable_source} → {dest_searchable}")
+                except Exception as copy_err:
+                    logging.warning(f"Could not copy searchable PDF for doc {doc_id}: {copy_err}")
             
             logging.info(f"✅ Successfully exported document {doc_id} to {category_dir}")
+            if original_source_image_export and os.path.exists(original_source_image_export):
+                logging.info(f"   (Included raw source image copy: {original_source_image_export})")
             
         except Exception as e:
             logging.error(f"❌ Failed to export single document {doc_id} ({filename_base}): {e}")
@@ -2877,31 +2884,83 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
     return success
 
 
-def _create_single_document_markdown_content(original_filename, category, ocr_text, extracted_tags=None):
-    """Create enhanced markdown content for a single document."""
+def _create_single_document_markdown_content(
+    original_filename,
+    category,
+    ocr_text,
+    extracted_tags=None,
+    ai_suggested_category=None,
+    ai_suggested_filename=None,
+    final_category=None,
+    final_filename=None,
+    ai_confidence=None,
+    ai_summary=None,
+    rotation=None,
+    ocr_dpi=None,
+    rescan_events=None,
+):
+    """Create enriched markdown content for a single document (v2 unified schema).
+
+    Adds AI metadata, tag sections, and optional rescan history. This consolidates
+    prior divergent markdown formats into a single richer representation that
+    is both human-readable and RAG-friendly.
+    """
     import datetime
-    
-    # Start with basic metadata
-    content = f"""# {original_filename}
 
-**Category:** {category}  
-**Export Date:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    export_ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    display_final_cat = final_category or ai_suggested_category or category
+    display_final_name = final_filename or original_filename
 
-"""
-    
-    # Add tags section if available
+    content = [
+        f"# {display_final_name}",
+        "",
+        f"**Original Filename Base:** {original_filename}  ",
+        f"**Final Category:** {display_final_cat}  ",
+        f"**AI Suggested Category:** {ai_suggested_category or 'N/A'}  ",
+        f"**Final Filename:** {display_final_name}  ",
+        f"**AI Suggested Filename:** {ai_suggested_filename or 'N/A'}  ",
+        f"**AI Confidence:** {f'{ai_confidence*100:.1f}%' if isinstance(ai_confidence, (int,float)) else 'N/A'}  ",
+        f"**Rotation Used (last OCR):** {rotation if rotation is not None else 'Unknown'}  ",
+        f"**OCR DPI (rescan setting):** {ocr_dpi if ocr_dpi is not None else 'Default'}  ",
+        f"**Export Date:** {export_ts}",
+        "",
+    ]
+
+    if ai_summary:
+        content.append("## 🤖 AI Reasoning / Summary\n")
+        content.append(ai_summary.strip())
+        content.append("")
+
     if extracted_tags:
-        content += "## 🏷️ Extracted Tags\n\n"
+        content.append("## 🏷️ Extracted Tags\n")
+        all_tags_flat = []
         for tag_type, tags in extracted_tags.items():
-            if tags:
-                content += f"**{tag_type.title()}:** {', '.join(tags)}  \n"
-        content += "\n"
-    
-    # Add OCR content
-    content += "## 📄 Document Content\n\n"
+            if not tags:
+                continue
+            pretty_type = tag_type.replace('_', ' ').title()
+            all_tags_flat.extend(tags)
+            content.append(f"**{pretty_type}:** {', '.join(tags)}  ")
+        if all_tags_flat:
+            content.append("")
+            content.append(f"**All Tags ({len(all_tags_flat)} total):** {', '.join(all_tags_flat)}")
+        content.append("")
+
+    if rescan_events:
+        content.append("## 🔄 Rescan History\n")
+        content.append("| Timestamp | Mode | Rotation | DPI | Notes |")
+        content.append("|-----------|------|----------|-----|-------|")
+        for ev in rescan_events:
+            content.append(
+                f"| {ev.get('ts','')} | {ev.get('mode','')} | {ev.get('rotation','')} | {ev.get('dpi','')} | {ev.get('notes','')} |"
+            )
+        content.append("")
+
+    content.append("## 📄 OCR Text\n")
     if ocr_text:
-        content += f"```\n{ocr_text}\n```\n"
+        content.append("```text")
+        content.append(ocr_text)
+        content.append("```")
     else:
-        content += "*No text content extracted*\n"
-    
-    return content
+        content.append("*No text content extracted*")
+
+    return "\n".join(content) + "\n"

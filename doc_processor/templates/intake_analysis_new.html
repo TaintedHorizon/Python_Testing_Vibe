@@ -362,23 +362,15 @@
                 </div>
                 
                 <div class="viewer-controls">
-                    <button onclick="openDocumentViewer('{{ analysis.filename }}', {{ analysis.detected_rotation or 0 }})" class="btn-primary">
-                        👁️ View Document
-                    </button>
-                    <button onclick="rotateDocument('{{ analysis.filename }}', 90)">
-                        ↻ Rotate Right
-                    </button>
-                    <button onclick="rotateDocument('{{ analysis.filename }}', -90)">
-                        ↺ Rotate Left
-                    </button>
-                    <button onclick="resetRotation('{{ analysis.filename }}')">
-                        🔄 Reset
-                    </button>
+                    <button onclick="openDocumentViewer('{{ analysis.filename }}', {{ analysis.detected_rotation or 0 }})" class="btn-primary">👁️ View</button>
+                    <button onclick="rotateDocument('{{ analysis.filename }}', 90)">↻ Right</button>
+                    <button onclick="rotateDocument('{{ analysis.filename }}', -90)">↺ Left</button>
+                    <button onclick="resetRotation('{{ analysis.filename }}')">🔄 Reset</button>
+                    <button onclick="cycleFitModeFor('{{ analysis.filename }}', this)">🖼️ Fit: Auto</button>
                 </div>
-                
                 <div class="rotation-info">
-                    <div><strong>Original:</strong> <span class="original-rotation">{{ analysis.detected_rotation or 0 }}° detected</span></div>
-                    <div><strong>Current:</strong> <span class="current-rotation text-info">{{ analysis.detected_rotation or 0 }}°</span></div>
+                  <div><strong>Original:</strong> <span class="original-rotation">{{ analysis.detected_rotation or 0 }}° detected</span></div>
+                  <div><strong>Current:</strong> <span class="current-rotation text-info" data-filename="{{ analysis.filename }}">{{ analysis.detected_rotation or 0 }}°</span></div>
                 </div>
             </div>
 
@@ -546,17 +538,13 @@
 {% endif %}
 
 <script>
-// Document rotation tracking
-window.documentRotations = {};
-window.originalRotations = {};
-
-// Initialize rotation data
-{% if analyses %}
-{% for analysis in analyses %}
+// Rotation tracking leveraging shared rotation_utils.js
+window.documentRotations = window.documentRotations || {};
+window.originalRotations = window.originalRotations || {};
+{% if analyses %}{% for analysis in analyses %}
 window.originalRotations['{{ analysis.filename }}'] = {{ analysis.detected_rotation or 0 }};
 window.documentRotations['{{ analysis.filename }}'] = {{ analysis.detected_rotation or 0 }};
-{% endfor %}
-{% endif %}
+{% endfor %}{% endif %}
 
 // Document viewer functions using the existing PDF modal
 function openDocumentViewer(filename, initialRotation = 0) {
@@ -578,44 +566,35 @@ function openDocumentViewer(filename, initialRotation = 0) {
     }
 }
 
-// Rotation functions
-function rotateDocument(filename, degrees) {
-    const currentRotation = window.documentRotations[filename] || 0;
-    const newRotation = (currentRotation + degrees + 360) % 360;
-    
-    window.documentRotations[filename] = newRotation;
-    
-    // Update display
-    updateRotationDisplay(filename);
-    
-    console.log(`Rotated ${filename} by ${degrees}° to ${newRotation}°`);
+// Rotation functions using shared utilities
+function rotateDocument(filename, degrees){
+    const current = window.documentRotations[filename] || 0;
+    const next = (current + degrees + 360) % 360;
+    window.documentRotations[filename] = next;
+    applyRotationVisual(filename, next);
 }
-
-function resetRotation(filename) {
-    const originalRotation = window.originalRotations[filename] || 0;
-    window.documentRotations[filename] = originalRotation;
-    
-    // Update display
-    updateRotationDisplay(filename);
-    
-    console.log(`Reset rotation for ${filename} to original ${originalRotation}°`);
+function resetRotation(filename){
+    const base = window.originalRotations[filename] || 0;
+    window.documentRotations[filename] = base;
+    applyRotationVisual(filename, base, true);
 }
-
-function updateRotationDisplay(filename) {
+function cycleFitModeFor(filename, btn){
+    const iframe = document.querySelector(`.universal-viewer[data-filename="${filename}"] iframe`);
+    if(!iframe || !window.RotationUtils) return;
+    const mode = window.RotationUtils.cycleFitMode(iframe);
+    const angle = window.documentRotations[filename] || 0;
+    window.RotationUtils.applyScaledRotation(iframe, angle);
+    btn.textContent = `🖼️ Fit: ${mode.charAt(0).toUpperCase()+mode.slice(1)}`;
+}
+function applyRotationVisual(filename, angle, isReset=false){
     const section = document.querySelector(`[data-filename="${filename}"]`);
-    if (!section) return;
-    
-    const currentRotationSpan = section.querySelector('.current-rotation');
-    const originalRotation = window.originalRotations[filename] || 0;
-    const currentRotation = window.documentRotations[filename] || 0;
-    
-    if (currentRotationSpan) {
-        currentRotationSpan.textContent = `${currentRotation}°`;
-        
-        if (currentRotation !== originalRotation) {
-            currentRotationSpan.className = 'current-rotation text-warning';
-        } else {
-            currentRotationSpan.className = 'current-rotation text-info';
+    if(section){
+        const span = section.querySelector('.current-rotation');
+        if(span){ span.textContent = `${angle}°`; span.className = `current-rotation ${angle !== (window.originalRotations[filename]||0) ? 'text-warning':'text-info'}`; }
+        // On first view injection, we lazily load iframe; if present apply transform
+        const iframe = section.querySelector('iframe');
+        if(iframe && window.RotationUtils){
+            if(isReset){ window.RotationUtils.reset(iframe); } else { window.RotationUtils.applyScaledRotation(iframe, angle); }
         }
     }
 }
@@ -670,24 +649,18 @@ function startBatchProcessing(mode) {
     alert(`Batch processing (${mode}) - TODO: Implement`);
 }
 
-function refreshAnalysis() {
-    console.log('Refreshing analysis');
-    window.location.reload();
-}
+function refreshAnalysis(){ console.log('Refreshing analysis'); window.location.reload(); }
 
-function exportResults() {
-    console.log('Exporting results');
-    
-    // TODO: Implement export
-    alert('Export results - TODO: Implement');
-}
+function exportResults(){ console.log('Exporting results'); alert('Export results - TODO: Implement'); }
 
 // Analysis functions (from original template)
-function startAnalysis() {
-    console.log('Starting document analysis');
-    
-    // TODO: Implement analysis start
-    alert('Start analysis - TODO: Implement');
-}
+function startAnalysis(){ console.log('Starting document analysis'); alert('Start analysis - TODO: Implement'); }
+</script>
+<script src="{{ url_for('static', filename='js/rotation_utils.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', ()=>{
+    // Initialize any already-injected iframes (placeholder currently)
+    document.querySelectorAll('.universal-viewer iframe').forEach(ifr=>{ if(window.RotationUtils){ window.RotationUtils.applyScaledRotation(ifr, 0); }});
+});
 </script>
 {% endblock %}

@@ -55,6 +55,8 @@ This map lists active, support, legacy, and runtime directories/files for fast o
 | `doc_processor/CHANGELOG.md` | Docs | Chronological change log |
 | `doc_processor/CONTRIBUTING.md` | Docs | Contribution guidelines (processor scope) |
 | `doc_processor/docs/USAGE.md` | Docs | Detailed usage instructions |
+| `doc_processor/docs/README.md` | Docs | Documentation index (deep dives) |
+| `doc_processor/docs/LEGACY_CODE.md` | Docs | Legacy naming & deprecation policy |
 | `.github/copilot-instructions.md` | Docs | AI assistant operational guardrails |
 | `COPILOT_QUICK_REFERENCE.md` | Docs | Quick assistant reference (consider merging) |
 | `README.md` | Docs | Repository overview & quick start |
@@ -157,6 +159,18 @@ Legacy document scanner using Ollama integration.
 *Status: Archived - superseded by doc_processor (source code only, venv removed)*
 
 ## Quick Start
+
+## Documentation
+
+For detailed subsystem and workflow documentation:
+
+- **Docs Index:** [`doc_processor/docs/README.md`](doc_processor/docs/README.md)
+- **Usage Guide:** [`doc_processor/docs/USAGE.md`](doc_processor/docs/USAGE.md)
+- **Legacy / Deprecation Policy:** [`doc_processor/docs/LEGACY_CODE.md`](doc_processor/docs/LEGACY_CODE.md)
+- **AI / LLM Detection Details:** [`doc_processor/docs/LLM_DETECTION.md`](doc_processor/docs/LLM_DETECTION.md)
+- **Deep Processor README:** [`doc_processor/readme.md`](doc_processor/readme.md)
+
+All new deep-dive technical docs should live under `doc_processor/docs/` and be linked from the Docs Index.
 
 ### For Document Processing:
 ```bash
