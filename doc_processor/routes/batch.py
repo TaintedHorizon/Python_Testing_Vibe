@@ -225,9 +225,33 @@ def _orchestrate_smart_processing(batch_id: int, strategy_overrides: dict, token
         try:
             with database_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("INSERT INTO batches (status) VALUES ('processing')")
-                batch_scan_batch_id = cursor.lastrowid
-                conn.commit()
+                # Ensure batches table exists (test schemas may omit)
+                try:
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS batches (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            status TEXT,
+                            has_been_manipulated INTEGER DEFAULT 0
+                        )
+                    """)
+                except Exception as ddl_err:
+                    logger.debug(f"[smart] batches table ensure failed (continuing): {ddl_err}")
+                # Prefer explicit column list; fallback to simple insert if schema minimal
+                created = False
+                try:
+                    cursor.execute("INSERT INTO batches (status) VALUES ('processing')")
+                    created = True
+                except Exception as primary_err:
+                    logger.debug(f"[smart] Primary batch insert failed (trying fallback): {primary_err}")
+                    try:
+                        cursor.execute("INSERT INTO batches VALUES (NULL,'processing')")
+                        created = True
+                    except Exception as fallback_err:
+                        logger.error(f"[smart] Fallback batch insert failed: {fallback_err}")
+                        raise fallback_err
+                if created:
+                    batch_scan_batch_id = cursor.lastrowid
+                    conn.commit()
         except Exception as e:
             logger.error(f"[smart] Failed to create batch-scan batch: {e}")
             yield {'error': f'Failed to create batch for batch scans: {e}', 'progress': processed, 'total': processing_total}

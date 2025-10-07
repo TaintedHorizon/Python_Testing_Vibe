@@ -94,7 +94,7 @@ def export_batch(batch_id: int):
         logger.error(f"Error starting export for batch {batch_id}: {e}")
         return jsonify(create_error_response(f"Failed to start export: {str(e)}"))
 
-@bp.route("/finalize_single_documents_batch/<int:batch_id>", methods=["POST"])
+@bp.route("/finalize_single_documents_batch/<int:batch_id>", methods=["POST"], endpoint='finalize_single_documents_batch')
 def finalize_single_documents_batch_route(batch_id: int):
     """Finalize ALL single-document records for this batch.
 

@@ -45,6 +45,7 @@ class AppConfig:
     OLLAMA_CTX_CATEGORY: int = 2048
     OLLAMA_CTX_ORDERING: int = 2048
     OLLAMA_CTX_TITLE_GENERATION: int = 4096
+    OLLAMA_CTX_TAGGING: int = 4096  # Context window for tag extraction (can be larger for broad semantic coverage)
 
     # --- Logging Configuration ---
     LOG_FILE_PATH: str = "logs/app.log"
@@ -61,6 +62,7 @@ class AppConfig:
     DEBUG_SKIP_OCR: bool = False
     ENABLE_TAG_EXTRACTION: bool = True  # Enable LLM-powered tag extraction during export
     FAST_TEST_MODE: bool = False  # When true, bypass heavy OCR/LLM for tests
+    INCLUDE_SOURCE_IMAGES_ON_EXPORT: bool = False  # When true, copy original intake images alongside exported PDFs
 
     # --- Status Constants ---
     # These are application-level constants and are not meant to be configured
@@ -152,6 +154,7 @@ class AppConfig:
                 OLLAMA_CTX_CATEGORY=int(get_env("OLLAMA_CTX_CATEGORY", str(cls.OLLAMA_CTX_CATEGORY))),
                 OLLAMA_CTX_ORDERING=int(get_env("OLLAMA_CTX_ORDERING", str(cls.OLLAMA_CTX_ORDERING))),
                 OLLAMA_CTX_TITLE_GENERATION=int(get_env("OLLAMA_CTX_TITLE_GENERATION", str(cls.OLLAMA_CTX_TITLE_GENERATION))),
+                OLLAMA_CTX_TAGGING=int(get_env("OLLAMA_CTX_TAGGING", str(cls.OLLAMA_CTX_TAGGING))),
                 
                 # Logging Configuration
                 LOG_FILE_PATH=get_env("LOG_FILE_PATH", cls.LOG_FILE_PATH),
@@ -163,6 +166,7 @@ class AppConfig:
                 DEBUG_SKIP_OCR=get_env("DEBUG_SKIP_OCR", str(cls.DEBUG_SKIP_OCR)).lower() in ("true", "1", "t"),
                 ENABLE_TAG_EXTRACTION=get_env("ENABLE_TAG_EXTRACTION", str(cls.ENABLE_TAG_EXTRACTION)).lower() in ("true", "1", "t"),
                 FAST_TEST_MODE=get_env("FAST_TEST_MODE", str(cls.FAST_TEST_MODE)).lower() in ("true", "1", "t"),
+                INCLUDE_SOURCE_IMAGES_ON_EXPORT=get_env("INCLUDE_SOURCE_IMAGES_ON_EXPORT", str(cls.INCLUDE_SOURCE_IMAGES_ON_EXPORT)).lower() in ("true", "1", "t"),
                 OCR_RESCAN_DPI=int(get_env("RESCAN_OCR_DPI", str(cls.OCR_RESCAN_DPI))),
                 OCR_RENDER_SCALE=float(get_env("OCR_RENDER_SCALE", str(cls.OCR_RENDER_SCALE))),
                 OCR_OVERLAY_TEXT_LIMIT=int(get_env("OCR_OVERLAY_TEXT_LIMIT", str(cls.OCR_OVERLAY_TEXT_LIMIT))),

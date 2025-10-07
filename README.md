@@ -86,6 +86,7 @@ Production-ready document processing pipeline with AI integration, human verific
 - **🎯 UX REVOLUTION (Oct 2, 2025)**: Unified PDF display system - all document previews now use consistent iframe approach with automatic image-to-PDF conversion
 - **🔧 CRITICAL UI FIXES (Oct 2, 2025)**: Fixed OCR rescan functionality, eliminated popup alerts, improved PDF scaling, implemented rotation persistence, added LLM reanalysis capabilities
 - **⚡ SMART PROCESSING (Oct 3, 2025)**: Unified SSE progress stream (analysis + processing), token-based cancellation, dual-batch separation, normalized PDF cache, forced rotation carry-forward for OCR
+ - **♻️ RESCAN STABILITY (Oct 7, 2025)**: Legacy-first AI classification ordering for deterministic tests, resilient filename regeneration (even with empty OCR text), FAST_TEST_MODE integration for LLM-only rescans
 
 **Key Features:**
 - End-to-end document workflow: Intake → OCR → AI Classification → Human Verification → Export
@@ -104,6 +105,8 @@ Production-ready document processing pipeline with AI integration, human verific
 - **Persistent Normalized PDF Cache**: Hash-based image→PDF conversion reuse across runs with automatic garbage collection
 - **Forced Rotation Carry-Forward**: User or analysis-detected rotation instantly applied during OCR (skips multi-angle auto detection)
  - **Runtime Rotation Serving & Cache**: On-demand rotation application (90/180/270) with timestamp-based cache invalidation and double-rotation prevention.
+ - **Deterministic Rescan Path**: LLM-only rescans prioritize legacy simple classifier first (monkeypatch friendly) then refine with structured classifier for confidence/summary enrichment.
+ - **Adaptive Filename Generation**: Intelligent regeneration triggers on category change or content hash shift—no dependency on non-empty OCR text in test mode.
 
 **Architecture:**
 - **Modular Design**: Routes organized by functionality (intake, batch, manipulation, export, admin, api)
@@ -193,6 +196,37 @@ Important:
 - Always use `./start_app.sh`. It activates the correct venv and runs `python -m doc_processor.app` from the repo root.
 - Don’t run `python app.py` or run from the `doc_processor/` subdirectory—imports will fail.
 - Smart processing workflow lives under `Batch Control` → “Smart Process” (streams progress and exposes cancel button when active).
+ - FAST_TEST_MODE (set in `.env`) short-circuits heavy OCR & AI calls where possible to produce deterministic, fast test outcomes; rescan endpoint honors this mode.
+
+#### Rescan Behavior (OCR / LLM)
+Endpoint: `/api/rescan_document/<id>`
+
+Modes:
+- `llm_only`: Reuses stored OCR text, runs legacy simple classifier first (enables deterministic monkeypatching in tests) then optional structured classifier for confidence + reasoning.
+- `ocr_and_llm`: Re-runs OCR (honoring logical rotation), persists updated text, then performs AI classification.
+- `ocr`: Only refreshes OCR fields; AI suggestions untouched.
+
+Filename Generation Logic:
+- Regenerates when (a) no previous suggestion, (b) category changed but filename remained the same, or (c) OCR text content hash changed.
+- In FAST_TEST_MODE, regeneration still occurs even with empty/mocked text—supporting unit test determinism.
+- Legacy-first ordering ensures monkeypatched `get_ai_classification` influences category and filename before structured classifier refinement.
+
+Throttling:
+- AI classification skipped if prior LLM rescan < 5 seconds ago (throttled flag returned).
+
+Return Payload Highlights:
+```
+{
+   "ai_category": "Invoice",
+   "ai_filename": "2025_Invoice_Test",
+   "updated": {"ocr": false, "ai": true},
+   "throttled_ai": false
+}
+```
+
+Planned Enhancements:
+- Confidence reconciliation strategy when legacy and structured classifiers disagree.
+- Optional override to force filename regeneration even if neither category nor hash changed.
 
 ### For Utility Tools:
 ```bash

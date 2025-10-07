@@ -11,7 +11,7 @@ This document lists all supported environment variables read by `config_manager.
 | WIP_DIR | (PROCESSED_DIR) | Backwards compatibility alias; normally same as PROCESSED_DIR. |
 | ARCHIVE_DIR | archive | Future archival store (optional currently). |
 | FILING_CABINET_DIR | filing_cabinet | Final categorized export destination. |
-| NORMALIZED_DIR | normalized | Cross-run cache of normalized PDFs (image→PDF). |
+| NORMALIZED_DIR | normalized | Cross-run cache of normalized PDFs (image→PDF). (Gitignored; safe to purge) |
 | NORMALIZED_CACHE_MAX_AGE_DAYS | 14 | Age threshold for background GC of normalized cache. |
 | OLLAMA_HOST | (none) | URL of local Ollama server. |
 | OLLAMA_MODEL | (none) | Model name/tag to use for LLM tasks. |
@@ -23,6 +23,7 @@ This document lists all supported environment variables read by `config_manager.
 | OLLAMA_CTX_CATEGORY | 2048 | Context window for per-page category assignment. |
 | OLLAMA_CTX_ORDERING | 2048 | Context window for ordering tasks. |
 | OLLAMA_CTX_TITLE_GENERATION | 4096 | Context window for filename/title generation. |
+| OLLAMA_CTX_TAGGING | 4096 | Context window for tag extraction (document semantic feature mining). |
 | LOG_FILE_PATH | logs/app.log | Main log file path. |
 | LOG_MAX_BYTES | 10485760 | Size threshold for rotating log file. |
 | LOG_BACKUP_COUNT | 5 | Number of rotated log backups to retain. |
@@ -30,6 +31,7 @@ This document lists all supported environment variables read by `config_manager.
 | DEBUG_SKIP_OCR | false | Skip heavy OCR in certain code paths (legacy flag). |
 | ENABLE_TAG_EXTRACTION | true | Perform LLM tag extraction during export (adds latency). |
 | FAST_TEST_MODE | false | Bypass heavy OCR/LLM in tests; creates fallback searchable PDFs. |
+| INCLUDE_SOURCE_IMAGES_ON_EXPORT | false | When true, also copy original intake image files (JPG/PNG/etc) from batch archive into final category folder alongside PDFs. |
 | RESCAN_OCR_DPI | 180 | DPI for manual rescan OCR rendering. |
 | OCR_RENDER_SCALE | 2.0 | Scale factor for PDF rasterization (2.0 ≈ 144 DPI). |
 | OCR_OVERLAY_TEXT_LIMIT | 2000 | Truncation limit for invisible per-page OCR overlay text. |

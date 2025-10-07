@@ -78,9 +78,9 @@ Extract tags now:"""
         
         logging.debug(f"🏷️  Sending tag extraction request for {document_name}")
         response = _query_ollama(
-            prompt, 
-            timeout=app_config.OLLAMA_TIMEOUT, 
-            context_window=app_config.OLLAMA_CTX_TITLE_GENERATION,  # Use title generation context size
+            prompt,
+            timeout=app_config.OLLAMA_TIMEOUT,
+            context_window=getattr(app_config, 'OLLAMA_CTX_TAGGING', getattr(app_config, 'OLLAMA_CTX_TITLE_GENERATION', 4096)),
             task_name="tag_extraction"
         )
         
