@@ -18,7 +18,8 @@ opencv-python-headless>=4.8.0
 
 # --- PDF and Image Handling ---
 # pdf2image is a wrapper for pdftoppm to convert PDF files into a sequence of PIL Image objects.
-pdf2image>=3.1.0
+# NOTE: Pinned to 1.17.0 due to environment index lacking >=3.x at install time.
+pdf2image==1.17.0
 # PyMuPDF (fitz) is used for PDF text extraction and manipulation, providing fast PDF processing capabilities.
 PyMuPDF>=1.23.0
 # numpy is a fundamental package for scientific computing, often used for handling image data as arrays.

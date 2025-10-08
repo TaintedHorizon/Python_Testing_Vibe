@@ -244,6 +244,27 @@ class ExportService:
                 'success': False,
                 'error': f'Dual format export failed: {str(e)}'
             }
+
+    # --- Grouped Workflow Placeholder (lightweight) ---
+    def export_grouped_documents(self, batch_id: int) -> Dict[str, Any]:
+        """Placeholder grouped export that enumerates grouped documents and logs intent.
+
+        This allows UI actions to call a stable endpoint even while full
+        implementation (PDF assembly, metadata packaging) evolves.
+        """
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            try:
+                rows = cur.execute("SELECT d.id, d.document_name FROM documents d WHERE d.batch_id = ? ORDER BY d.id", (batch_id,)).fetchall()
+            except Exception as e:
+                return {'success': False, 'error': f'Grouped export unavailable (schema missing): {e}'}
+            doc_summaries = [f"{r[0]}:{r[1]}" for r in rows]
+            logger.info(f"[export] grouped export placeholder for batch {batch_id} docs={len(rows)}")
+            return {'success': True, 'documents': doc_summaries, 'message': 'Grouped export placeholder'}
+        except Exception as e:
+            logger.error(f"Grouped export placeholder failed: {e}")
+            return {'success': False, 'error': str(e)}
     
     def _include_original_files(self, batch_id: int, export_result: Dict[str, Any]) -> None:
         """Include original files in the export."""

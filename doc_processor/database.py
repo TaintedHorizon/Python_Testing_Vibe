@@ -224,6 +224,50 @@ def get_db_connection():
     # Set busy timeout for additional safety
     conn.execute("PRAGMA busy_timeout=30000")  # 30 seconds in milliseconds
     
+    # Lightweight on-demand schema ensures for legacy grouped workflow restoration.
+    # We gate this behind a quick PRAGMA table_info check to avoid overhead on hot paths.
+    try:
+        cursor = conn.cursor()
+        # Ensure 'documents' table (grouped workflow) exists with minimal needed columns.
+        cursor.execute("PRAGMA table_info(documents)")
+        cols = [r[1] for r in cursor.fetchall()]
+        if not cols:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS documents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id INTEGER,
+                    document_name TEXT,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    final_filename_base TEXT,
+                    FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
+                )
+                """
+            )
+        # Ensure document_pages junction table for grouping exists
+        cursor.execute("PRAGMA table_info(document_pages)")
+        dp_cols = [r[1] for r in cursor.fetchall()]
+        if not dp_cols:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS document_pages (
+                    document_id INTEGER,
+                    page_id INTEGER,
+                    sequence INTEGER,
+                    PRIMARY KEY(document_id, page_id),
+                    FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+                    FOREIGN KEY(page_id) REFERENCES pages(id) ON DELETE CASCADE
+                )
+                """
+            )
+    except Exception as _schema_err:
+        # Non-fatal; grouped workflow features will self-diagnose if tables truly missing.
+        try:
+            logging.getLogger(__name__).debug(f"[schema-ensure] grouped tables ensure warning: {_schema_err}")
+        except Exception:
+            pass
+    
     return conn
 
 
@@ -457,6 +501,76 @@ def get_documents_for_batch(batch_id):
     ).fetchall()
     conn.close()
     return documents
+
+def insert_grouped_document(batch_id: int, document_name: str, page_ids: list[int]) -> int | None:
+    """Create a grouped document (legacy workflow) and link given page IDs.
+
+    Falls back gracefully if grouped tables absent (returns None).
+
+    Args:
+        batch_id (int): Owning batch.
+        document_name (str): Human readable name.
+        page_ids (list[int]): Ordered page ids.
+
+    Returns:
+        int | None: New document id or None on failure/missing schema.
+    """
+    conn = get_db_connection()
+    try:
+        with conn:
+            cur = conn.execute(
+                "INSERT INTO documents (batch_id, document_name, status) VALUES (?,?, 'pending')",
+                (batch_id, document_name)
+            )
+            doc_id = cur.lastrowid
+            seq_rows = [(doc_id, pid, idx+1) for idx, pid in enumerate(page_ids)]
+            if seq_rows:
+                conn.executemany(
+                    "INSERT INTO document_pages (document_id, page_id, sequence) VALUES (?,?,?)",
+                    seq_rows
+                )
+            # Auto-mark order_set if single page
+            if len(page_ids) == 1:
+                conn.execute("UPDATE documents SET status='order_set' WHERE id = ?", (doc_id,))
+            return doc_id
+    except sqlite3.Error as e:
+        try:
+            logging.getLogger(__name__).warning(f"insert_grouped_document failed (schema missing or SQL error): {e}")
+        except Exception:
+            pass
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def get_grouped_documents_for_batch(batch_id: int):
+    """Return grouped documents with page counts for batch (legacy workflow).
+
+    Returns empty list if documents table absent.
+    """
+    conn = get_db_connection()
+    try:
+        try:
+            rows = conn.execute(
+                """
+                SELECT d.id, d.document_name, d.status, d.created_at, d.final_filename_base,
+                       COUNT(dp.page_id) AS page_count
+                FROM documents d
+                LEFT JOIN document_pages dp ON d.id = dp.document_id
+                WHERE d.batch_id = ?
+                GROUP BY d.id
+                ORDER BY d.created_at DESC
+                """,
+                (batch_id,)
+            ).fetchall()
+            return rows
+        except sqlite3.Error as inner_e:
+            # Likely missing table during single-doc only workflows
+            logging.getLogger(__name__).debug(f"get_grouped_documents_for_batch skipped: {inner_e}")
+            return []
+    finally:
+        if conn:
+            conn.close()
 
 def get_single_documents_for_batch(batch_id):
     """Return single-document workflow records for a batch.

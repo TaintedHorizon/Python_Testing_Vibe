@@ -37,12 +37,17 @@
 <h1>📊 Batch Control</h1>
 <p>Monitor and manage your document processing batches. To start processing new documents, use <strong>Analyze Intake</strong> from the navigation menu.</p>
 
+<form id="start-new-batch" action="{{ url_for('batch.start_new_batch') }}" method="post" style="margin-top:20px;margin-bottom:10px;text-align:right;">
+    <button type="submit" class="action-btn btn-group" style="background:#198754;font-size:0.95rem;">➕ Start New Batch</button>
+</form>
+
 <table class="history-table">
     <thead>
         <tr>
             <th>🆔 Batch ID</th>
-            <th>⏰ Start Time</th>
+            <th>⏰ Created</th>
             <th>📊 Status</th>
+            <th>📄 Docs</th>
             <th>⚙️ Actions</th>
             <th>🔍 Audit</th>
         </tr>
@@ -53,6 +58,7 @@
             <td>#{{ batch.id }}</td>
             <td>{{ batch.start_time }}</td>
             <td>{{ batch.status | replace('_', ' ') | title }}</td>
+            <td>{{ batch.document_count }}</td>
             <td>
                 {% if batch.status == 'pending_verification' %}
                     <a href="{{ url_for('manipulation.verify_batch', batch_id=batch.id) }}" class="action-btn btn-verify">✅ Verify</a>
@@ -115,7 +121,7 @@
         </tr>
         {% else %}
         <tr>
-            <td colspan="4" style="text-align: center;">No batches have been processed yet. Click "Start New Batch" to begin.</td>
+            <td colspan="6" style="text-align: center;">No batches have been processed yet. Click "Start New Batch" to begin.</td>
         </tr>
         {% endfor %}
     </tbody>

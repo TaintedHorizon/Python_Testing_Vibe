@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 
 ## [Unreleased]
+### Restored Grouped Workflow (2025-10-08)
+- Re-introduced lightweight grouped documents schema (on-demand ensure for `documents` & `document_pages`).
+- Added helpers: `insert_grouped_document`, `get_grouped_documents_for_batch`.
+- Service bridge `DocumentService.record_grouped_document` for decoupled creation.
+- Batch Control route hardened against missing `start_time` column and now exposes `/batch/start_new` for quick batch creation.
+- Added intake auto-batch support (`/intake/api/ensure_batch`) and cache purge when all batches exported so Analyze Intake starts fresh.
+- Added grouped export placeholder `ExportService.export_grouped_documents` so UI can call stable action while full export matures.
+- Template `batch_control.html` updated with Start New Batch button & resilient columns.
+- Dev simulation route `/batch/dev/simulate_grouped/<batch_id>` (enabled only with `FLASK_DEBUG=1`) to fabricate grouped doc quickly.
+- Documentation updates to reflect restored workflow.
 - Enhancement: Hydrated manipulation UI for single document workflow. Added `get_single_documents_for_batch` accessor, real data population (AI + OCR) and improved empty-state UX. Added basic tests for route.
 - Enhancement: Grouped-document parity (Level A) in manipulation route with first-page OCR preview and filename editing.
 - Feature: Added `/document/api/rotate_document/<id>` and `/document/api/rescan_document/<id>` Tier 2 endpoints (AI refresh) for single-document workflow.

@@ -17,7 +17,7 @@ from datetime import datetime
 
 # Import existing modules (these imports will need to be adjusted based on the actual module structure)
 from ..database import (
-    get_db_connection, get_batch_by_id, get_documents_for_batch
+    get_db_connection, get_batch_by_id, get_documents_for_batch, insert_grouped_document
 )
 from ..processing import process_batch, database_connection, process_single_document
 from ..config_manager import app_config
@@ -342,32 +342,45 @@ def batch_control():
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            
-            # Get all batches with their status
-            cursor.execute("""
-                SELECT b.id, b.status, b.start_time,
+            # Some schemas (older/minimal) do not have a start_time column; build a resilient query.
+            # Attempt to detect start_time, otherwise synthesize a timestamp via rowid ordering.
+            cursor.execute("PRAGMA table_info(batches)")
+            batch_cols = [r[1] for r in cursor.fetchall()]
+            has_start_time = 'start_time' in batch_cols
+            time_select = 'b.start_time' if has_start_time else 'NULL as start_time'
+            time_group = ', b.start_time' if has_start_time else ''
+            time_order = 'b.start_time DESC' if has_start_time else 'b.id DESC'
+            query = f"""
+                SELECT b.id, b.status, {time_select},
                        COUNT(d.id) as document_count,
-                       COUNT(CASE WHEN d.status = 'completed' THEN 1 END) as completed_count
+                       SUM(CASE WHEN d.status = 'completed' THEN 1 ELSE 0 END) as completed_count
                 FROM batches b
                 LEFT JOIN documents d ON b.id = d.batch_id
-                GROUP BY b.id, b.status, b.start_time
-                ORDER BY b.start_time DESC
-            """)
-            
+                GROUP BY b.id, b.status{time_group}
+                ORDER BY {time_order}
+            """
+            cursor.execute(query)
+            rows = cursor.fetchall()
+
             batches = []
-            for row in cursor.fetchall():
+            for row in rows:
                 batch_id, status, start_time, doc_count, completed_count = row
+                # Derive progress
+                progress_percent = (completed_count / doc_count * 100) if doc_count else 0
                 batches.append({
                     'id': batch_id,
-                    'name': f'Batch {batch_id}',  # Generate a name since there's no name column
+                    'name': f'Batch {batch_id}',
                     'status': status,
-                    'start_time': start_time,  # Add start_time for template
-                    'created_at': start_time,  # Map start_time to created_at for template compatibility
+                    'start_time': start_time,
+                    'created_at': start_time,
                     'document_count': doc_count,
                     'completed_count': completed_count,
-                    'progress_percent': (completed_count / doc_count * 100) if doc_count > 0 else 0
+                    'progress_percent': progress_percent,
+                    # Placeholders for grouped workflow counts (hydrated later if needed)
+                    'ungrouped_count': None,
+                    'flagged_count': 0,
+                    'audit_url': url_for('batch.batch_audit', batch_id=batch_id)
                 })
-            
             return render_template('batch_control.html', batches=batches)
             
     except Exception as e:
@@ -441,6 +454,56 @@ def process_new_batch():
     except Exception as e:
         logger.error(f"Error creating new batch: {e}")
         return jsonify(create_error_response(f"Failed to create batch: {str(e)}"))
+
+@bp.route('/start_new', methods=['POST'])
+def start_new_batch():
+    """Lightweight batch creation endpoint for UI 'Start New Batch' button.
+
+    Creates a batch with status 'intake' (or 'ready' if you prefer immediate processing later)
+    and redirects back to control page. Avoids triggering processing automatically to let
+    user choose smart vs traditional.
+    """
+    try:
+        with database_connection() as conn:
+            cursor = conn.cursor()
+            # Resilient insert (some minimal schemas only have id/status)
+            try:
+                cursor.execute("INSERT INTO batches (status) VALUES ('intake')")
+            except Exception:
+                cursor.execute("INSERT INTO batches VALUES (NULL,'intake')")
+            new_id = cursor.lastrowid
+        flash(f"Created Batch {new_id}", 'success')
+    except Exception as e:
+        logger.error(f"start_new_batch failed: {e}")
+        flash(f"Failed to create batch: {e}", 'error')
+    return redirect(url_for('batch.batch_control'))
+
+@bp.route('/dev/simulate_grouped/<int:batch_id>', methods=['POST'])
+def dev_simulate_grouped(batch_id: int):
+    """Dev-only helper: create a fake grouped document with up to first 3 page ids in batch.
+
+    Safe no-op if pages table unavailable. Not for production use.
+    """
+    # Allow simulation only when debugging explicitly enabled via environment flag
+    if not (os.getenv('FLASK_DEBUG') == '1' or os.getenv('APP_DEBUG') == '1'):
+        flash('Simulation disabled (set FLASK_DEBUG=1 to enable)', 'warning')
+        return redirect(url_for('batch.batch_control'))
+    try:
+        with database_connection() as conn:
+            cur = conn.cursor()
+            try:
+                pids = [r[0] for r in cur.execute("SELECT id FROM pages WHERE batch_id = ? ORDER BY id LIMIT 3", (batch_id,)).fetchall()]
+            except Exception:
+                pids = []
+        if pids:
+            insert_grouped_document(batch_id, f"SimDoc_{batch_id}_{int(time.time())}", pids)
+            flash(f"Created simulated grouped document with {len(pids)} page(s)", 'success')
+        else:
+            flash('No pages available to simulate grouped document', 'info')
+    except Exception as e:
+        logger.error(f"simulate_grouped failed: {e}")
+        flash(f"Simulation error: {e}", 'error')
+    return redirect(url_for('batch.batch_control'))
 
 @bp.route("/process_smart", methods=["POST"])
 def process_batch_smart():

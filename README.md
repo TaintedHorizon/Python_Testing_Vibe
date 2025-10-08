@@ -87,6 +87,7 @@ Production-ready document processing pipeline with AI integration, human verific
 - **🔧 CRITICAL UI FIXES (Oct 2, 2025)**: Fixed OCR rescan functionality, eliminated popup alerts, improved PDF scaling, implemented rotation persistence, added LLM reanalysis capabilities
 - **⚡ SMART PROCESSING (Oct 3, 2025)**: Unified SSE progress stream (analysis + processing), token-based cancellation, dual-batch separation, normalized PDF cache, forced rotation carry-forward for OCR
  - **♻️ RESCAN STABILITY (Oct 7, 2025)**: Legacy-first AI classification ordering for deterministic tests, resilient filename regeneration (even with empty OCR text), FAST_TEST_MODE integration for LLM-only rescans
+ - **📂 GROUPED WORKFLOW RESTORED (Oct 8, 2025)**: Re-enabled legacy grouped documents pipeline with on-demand schema ensure (`documents`, `document_pages`), resilient batch control (no `start_time` dependency), new `/batch/start_new` route, intake auto-batch creation endpoint, Start New Batch UI button, grouped export placeholder, and dev simulation route for rapid validation.
 
 **Key Features:**
 - End-to-end document workflow: Intake → OCR → AI Classification → Human Verification → Export

@@ -13,7 +13,7 @@ import os
 import logging
 from typing import List, Dict, Any, Optional, Tuple, Union
 # Note: These imports may need adjustment based on actual module structure
-from ..database import get_db_connection
+from ..database import get_db_connection, insert_grouped_document
 from ..processing import process_batch, process_image_file, database_connection
 from ..document_detector import get_detector
 from ..config_manager import app_config
@@ -304,3 +304,30 @@ class DocumentService:
                 'success': False,
                 'error': f'Failed to start processing: {str(e)}'
             }
+
+    # --- Grouped Workflow Bridge Utilities ---
+    def record_grouped_document(self, batch_id: int, document_name: str, page_ids: List[int]) -> Dict[str, Any]:
+        """Create a grouped document and link ordered page ids.
+
+        This is a thin service wrapper over database.insert_grouped_document so
+        route handlers can remain decoupled from raw SQL details and we can
+        evolve business logic (logging, validation) later.
+
+        Args:
+            batch_id: Owning batch id
+            document_name: Display / logical name for document
+            page_ids: Ordered list of page primary keys
+
+        Returns:
+            Dict with success flag, document_id (if success) and error message when failed.
+        """
+        try:
+            if not page_ids:
+                return {'success': False, 'error': 'No pages provided'}
+            doc_id = insert_grouped_document(batch_id, document_name, page_ids)
+            if doc_id is None:
+                return {'success': False, 'error': 'Grouped document creation failed (schema missing?)'}
+            return {'success': True, 'document_id': doc_id}
+        except Exception as e:
+            logger.error(f"record_grouped_document error: {e}")
+            return {'success': False, 'error': str(e)}

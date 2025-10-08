@@ -9,10 +9,11 @@ Benefits:
 - Reduced merge conflicts in team development
 """
 
-from flask import Blueprint, render_template, jsonify, request, Response
+from flask import Blueprint, render_template, jsonify, request, Response, redirect, url_for, flash
 from ..document_detector import get_detector
 from ..config_manager import app_config
 from ..database import get_db_connection
+from ..processing import database_connection
 import logging
 import json
 import os
@@ -139,6 +140,33 @@ def _resolve_working_pdf_path(original_filename: str) -> str:
 @intake_bp.route("/analyze_intake")
 def analyze_intake_page():
     """Display the intake analysis page with cached results if available."""
+    # If all previous batches exported, encourage fresh batch by clearing cached analyses
+    try:
+        purge_cache = False
+        with database_connection() as conn:
+            cur = conn.cursor()
+            # Detect if there are any non-exported batches; tolerate missing column names
+            cur.execute("PRAGMA table_info(batches)")
+            cols = [r[1] for r in cur.fetchall()]
+            status_col = 'status' if 'status' in cols else None
+            if status_col:
+                try:
+                    row = cur.execute("SELECT COUNT(*) FROM batches WHERE status != 'exported' AND status != 'Exported'").fetchone()
+                    if row and row[0] == 0:
+                        purge_cache = True
+                except Exception:
+                    pass
+        if purge_cache:
+            import tempfile, os as _os
+            cache_file = _os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+            if _os.path.exists(cache_file):
+                try:
+                    _os.remove(cache_file)
+                    logging.info("Purged cached analyses because all batches exported")
+                except Exception:
+                    pass
+    except Exception as _purge_err:
+        logging.debug(f"Cache purge check failed: {_purge_err}")
     # Check if we have cached analysis results to avoid re-analyzing
     cached_analyses = None
     try:
@@ -184,6 +212,36 @@ def analyze_intake_page():
     return render_template("intake_analysis.html", 
                          analyses=cached_analyses,  # Use cached if available
                          intake_dir=app_config.INTAKE_DIR)
+
+@intake_bp.route('/api/ensure_batch', methods=['POST'])
+def ensure_active_batch():
+    """Ensure there is an active batch (create one if none exist or all exported).
+
+    Returns JSON with batch_id.
+    """
+    try:
+        with database_connection() as conn:
+            cur = conn.cursor()
+            # Try to find a non-exported batch
+            batch_id = None
+            try:
+                cur.execute("SELECT id FROM batches WHERE status NOT IN ('exported','Exported') ORDER BY id DESC LIMIT 1")
+                row = cur.fetchone()
+                if row:
+                    batch_id = row[0]
+            except Exception:
+                pass
+            if batch_id is None:
+                # Create new batch
+                try:
+                    cur.execute("INSERT INTO batches (status) VALUES ('intake')")
+                except Exception:
+                    cur.execute("INSERT INTO batches VALUES (NULL,'intake')")
+                batch_id = cur.lastrowid
+        return jsonify({'success': True, 'batch_id': batch_id})
+    except Exception as e:
+        logging.error(f"ensure_active_batch failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @intake_bp.route("/api/analyze_intake_progress")
 def analyze_intake_progress():
