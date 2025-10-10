@@ -246,7 +246,12 @@ def classify_single_page(page_text: str) -> str:
         {'role': 'user', 'content': page_text}
     ]
     # Set model-specific options. `num_ctx` defines the context window size. 
-    options = {'num_ctx': 4096}
+    try:
+        env_num = os.getenv('OLLAMA_NUM_GPU')
+        num_gpu_val = int(env_num) if env_num is not None else 0
+    except Exception:
+        num_gpu_val = 0
+    options = {'num_ctx': 4096, 'num_gpu': num_gpu_val}
 
     # Implement a retry loop to handle transient network or model errors. 
     for attempt in range(MAX_RETRIES):
@@ -303,7 +308,12 @@ def generate_title_for_group(group_text: str, category: str) -> str:
         {'role': 'user', 'content': group_text}
     ]
     # Use the full context window for better title generation. 
-    options = {'num_ctx': OLLAMA_CONTEXT_WINDOW}
+    try:
+        env_num = os.getenv('OLLAMA_NUM_GPU')
+        num_gpu_val = int(env_num) if env_num is not None else 0
+    except Exception:
+        num_gpu_val = 0
+    options = {'num_ctx': OLLAMA_CONTEXT_WINDOW, 'num_gpu': num_gpu_val}
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -343,7 +353,12 @@ def get_correct_page_order(document_group_text: str, original_page_numbers: list
         {'role': 'system', 'content': system_prompt},
         {'role': 'user', 'content': user_query}
     ]
-    options = {'num_ctx': OLLAMA_CONTEXT_WINDOW}
+    try:
+        env_num = os.getenv('OLLAMA_NUM_GPU')
+        num_gpu_val = int(env_num) if env_num is not None else 0
+    except Exception:
+        num_gpu_val = 0
+    options = {'num_ctx': OLLAMA_CONTEXT_WINDOW, 'num_gpu': num_gpu_val}
 
     for attempt in range(MAX_RETRIES):
         try:

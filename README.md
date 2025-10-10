@@ -1,6 +1,31 @@
 
 # Python_Testing_Vibe
 
+Recent changes (see `doc_processor/CHANGELOG.md` for full details):
+
+- Hardened database behavior: the application now protects against accidental
+   creation or overwrite of repository-local SQLite files. Tests and local runs
+   run against a temporary database unless explicitly allowed. A `DB_BACKUP_DIR`
+   configuration option is respected for backing up database snapshots.
+- Deterministic tests: pytest runs use an isolated temporary SQLite database and
+   `FAST_TEST_MODE` to avoid heavy processing during tests. The export worker is
+   executed inline in `FAST_TEST_MODE` to prevent timing/race issues in the
+   test suite.
+- Ollama (LLM) client behavior: the central LLM helper now prefers using the
+   installed Python `ollama` client and passes `options.num_gpu` (derived from
+   `OLLAMA_NUM_GPU`) to request CPU vs GPU execution. If the client fails or
+   returns an invalid result, a robust HTTP fallback to `/api/generate` is used
+   so different client/server versions are tolerated.
+- Legacy scripts that instantiated `ollama.Client` directly were patched to
+   honor `OLLAMA_NUM_GPU` so dev tools don't unintentionally force GPU usage.
+- Integration test: an optional, skipped-by-default integration test
+   (`doc_processor/tests/test_ollama_integration.py`) was added; enable it by
+   setting `RUN_OLLAMA_INTEGRATION=1` to validate that `num_gpu=0` results in
+   CPU execution on your Ollama host.
+
+For development and running tests, see `doc_processor/.github/copilot-instructions.md`
+and the `doc_processor/README.md` for project-specific startup instructions.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A multi-purpose development repository containing various Python projects and utilities, with a focus on document processing and system administration tools.

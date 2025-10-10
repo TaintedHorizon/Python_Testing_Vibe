@@ -275,47 +275,76 @@ def _query_ollama(prompt: str, timeout: int = 45, context_window: int = 4096, ta
         
     try:
         import ollama
+        import requests
 
-        # Determine GPU usage preference: prefer explicit environment variable so tests can monkeypatch it
-        def _ollama_use_gpu() -> bool:
-            v = os.getenv('OLLAMA_NUM_GPU')
-            if v is not None:
-                try:
-                    return int(v) > 0
-                except Exception:
-                    return False
+        # Safely derive a numeric num_gpu value from env or app_config
+        env_num_gpu = os.getenv('OLLAMA_NUM_GPU')
+        if env_num_gpu is not None:
             try:
-                return bool(getattr(app_config, 'OLLAMA_NUM_GPU', 0) and int(getattr(app_config, 'OLLAMA_NUM_GPU', 0)) > 0)
+                num_gpu_val = int(env_num_gpu)
             except Exception:
-                return False
+                num_gpu_val = 0
+        else:
+            try:
+                num_gpu_val = int(getattr(app_config, 'OLLAMA_NUM_GPU', 0))
+            except Exception:
+                num_gpu_val = 0
 
-        use_gpu = _ollama_use_gpu()
-        logging.debug(f"🌐 Creating Ollama client for {app_config.OLLAMA_HOST} (use_gpu={use_gpu})")
+        options = {'num_ctx': context_window, 'num_gpu': num_gpu_val}
 
-        # Try to pass GPU hint to the client if supported; fall back if the kwarg is not accepted
-        try:
-            client = ollama.Client(host=app_config.OLLAMA_HOST, gpu=use_gpu)
-        except TypeError:
-            client = ollama.Client(host=app_config.OLLAMA_HOST)
-
-        messages = [{'role': 'user', 'content': prompt}]
-        # Include context and GPU hint in options so servers/clients that accept it can honor it
-        options = {'num_ctx': context_window, 'use_gpu': use_gpu}
-
-        logging.info(f"🌐 Sending {task_name} request to Ollama model {app_config.OLLAMA_MODEL} (timeout: {timeout}s)")
+        logging.info(f"🌐 Sending {task_name} request to Ollama model {app_config.OLLAMA_MODEL} (timeout: {timeout}s) num_gpu={num_gpu_val}")
         logging.debug(f"🌐 Request options: {options}")
 
-        response = client.chat(
-            model=app_config.OLLAMA_MODEL,
-            messages=messages,
-            options=options
-        )
+        # First attempt: use the Python client library (preferred)
+        try:
+            client = ollama.Client(host=app_config.OLLAMA_HOST)
+            messages = [{'role': 'user', 'content': prompt}]
+            response = client.chat(
+                model=app_config.OLLAMA_MODEL,
+                messages=messages,
+                options=options,
+            )
+            # Extract content if present
+            try:
+                msg = getattr(response, 'message', None)
+                content = getattr(msg, 'content', None) if msg is not None else None
+                result = content.strip() if isinstance(content, str) else str(response)
+            except Exception:
+                result = str(response)
 
-        result = response['message']['content'].strip()
-        logging.info(f"✅ Ollama {task_name} response received: {len(result)} characters")
-        logging.debug(f"✅ Response preview: {result[:200]}{'...' if len(result) > 200 else ''}")
-        return result
+            # Validate result is non-empty string
+            if not result or not isinstance(result, str):
+                raise ValueError('Empty or invalid response from ollama.Client.chat')
 
+            logging.info(f"✅ Ollama (client) {task_name} response received: {len(result)} characters")
+            logging.debug(f"✅ Response preview: {result[:200]}{'...' if len(result) > 200 else ''}")
+            return result
+        except Exception as client_ex:
+            logging.warning(f"⚠️ Ollama client.chat failed or returned invalid response, falling back to HTTP generate: {client_ex}")
+            logging.debug("⚠️ Client exception traceback:", exc_info=True)
+
+        # Fallback: call the HTTP /api/generate endpoint with the same options
+        try:
+            payload = {
+                'model': app_config.OLLAMA_MODEL,
+                'prompt': prompt,
+                'stream': False,
+                'options': options,
+            }
+            url = app_config.OLLAMA_HOST.rstrip('/') + '/api/generate'
+            resp = requests.post(url, json=payload, timeout=(3, timeout))
+            resp.raise_for_status()
+            data = resp.json()
+            result = data.get('response') or data.get('message', {}).get('content') or ''
+            result = result.strip() if isinstance(result, str) else str(result)
+            logging.info(f"✅ Ollama (http) {task_name} response received: {len(result)} characters")
+            logging.debug(f"✅ HTTP Response preview: {result[:200]}{'...' if len(result) > 200 else ''}")
+            return result
+        except Exception as http_ex:
+            logging.error(f"💥 Ollama HTTP fallback failed for {task_name}: {http_ex}")
+            logging.debug("💥 HTTP fallback traceback:", exc_info=True)
+            return None
+        
     except ImportError as ie:
         logging.error(f"❌ ollama package not installed - run: pip install ollama. Error: {ie}")
         return None

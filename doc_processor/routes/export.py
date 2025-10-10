@@ -109,10 +109,20 @@ def finalize_single_documents_batch_route(batch_id: int):
         force = request.form.get('force') == '1' or request.args.get('force') == '1'
         json_sidecar = request.form.get('json_sidecar') == '1' or request.args.get('json_sidecar') == '1'
 
-        # Short-circuit if an export is already running
+        # Short-circuit if an export is already running. Also clear any stale
+        # internal state for this batch to avoid races from prior test runs.
         existing = export_service.get_export_status(batch_id)
         if existing.get('status') in {'starting', 'finalizing', 'finalizing_single'}:
             return jsonify(create_error_response("Export already in progress for this batch")), 409
+        try:
+            # Best-effort reset of previous export status and route cache for this batch
+            export_service.reset_export_status(batch_id)
+            with _route_status_lock:
+                if batch_id in _route_status_cache:
+                    del _route_status_cache[batch_id]
+        except Exception:
+            # Non-fatal; continue with launching export
+            pass
 
         def progress_callback(current, total, message, details):
             snapshot = {
@@ -163,7 +173,31 @@ def finalize_single_documents_batch_route(batch_id: int):
                 }
                 _merge_status(batch_id, fail_snapshot)
 
-        threading.Thread(target=worker, daemon=True).start()
+        # Populate an initial 'starting' snapshot so polling clients see progress immediately
+        try:
+            init_snapshot = {
+                'status': 'starting',
+                'mode': 'single_documents',
+                'progress': 0,
+                'message': 'Export queued',
+                'details': 'Worker scheduled',
+                'current': 0,
+                'total': 0,
+                'batch_id': batch_id
+            }
+            _merge_status(batch_id, init_snapshot)
+        except Exception:
+            pass
+        # In FAST_TEST_MODE we run the worker inline to make tests deterministic
+        # and avoid background thread scheduling delays causing test timeouts.
+        if getattr(app_config, 'FAST_TEST_MODE', False):
+            try:
+                worker()
+            except Exception:
+                # Ensure any exception inside inline worker is logged by worker itself
+                pass
+        else:
+            threading.Thread(target=worker, daemon=True).start()
         return jsonify(create_success_response({'message': f'Started single-document export for batch {batch_id}', 'batch_id': batch_id, 'force': force, 'json_sidecar': json_sidecar}))
     except Exception as e:
         logger.error(f"Error launching single-doc export for batch {batch_id}: {e}")

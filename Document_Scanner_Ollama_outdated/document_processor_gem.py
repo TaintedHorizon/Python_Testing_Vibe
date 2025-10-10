@@ -111,7 +111,13 @@ def classify_single_page(page_text: str, recent_categories: list[str]) -> str:
     recent_categories_str = ", ".join(f"'{cat}'" for cat in recent_categories) if recent_categories else "None yet"
     system_prompt = CLASSIFICATION_PROMPT_TEMPLATE.format(categories_list=categories_list_str, recent_categories=recent_categories_str)
     messages = [{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': page_text}]
-    options = {'num_ctx': 4096}
+    # Respect OLLAMA_NUM_GPU env value (if set) so external scripts can request CPU-only.
+    try:
+        env_num = os.getenv('OLLAMA_NUM_GPU')
+        num_gpu_val = int(env_num) if env_num is not None else 0
+    except Exception:
+        num_gpu_val = 0
+    options = {'num_ctx': 4096, 'num_gpu': num_gpu_val}
     for attempt in range(MAX_RETRIES):
         try:
             response = ollama_client.chat(model=OLLAMA_MODEL, messages=messages, options=options)
@@ -130,7 +136,12 @@ def classify_single_page(page_text: str, recent_categories: list[str]) -> str:
 def generate_title_and_subcategory(group_text: str, category: str) -> tuple[str, str]:
     system_prompt = TITLING_PROMPT_TEMPLATE.format(category=category)
     messages = [{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': group_text}]
-    options = {'num_ctx': OLLAMA_CONTEXT_WINDOW}
+    try:
+        env_num = os.getenv('OLLAMA_NUM_GPU')
+        num_gpu_val = int(env_num) if env_num is not None else 0
+    except Exception:
+        num_gpu_val = 0
+    options = {'num_ctx': OLLAMA_CONTEXT_WINDOW, 'num_gpu': num_gpu_val}
     for attempt in range(MAX_RETRIES):
         try:
             logging.info(f"Generating title/subcategory for '{category}' group...")
@@ -150,7 +161,12 @@ def get_correct_page_order(document_group_text: str, original_page_numbers: list
     system_prompt = ORDERING_PROMPT
     user_query = f"Determine the correct page order for the following document text:\n\n{document_group_text}"
     messages = [{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': user_query}]
-    options = {'num_ctx': OLLAMA_CONTEXT_WINDOW}
+    try:
+        env_num = os.getenv('OLLAMA_NUM_GPU')
+        num_gpu_val = int(env_num) if env_num is not None else 0
+    except Exception:
+        num_gpu_val = 0
+    options = {'num_ctx': OLLAMA_CONTEXT_WINDOW, 'num_gpu': num_gpu_val}
     for attempt in range(MAX_RETRIES):
         try:
             logging.info(f"Requesting page order analysis (Attempt {attempt + 1})...")
