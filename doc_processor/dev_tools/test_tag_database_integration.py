@@ -26,14 +26,8 @@ from database import (
 
 import pytest
 
-
-@pytest.fixture(autouse=True)
-def _use_temp_db(monkeypatch, tmp_path):
-    """Automatically use a temporary DATABASE_PATH for these dev tools scripts."""
-    tmp_db = tmp_path / f"tag_db_{os.getpid()}.db"
-    monkeypatch.setenv('DATABASE_PATH', str(tmp_db))
-    monkeypatch.setenv('ALLOW_NEW_DB', '1')
-    yield
+# Opt-in: use the allow_db_creation fixture from doc_processor.conftest
+pytestmark = pytest.mark.usefixtures('allow_db_creation')
 
 # Set up logging
 logging.basicConfig(
@@ -88,9 +82,7 @@ def test_tag_storage_and_retrieval():
     
     # Create test document
     document_id, batch_id = create_test_document()
-    if not document_id:
-        logging.error("Failed to create test document")
-        return False
+    assert document_id, "Failed to create test document"
     
     # Sample extracted tags
     test_tags = {
@@ -108,36 +100,26 @@ def test_tag_storage_and_retrieval():
         # Test tag storage
         tags_stored = store_document_tags(document_id, test_tags)
         logging.info(f"✓ Stored {tags_stored} tags successfully")
-        
-        if tags_stored != 8:  # Should store exactly 8 tags (one per category)
-            logging.warning(f"Expected 8 tags, but stored {tags_stored}")
-        
+        assert tags_stored == 8 or tags_stored > 0
+
         # Test tag retrieval
         retrieved_tags = get_document_tags(document_id)
         logging.info(f"✓ Retrieved tags: {retrieved_tags}")
-        
+
         # Verify all categories are present
         expected_categories = set(test_tags.keys())
         retrieved_categories = set(retrieved_tags.keys())
-        
-        if expected_categories != retrieved_categories:
-            logging.error(f"Category mismatch. Expected: {expected_categories}, Got: {retrieved_categories}")
-            return False
-        
+        assert expected_categories == retrieved_categories, f"Category mismatch. Expected: {expected_categories}, Got: {retrieved_categories}"
+
         # Verify tag values
         for category, expected_values in test_tags.items():
             retrieved_values = retrieved_tags.get(category, [])
             for value in expected_values:
-                if value not in retrieved_values:
-                    logging.error(f"Missing tag value '{value}' in category '{category}'")
-                    return False
-        
+                assert value in retrieved_values, f"Missing tag value '{value}' in category '{category}'"
+
         logging.info("✅ Tag storage and retrieval test PASSED")
-        return True
-        
     except Exception as e:
-        logging.error(f"Tag storage/retrieval test FAILED: {e}")
-        return False
+        pytest.fail(f"Tag storage/retrieval test FAILED: {e}")
 
 def test_similar_document_search():
     """Test finding similar documents by tags."""
@@ -187,22 +169,16 @@ def test_similar_document_search():
     try:
         similar_docs = find_similar_documents_by_tags(search_tags, limit=5, min_tag_matches=1)
         logging.info(f"✓ Found {len(similar_docs)} similar documents")
-        
+
         for doc in similar_docs:
             logging.info(f"  - Document {doc['document_id']}: {doc['tag_matches']} matching tags in '{doc['tag_category']}'")
             logging.info(f"    Matching tags: {doc['matching_tags']}")
-        
+
         # Should find at least 2 documents (both have ABC Company)
-        if len(similar_docs) >= 2:
-            logging.info("✅ Similar document search test PASSED")
-            return True
-        else:
-            logging.error(f"Expected at least 2 similar documents, found {len(similar_docs)}")
-            return False
-            
+        assert len(similar_docs) >= 2, f"Expected at least 2 similar documents, found {len(similar_docs)}"
+        logging.info("✅ Similar document search test PASSED")
     except Exception as e:
-        logging.error(f"Similar document search test FAILED: {e}")
-        return False
+        pytest.fail(f"Similar document search test FAILED: {e}")
 
 def test_tag_usage_stats():
     """Test tag usage statistics."""
@@ -212,27 +188,14 @@ def test_tag_usage_stats():
         # Get overall tag usage stats
         stats = get_tag_usage_stats(limit=20)
         logging.info(f"✓ Retrieved {len(stats)} tag usage statistics")
-        
-        if stats:
-            logging.info("Top tag usage:")
-            for stat in stats[:5]:  # Show top 5
-                logging.info(f"  - {stat['tag_category']}: {stat['tag_value']} (used {stat['usage_count']} times)")
-        
+
         # Get stats for specific category
         org_stats = get_tag_usage_stats(category='organizations', limit=10)
         logging.info(f"✓ Retrieved {len(org_stats)} organization tag statistics")
-        
-        if org_stats:
-            logging.info("Organization tags:")
-            for stat in org_stats:
-                logging.info(f"  - {stat['tag_value']}: {stat['usage_count']} documents")
-        
+
         logging.info("✅ Tag usage statistics test PASSED")
-        return True
-        
     except Exception as e:
-        logging.error(f"Tag usage statistics test FAILED: {e}")
-        return False
+        pytest.fail(f"Tag usage statistics test FAILED: {e}")
 
 def test_classification_pattern_analysis():
     """Test tag classification pattern analysis."""
@@ -240,37 +203,20 @@ def test_classification_pattern_analysis():
     
     try:
         analysis = analyze_tag_classification_patterns()
-        
+
         logging.info(f"✓ Found {analysis['pattern_count']} strong tag patterns")
         logging.info(f"✓ Analyzed {len(analysis['category_analysis'])} categories")
-        
-        if analysis['strong_tag_patterns']:
-            logging.info("Strong tag patterns:")
-            for pattern in analysis['strong_tag_patterns'][:3]:  # Show top 3
-                logging.info(f"  - {pattern['tag_category']}: {pattern['tag_value']} → {pattern['predicted_category']}")
-                logging.info(f"    Accuracy: {pattern['accuracy']:.1%}, Sample size: {pattern['sample_size']}")
-        
-        if analysis['category_analysis']:
-            logging.info("Category analysis:")
-            for cat_analysis in analysis['category_analysis'][:3]:  # Show top 3
-                logging.info(f"  - {cat_analysis['final_category']}: {cat_analysis['document_count']} docs, {cat_analysis['total_tags']} tags")
-                logging.info(f"    Classification accuracy: {cat_analysis['classification_accuracy']:.1%}")
-        
+
         logging.info("✅ Classification pattern analysis test PASSED")
-        return True
-        
     except Exception as e:
-        logging.error(f"Classification pattern analysis test FAILED: {e}")
-        return False
+        pytest.fail(f"Classification pattern analysis test FAILED: {e}")
 
 def test_database_constraints():
     """Test database constraints and edge cases."""
     logging.info("\n=== Testing Database Constraints ===")
     
     document_id, _ = create_test_document()
-    if not document_id:
-        logging.error("Failed to create test document")
-        return False
+    assert document_id, "Failed to create test document"
     
     try:
         # Test duplicate tag handling
@@ -283,11 +229,7 @@ def test_database_constraints():
         retrieved_tags = get_document_tags(document_id)
         
         # Should only store unique values
-        if len(retrieved_tags['people']) == 1 and 'John Smith' in retrieved_tags['people']:
-            logging.info("✓ Duplicate tag values handled correctly")
-        else:
-            logging.error(f"Duplicate handling failed: {retrieved_tags['people']}")
-            return False
+        assert len(retrieved_tags['people']) == 1 and 'John Smith' in retrieved_tags['people'], f"Duplicate handling failed: {retrieved_tags['people']}"
         
         # Test empty tag categories
         empty_tags = {
@@ -301,37 +243,28 @@ def test_database_constraints():
         retrieved_tags = get_document_tags(document_id)
         
         # Should only store non-empty values
-        if ('XYZ Corp' in retrieved_tags.get('organizations', []) and 
+        assert ('XYZ Corp' in retrieved_tags.get('organizations', []) and 
             len(retrieved_tags.get('people', [])) == 0 and
-            len(retrieved_tags.get('places', [])) == 0):
-            logging.info("✓ Empty tag values handled correctly")
-        else:
-            logging.error(f"Empty value handling failed: {retrieved_tags}")
-            return False
+            len(retrieved_tags.get('places', [])) == 0), f"Empty value handling failed: {retrieved_tags}"
         
         # Test invalid tag category (should be caught by CHECK constraint)
         conn = get_db_connection()
         cursor = conn.cursor()
-        
         try:
             cursor.execute("""
                 INSERT INTO document_tags (document_id, tag_category, tag_value)
                 VALUES (?, ?, ?)
             """, (document_id, 'invalid_category', 'test_value'))
             conn.commit()
-            logging.error("Invalid category was accepted - constraint not working")
-            return False
+            pytest.fail("Invalid category was accepted - constraint not working")
         except Exception:
             logging.info("✓ Invalid tag category correctly rejected")
         finally:
             conn.close()
-        
+
         logging.info("✅ Database constraints test PASSED")
-        return True
-        
     except Exception as e:
-        logging.error(f"Database constraints test FAILED: {e}")
-        return False
+        pytest.fail(f"Database constraints test FAILED: {e}")
 
 def cleanup_test_data():
     """Clean up test data."""
