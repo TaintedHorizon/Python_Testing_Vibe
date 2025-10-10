@@ -17,8 +17,16 @@ def create_database():
     If the tables already exist, the script does nothing to them.
     This function is idempotent and safe to run multiple times.
     """
-    # Get the database file path from environment variables, defaulting to 'documents.db'.
-    db_path = os.getenv("DATABASE_PATH", "documents.db")
+    # Resolve database path: prefer env DATABASE_PATH, then app_config, then repo-local fallback.
+    db_path = os.getenv('DATABASE_PATH')
+    if not db_path:
+        try:
+            from ..config_manager import app_config
+            db_path = getattr(app_config, 'DATABASE_PATH', None)
+        except Exception:
+            db_path = None
+    if not db_path:
+        db_path = os.path.join(os.path.dirname(__file__), '..', 'documents.db')
     print(f"[SETUP] Using database file: {os.path.abspath(db_path)}")
     # Get the directory part of the database path.
     db_dir = os.path.dirname(db_path)
@@ -31,10 +39,17 @@ def create_database():
 
     conn = None
     try:
-        # Connect to the database. SQLite will create the file if it doesn't exist.
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        print(f"Successfully connected to database at '{db_path}'")
+        # Prefer the application's centralized DB helper when running inside
+        # the app context. This applies PRAGMA settings and safety guards.
+        try:
+            from ..database import get_db_connection
+            conn = get_db_connection()
+            cursor = conn.cursor()
+        except Exception:
+            # Standalone fallback: direct sqlite connect with a timeout
+            conn = sqlite3.connect(db_path, timeout=30.0)
+            cursor = conn.cursor()
+        print(f"Successfully connected to database at '{os.path.abspath(db_path)}'")
 
         # --- Create 'batches' table ---
         # A batch represents a single processing run, initiated when the user clicks
@@ -199,7 +214,10 @@ def create_database():
         # or not. This ensures that the database connection is always closed,
         # preventing resource leaks.
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
             print("Database connection closed.")
 
 

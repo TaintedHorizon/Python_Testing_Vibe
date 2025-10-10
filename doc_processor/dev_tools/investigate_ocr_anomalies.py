@@ -17,12 +17,26 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 def investigate_ocr_anomalies():
     """Investigate suspicious OCR patterns in the database"""
     
-    db_path = Path(__file__).parent.parent / "documents.db"
-    if not db_path.exists():
-        print(f"❌ Database not found: {db_path}")
-        return
-        
-    conn = sqlite3.connect(str(db_path))
+    # Prefer env override, then app_config, then repo-local fallback
+    db_path = os.getenv('DATABASE_PATH')
+    if not db_path:
+        try:
+            from ..config_manager import app_config
+            db_path = getattr(app_config, 'DATABASE_PATH', None)
+        except Exception:
+            db_path = None
+    # Try to use centralized DB connection helper when available
+    conn = None
+    try:
+        from ..database import get_db_connection
+        conn = get_db_connection()
+    except Exception:
+        if not db_path:
+            db_path = Path(__file__).parent.parent / "documents.db"
+        if not Path(db_path).exists():
+            print(f"❌ Database not found: {db_path}")
+            return
+        conn = sqlite3.connect(str(db_path))
     cursor = conn.cursor()
     
     print("🔍 OCR Anomaly Investigation Report")

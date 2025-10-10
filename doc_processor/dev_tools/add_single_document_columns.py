@@ -18,7 +18,14 @@ def upgrade_database():
     """Add columns for single document support with safe defaults."""
     print(f"Upgrading database at: {app_config.DATABASE_PATH}")
     
-    conn = sqlite3.connect(app_config.DATABASE_PATH)
+    # Prefer centralized DB helper to get consistent PRAGMA settings when run
+    # within the application context. Fallback to direct connect for standalone runs.
+    conn = None
+    try:
+        from ..database import get_db_connection
+        conn = get_db_connection()
+    except Exception:
+        conn = sqlite3.connect(app_config.DATABASE_PATH)
     cursor = conn.cursor()
     
     try:

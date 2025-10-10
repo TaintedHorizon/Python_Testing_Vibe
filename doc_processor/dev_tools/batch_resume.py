@@ -18,12 +18,29 @@ except ImportError:
     # Fallback for standalone execution
     import sqlite3
     from contextlib import contextmanager
-    
+
+    def _resolve_db_path():
+        db_path = os.getenv('DATABASE_PATH')
+        if not db_path:
+            try:
+                from config_manager import app_config
+                db_path = getattr(app_config, 'DATABASE_PATH', None)
+            except Exception:
+                db_path = None
+        if not db_path:
+            db_path = os.path.join(os.path.dirname(__file__), 'documents.db')
+        return db_path
+
     @contextmanager
     def database_connection():
-        """Fallback database connection."""
-        db_path = os.path.join(os.path.dirname(__file__), 'documents.db')
-        conn = sqlite3.connect(db_path)
+        """Fallback database connection that respects configured DATABASE_PATH."""
+        db_path = _resolve_db_path()
+        try:
+            from ..database import get_db_connection
+            conn = get_db_connection()
+        except Exception:
+            conn = sqlite3.connect(db_path)
+        assert conn is not None
         conn.row_factory = sqlite3.Row
         try:
             yield conn

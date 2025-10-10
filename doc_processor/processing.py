@@ -670,49 +670,12 @@ def database_connection():
 
 # --- LLM QUERY FUNCTION ---
 def _query_ollama(prompt: str, timeout: int = 45, context_window: int = 4096, task_name: str = "general") -> Optional[str]:
-    """
-    Queries the Ollama LLM with the given prompt.
-    
-    Args:
-        prompt: The prompt to send to the LLM
-        timeout: Timeout in seconds for the request
-        context_window: Context window size for the model
-        task_name: Name of the task for logging purposes
-        
-    Returns:
-        The LLM response as a string, or None if there was an error
-    """
-    if not app_config.OLLAMA_HOST or not app_config.OLLAMA_MODEL:
-        logging.warning("Ollama not configured - OLLAMA_HOST or OLLAMA_MODEL missing")
-        return None
-        
+    """Delegate to the centralized LLM helper in llm_utils to ensure consistent GPU handling."""
     try:
-        import ollama
-        
-        # Create Ollama client
-        client = ollama.Client(host=app_config.OLLAMA_HOST)
-        
-        # Prepare the request
-        messages = [{'role': 'user', 'content': prompt}]
-        options = {'num_ctx': context_window}
-        
-        # Make the request
-        logging.debug(f"Sending {task_name} request to Ollama model {app_config.OLLAMA_MODEL}")
-        response = client.chat(
-            model=app_config.OLLAMA_MODEL,
-            messages=messages,
-            options=options
-        )
-        
-        result = response['message']['content'].strip()
-        logging.debug(f"Ollama {task_name} response received: {len(result)} characters")
-        return result
-        
-    except ImportError:
-        logging.error("ollama package not installed - run: pip install ollama")
-        return None
+        from .llm_utils import _query_ollama as _llm_query
+        return _llm_query(prompt, timeout=timeout, context_window=context_window, task_name=task_name)
     except Exception as e:
-        logging.error(f"Error querying Ollama for {task_name}: {e}")
+        logging.error(f"Failed delegating to llm_utils._query_ollama: {e}")
         return None
 
 
@@ -860,8 +823,10 @@ def get_ai_classification(page_text: str) -> str:
     # Fetch the official list of categories from the database
     broad_categories = get_all_categories()
     if not broad_categories:
-        logging.error("Could not fetch categories from the database. Defaulting to 'Other'.")
-        return "Other"
+        # When no categories are available in the DB, avoid returning a
+        # default category that could overwrite previously stored values.
+        logging.error("Could not fetch categories from the database. No classification will be attempted.")
+        return None
 
     prompt = f"""
 Analyze the following text from a scanned document page. Based on the text, which of the following categories best describes it?
@@ -2754,11 +2719,14 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
     from .database import get_db_connection as _get_db_conn
     conn = _get_db_conn()
     cursor = conn.cursor()
-    
-    # Get all documents
-    cursor.execute("SELECT id, original_pdf_path, searchable_pdf_path, final_category, final_filename, ai_suggested_category, ai_suggested_filename, ocr_text FROM single_documents WHERE batch_id=?", (batch_id,))
+
+    # Get a snapshot of documents to export. Keep the connection open for any
+    # subsequent writes (status update, _ensure_searchable_pdf_fallback uses
+    # the provided cursor/conn). Closing the connection here caused later
+    # "Cannot operate on a closed database" errors in the export cleanup flow.
+    cursor.execute("SELECT id, original_pdf_path, searchable_pdf_path, final_category, final_filename, ai_suggested_category, ai_suggested_filename, ocr_text FROM single_documents WHERE batch_id= ?", (batch_id,))
     docs = cursor.fetchall()
-    
+
     total_docs = len(docs)
     update_progress(0, total_docs, "Starting export process...", "Preparing to export documents")
     
@@ -2831,15 +2799,17 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
             update_progress(i, total_docs, f"Creating markdown: {filename_base}", "Generating markdown file")
             
             # Create enhanced markdown content
-            # Fetch AI metadata for enrichment (extra columns may not all exist; guard with try/except)
+            # Fetch AI metadata for enrichment (use fresh short-lived connection to avoid long locks)
             ai_suggested_category = doc[5]  # ai_suggested_category
             ai_suggested_filename = doc[6]  # ai_suggested_filename
-            # Attempt to load additional AI fields from single_documents if present
             ai_confidence = None
             ai_summary = None
+            final_category_val = None
+            final_filename_val = None
             try:
-                # Re-query only the needed fields for this doc to avoid altering earlier fetch
-                detail_row = cursor.execute(
+                _conn = _get_db_conn()
+                _cur = _conn.cursor()
+                detail_row = _cur.execute(
                     "SELECT ai_confidence, ai_summary, final_category, final_filename FROM single_documents WHERE id=?",
                     (doc_id,)
                 ).fetchone()
@@ -2848,12 +2818,15 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
                     ai_summary = detail_row[1]
                     final_category_val = detail_row[2]
                     final_filename_val = detail_row[3]
-                else:
-                    final_category_val = None
-                    final_filename_val = None
+                try:
+                    _conn.close()
+                except Exception:
+                    pass
             except Exception:
-                final_category_val = None
-                final_filename_val = None
+                try:
+                    _conn.close()
+                except Exception:
+                    pass
 
             # Placeholder rotation / OCR DPI / rescan events (future: join from rotation + rescan log tables if implemented)
             rotation_used = None

@@ -112,7 +112,14 @@ def test_document_analysis_with_conversion():
                     'error': str(e)
                 })
         
-        return results
+        # Assertions: ensure at least one analysis result and basic sanity checks
+        assert len(results) > 0, "No analysis results were produced"
+        for res in results:
+            # Each result should have filename and strategy
+            assert 'filename' in res and 'strategy' in res, f"Incomplete result: {res}"
+            # If image, expect a pdf_path value (may or may not exist depending on environment)
+            if res.get('file_type') == 'image':
+                assert 'pdf_path' in res, "Image analysis should include pdf_path"
         
     finally:
         # Clean up test environment

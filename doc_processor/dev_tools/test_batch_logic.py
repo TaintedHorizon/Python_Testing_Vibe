@@ -25,8 +25,7 @@ def test_batch_logic():
     conn.close()
     
     if not batch_raw:
-        print("❌ Batch 4 not found")
-        return
+        pytest.skip("Batch 4 not found - skipping diagnostic check")
         
     batch_dict = dict(batch_raw)
     print(f"📊 Batch 4 Data: {batch_dict}")

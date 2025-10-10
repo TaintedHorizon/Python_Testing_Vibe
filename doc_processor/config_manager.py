@@ -242,3 +242,18 @@ try:
 except Exception as e:
     logging.critical(f"Failed to load configuration: {e}")
     raise
+
+# Enforce CPU-only early when OLLAMA_NUM_GPU is explicitly set to 0.
+# Doing this here ensures CUDA_VISIBLE_DEVICES is cleared before other
+# modules (or third-party libs) import and possibly initialize CUDA.
+try:
+    ollama_gpu = getattr(app_config, 'OLLAMA_NUM_GPU', None)
+    if ollama_gpu is not None and int(ollama_gpu) == 0:
+        prev_val = os.environ.get('CUDA_VISIBLE_DEVICES')
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        logging.getLogger(__name__).info(
+            f"Enforcing CPU-only for Ollama/tests: cleared CUDA_VISIBLE_DEVICES (was: {prev_val})"
+        )
+except Exception:
+    # Best-effort only; don't fail startup for odd environments
+    pass

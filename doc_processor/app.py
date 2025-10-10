@@ -152,20 +152,26 @@ def create_app():
     
     # Register core routes (home page and basic functionality)
     register_core_routes(app)
-    # Run a safe startup cleanup to remove any empty processing batches left over from previous runs.
-    # We schedule this as a quick, best-effort call so it doesn't block startup. It will ignore errors.
+    # Run a safe startup cleanup to remove any empty processing batches left over
+    # from previous runs, unless we're in FAST_TEST_MODE where tests manage DB
+    # lifecycle and seeding themselves. FAST_TEST_MODE is set in tests via
+    # `conftest.py` to avoid background activity interfering with test setup.
     try:
-        from .batch_guard import cleanup_empty_processing_batches
-        # Run cleanup in a background thread to avoid delaying startup; the function itself is fast.
-        import threading
-        def _startup_cleanup():
-            try:
-                cleaned = cleanup_empty_processing_batches()
-                if cleaned:
-                    logger.info(f"Startup cleanup removed empty processing batches: {cleaned}")
-            except Exception as e:
-                logger.warning(f"Startup cleanup failed: {e}")
-        threading.Thread(target=_startup_cleanup, daemon=True).start()
+        fast_mode = os.getenv('FAST_TEST_MODE', '0').lower() in ('1', 'true', 't')
+        if not fast_mode:
+            from .batch_guard import cleanup_empty_processing_batches
+            # Run cleanup in a background thread to avoid delaying startup; the function itself is fast.
+            import threading
+            def _startup_cleanup():
+                try:
+                    cleaned = cleanup_empty_processing_batches()
+                    if cleaned:
+                        logger.info(f"Startup cleanup removed empty processing batches: {cleaned}")
+                except Exception as e:
+                    logger.warning(f"Startup cleanup failed: {e}")
+            threading.Thread(target=_startup_cleanup, daemon=True).start()
+        else:
+            logger.debug("FAST_TEST_MODE active: skipping startup cleanup thread")
     except Exception as e:
         logger.warning(f"Could not start batch cleanup on startup: {e}")
     
@@ -406,10 +412,11 @@ def register_template_helpers(app):
             'db_meta': db_meta
         }
 
-# Create the Flask application instance
+# Create the Flask application instance at module level. Tests and older
+# call sites import `doc_processor.app.app`, so provide that convenience.
+# create_app itself will skip the startup cleanup when FAST_TEST_MODE is set
+# (see create_app above), which is enabled in our pytest harness.
 app = create_app()
-
-# Register template helpers
 register_template_helpers(app)
 
 if __name__ == '__main__':

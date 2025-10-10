@@ -290,48 +290,17 @@ def cleanup_test_data():
         logging.error(f"Failed to clean up test data: {e}")
     finally:
         conn.close()
+@pytest.fixture(scope='module', autouse=True)
+def _cleanup_after_tests(request):
+    """Optional fixture that will run cleanup_test_data after the module tests finish.
 
-def main():
-    """Run all tag database integration tests."""
-    logging.info("🏷️  Starting Tag Database Integration Tests")
-    logging.info("=" * 60)
-    
-    test_results = []
-    
-    # Run all tests
-    test_results.append(("Tag Storage and Retrieval", test_tag_storage_and_retrieval()))
-    test_results.append(("Similar Document Search", test_similar_document_search()))
-    test_results.append(("Tag Usage Statistics", test_tag_usage_stats()))
-    test_results.append(("Classification Pattern Analysis", test_classification_pattern_analysis()))
-    test_results.append(("Database Constraints", test_database_constraints()))
-    
-    # Clean up
-    cleanup_test_data()
-    
-    # Summary
-    logging.info("\n" + "=" * 60)
-    logging.info("🏷️  TAG DATABASE INTEGRATION TEST RESULTS")
-    logging.info("=" * 60)
-    
-    passed = 0
-    total = len(test_results)
-    
-    for test_name, result in test_results:
-        status = "✅ PASS" if result else "❌ FAIL"
-        logging.info(f"{test_name}: {status}")
-        if result:
-            passed += 1
-    
-    logging.info("-" * 60)
-    logging.info(f"Total: {passed}/{total} tests passed")
-    
-    if passed == total:
-        logging.info("🎉 ALL TESTS PASSED - Tag database integration is working correctly!")
-        return True
-    else:
-        logging.error(f"❌ {total - passed} tests failed - check implementation")
-        return False
+    Tests that need cleanup can opt-in by depending on this fixture. It's not autouse
+    so regular test runs won't automatically call cleanup unless requested.
+    """
+    def fin():
+        try:
+            cleanup_test_data()
+        except Exception:
+            pass
 
-if __name__ == "__main__":
-    success = main()
-    sys.exit(0 if success else 1)
+    request.addfinalizer(fin)

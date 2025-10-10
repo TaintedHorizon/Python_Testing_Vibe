@@ -48,8 +48,13 @@ def upgrade_database():
 
     conn = None  # Initialize for the 'finally' block.
     try:
-        # Establish the database connection.
-        conn = sqlite3.connect(db_path)
+        # Prefer centralized helper when running inside the application context
+        try:
+            from ..database import get_db_connection
+            conn = get_db_connection()
+        except Exception:
+            conn = sqlite3.connect(db_path)
+        assert conn is not None
         cursor = conn.cursor()
         print(f"Successfully connected to database at '{db_path}' for upgrade.")
 

@@ -232,8 +232,50 @@ def get_db_connection():
             logging.getLogger(__name__).critical(msg)
             raise RuntimeError(msg)
 
-    conn = sqlite3.connect(db_path, timeout=30.0)  # 30 second timeout for locks
-    conn.row_factory = sqlite3.Row
+    # Attempt to open the SQLite connection with retries to mitigate transient
+    # disk I/O issues observed in the test harness (pytest using tmp dirs).
+    conn = None
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            # Use a 30s timeout for busy locks. Use URI mode only if necessary.
+            conn = sqlite3.connect(db_path, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            # Log connection acquisition with process/thread context for debugging
+            try:
+                import threading
+                caller = None
+                try:
+                    # lightweight caller hint
+                    import inspect
+                    frame = inspect.stack()[1]
+                    caller = f"{frame.function} @ {frame.filename}:{frame.lineno}"
+                except Exception:
+                    caller = None
+                logging.getLogger(__name__).debug(
+                    f"[DB CONNECT] pid={os.getpid()} thread={threading.get_ident()} attempt={attempt}/{max_attempts} path={db_path} caller={caller}"
+                )
+            except Exception:
+                pass
+            break
+        except sqlite3.OperationalError as op_err:
+            # Disk I/O errors and other transient issues may surface here.
+            logging.getLogger(__name__).warning(
+                f"SQLite connect attempt {attempt} failed for {db_path}: {op_err}"
+            )
+            conn = None
+            if attempt < max_attempts:
+                try:
+                    time.sleep(0.1 * attempt)
+                except Exception:
+                    pass
+                continue
+            else:
+                # Re-raise after exhausting retries
+                raise
+    # Ensure conn is non-None for static analyzers and downstream code
+    if conn is None:
+        raise RuntimeError(f"Failed to open SQLite connection to {db_path}")
     
     # Enable WAL mode for better concurrent access
     conn.execute("PRAGMA journal_mode=WAL")
@@ -245,39 +287,131 @@ def get_db_connection():
     # We gate this behind a quick PRAGMA table_info check to avoid overhead on hot paths.
     try:
         cursor = conn.cursor()
-        # Ensure 'documents' table (grouped workflow) exists with minimal needed columns.
-        cursor.execute("PRAGMA table_info(documents)")
-        cols = [r[1] for r in cursor.fetchall()]
-        if not cols:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS documents (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    batch_id INTEGER,
-                    document_name TEXT,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    final_filename_base TEXT,
-                    FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
-                )
-                """
-            )
-        # Ensure document_pages junction table for grouping exists
-        cursor.execute("PRAGMA table_info(document_pages)")
-        dp_cols = [r[1] for r in cursor.fetchall()]
-        if not dp_cols:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS document_pages (
-                    document_id INTEGER,
-                    page_id INTEGER,
-                    sequence INTEGER,
-                    PRIMARY KEY(document_id, page_id),
-                    FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
-                    FOREIGN KEY(page_id) REFERENCES pages(id) ON DELETE CASCADE
-                )
-                """
-            )
+        # Ensure essential application tables exist. Some tests and import-time
+        # code paths access these tables immediately; create them on-demand
+        # if they are missing. This is safe and idempotent (CREATE TABLE IF NOT EXISTS).
+        def _ensure_table(name, ddl):
+            try:
+                cursor.execute(f"PRAGMA table_info({name})")
+                cols = [r[1] for r in cursor.fetchall()]
+                if not cols:
+                    cursor.executescript(ddl)
+            except Exception:
+                # If PRAGMA or DDL fails, ignore and let callers handle missing tables
+                pass
+
+        _ensure_table('batches', """
+            CREATE TABLE IF NOT EXISTS batches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status TEXT NOT NULL DEFAULT 'processing',
+                has_been_manipulated INTEGER DEFAULT 0
+            );
+        """)
+
+        _ensure_table('pages', """
+            CREATE TABLE IF NOT EXISTS pages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER,
+                source_filename TEXT,
+                page_number INTEGER,
+                processed_image_path TEXT,
+                ocr_text TEXT,
+                ai_suggested_category TEXT,
+                human_verified_category TEXT,
+                status TEXT,
+                rotation_angle INTEGER DEFAULT 0
+            );
+        """)
+
+        _ensure_table('single_documents', """
+            CREATE TABLE IF NOT EXISTS single_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER,
+                original_filename TEXT,
+                original_pdf_path TEXT,
+                page_count INTEGER,
+                file_size_bytes INTEGER,
+                status TEXT,
+                ai_suggested_category TEXT,
+                ai_suggested_filename TEXT,
+                ai_confidence REAL,
+                ai_summary TEXT,
+                ocr_text TEXT,
+                ocr_confidence_avg REAL
+            );
+        """)
+
+        _ensure_table('document_tags', """
+            CREATE TABLE IF NOT EXISTS document_tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER,
+                tag_category TEXT,
+                tag_value TEXT
+            );
+        """)
+
+        _ensure_table('categories', """
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                is_active INTEGER DEFAULT 1
+            );
+        """)
+
+        _ensure_table('interaction_log', """
+            CREATE TABLE IF NOT EXISTS interaction_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER,
+                document_id INTEGER,
+                user_id TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                event_type TEXT,
+                step TEXT,
+                content TEXT,
+                notes TEXT
+            );
+        """)
+
+        _ensure_table('intake_rotations', """
+            CREATE TABLE IF NOT EXISTS intake_rotations (
+                filename TEXT PRIMARY KEY,
+                rotation INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        _ensure_table('intake_working_files', """
+            CREATE TABLE IF NOT EXISTS intake_working_files (
+                filename TEXT PRIMARY KEY,
+                working_pdf TEXT NOT NULL,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        # Legacy/grouped workflow tables
+        _ensure_table('documents', """
+            CREATE TABLE IF NOT EXISTS documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER,
+                document_name TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                final_filename_base TEXT,
+                FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
+            );
+        """)
+
+        _ensure_table('document_pages', """
+            CREATE TABLE IF NOT EXISTS document_pages (
+                document_id INTEGER,
+                page_id INTEGER,
+                sequence INTEGER,
+                PRIMARY KEY(document_id, page_id),
+                FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+                FOREIGN KEY(page_id) REFERENCES pages(id) ON DELETE CASCADE
+            );
+        """)
         # Emit post-creation warning if we just initialized a brand-new file
         if (not db_existed_before or pre_size == 0):
             try:
@@ -298,6 +432,44 @@ def get_db_connection():
             logging.getLogger(__name__).debug(f"[schema-ensure] grouped tables ensure warning: {_schema_err}")
         except Exception:
             pass
+    try:
+        # Ensure any DDL executed above is committed so other connections see it.
+        conn.commit()
+    except Exception:
+        pass
+    # Ensure expected columns exist on tables that evolve over time. Use
+    # PRAGMA table_info to detect missing columns and ALTER TABLE ADD COLUMN
+    # for compatibility with older test DBs.
+    try:
+        cursor = conn.cursor()
+        def _ensure_column(table: str, column: str, definition: str):
+            try:
+                cursor.execute(f"PRAGMA table_info({table})")
+                cols = [r[1] for r in cursor.fetchall()]
+                if column not in cols:
+                    try:
+                        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+                    except Exception:
+                        # Some sqlite builds or modes may disallow ALTER; ignore
+                        pass
+            except Exception:
+                pass
+
+        # Columns used by processing.create_searchable_pdf and other code
+        _ensure_column('single_documents', 'searchable_pdf_path', 'TEXT')
+        _ensure_column('single_documents', 'ocr_source_signature', 'TEXT')
+        _ensure_column('single_documents', 'final_category', 'TEXT')
+        _ensure_column('single_documents', 'final_filename', 'TEXT')
+        _ensure_column('single_documents', 'processed_at', 'TIMESTAMP')
+        # Tag extraction additional fields
+        _ensure_column('document_tags', 'extraction_confidence', 'REAL')
+        _ensure_column('document_tags', 'llm_source', 'TEXT')
+        try:
+            conn.commit()
+        except Exception:
+            pass
+    except Exception:
+        pass
     
     return conn
 

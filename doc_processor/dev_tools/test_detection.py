@@ -13,6 +13,7 @@ from pathlib import Path
 # Add doc_processor to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import pytest
 from document_detector import get_detector
 
 def test_detection_with_sample_files():
@@ -23,17 +24,13 @@ def test_detection_with_sample_files():
     from config_manager import app_config
     
     if not os.path.exists(app_config.INTAKE_DIR):
-        print(f"Intake directory not found: {app_config.INTAKE_DIR}")
-        print("Please ensure the intake directory exists and contains some test PDFs")
-        return
+        pytest.skip(f"Intake directory not found: {app_config.INTAKE_DIR}")
     
     # Analyze current intake
     analyses = detector.analyze_intake_directory(app_config.INTAKE_DIR)
     
     if not analyses:
-        print("No PDF files found in intake directory for testing.")
-        print(f"Please add some test PDFs to: {app_config.INTAKE_DIR}")
-        return
+        pytest.skip(f"No PDF files found in intake directory: {app_config.INTAKE_DIR}")
     
     print("=== DOCUMENT DETECTION TEST RESULTS ===\n")
     

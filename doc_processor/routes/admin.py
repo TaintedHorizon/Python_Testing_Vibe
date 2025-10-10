@@ -121,6 +121,45 @@ def debug_batches():
         logger.error(f"debug_batches error: {e}")
         return jsonify({'error': str(e)}), 500
 
+
+@bp.route('/mark_orphaned_batches', methods=['POST'])
+def mark_orphaned_batches():
+    """Mark empty batches as 'orphaned'. Requires form param confirm=true to run."""
+    try:
+        confirm = request.form.get('confirm', 'false').lower() == 'true'
+        if not confirm:
+            return jsonify(create_error_response('Missing confirm=true to run this action')), 400
+
+        from ..batch_guard import mark_orphaned_empty_batches
+        marked = mark_orphaned_empty_batches()
+        return jsonify(create_success_response({'marked': marked}))
+    except Exception as e:
+        logger.error(f"mark_orphaned_batches error: {e}")
+        return jsonify(create_error_response(str(e))), 500
+
+
+@bp.route('/cleanup_empty_batches', methods=['POST'])
+def cleanup_empty_batches():
+    """Run policy-based cleanup of empty batches. Requires confirm=true."""
+    try:
+        confirm = request.form.get('confirm', 'false').lower() == 'true'
+        if not confirm:
+            return jsonify(create_error_response('Missing confirm=true to run this action')), 400
+
+        minutes = int(request.form.get('age_minutes', 60))
+        statuses = request.form.get('statuses')
+        if statuses:
+            statuses_list = [s.strip() for s in statuses.split(',') if s.strip()]
+        else:
+            statuses_list = None
+
+        from ..batch_guard import cleanup_empty_batches_policy
+        deleted = cleanup_empty_batches_policy(age_minutes=minutes, statuses=statuses_list)
+        return jsonify(create_success_response({'deleted': deleted}))
+    except Exception as e:
+        logger.error(f"cleanup_empty_batches error: {e}")
+        return jsonify(create_error_response(str(e))), 500
+
 @bp.route("/categories", methods=["GET"])
 def categories():
     """Display category management page."""

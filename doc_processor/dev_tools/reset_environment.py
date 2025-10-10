@@ -17,13 +17,27 @@ CATEGORIES_BACKUP_FILE = "custom_categories_backup.json"
 
 def get_db_connection():
     """Establishes a connection to the SQLite database."""
-    db_path = os.getenv("DATABASE_PATH")
-    if not db_path or not os.path.exists(db_path):
-        print(f"[ERROR] Database path not found at '{db_path}'. Please check your .env file.")
-        return None
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+    # Prefer the application's centralized DB connection helper when available
+    try:
+        from ..database import get_db_connection
+        return get_db_connection()
+    except Exception:
+        # Fallback: ensure env or config_manager provides a path and connect directly
+        db_path = os.getenv('DATABASE_PATH')
+        if not db_path:
+            try:
+                from ..config_manager import app_config
+                db_path = getattr(app_config, 'DATABASE_PATH', None)
+            except Exception:
+                db_path = None
+
+        if not db_path:
+            print(f"[ERROR] Database path not found. Please check your .env or app_config.")
+            return None
+
+        conn = sqlite3.connect(db_path, timeout=30.0)
+        conn.row_factory = sqlite3.Row
+        return conn
 
 def backup_custom_categories(conn):
     """Saves custom categories to a JSON file."""

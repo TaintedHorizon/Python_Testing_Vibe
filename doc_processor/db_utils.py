@@ -20,8 +20,10 @@ def database_transaction() -> Generator[sqlite3.Connection, None, None]:
     """
     conn = None
     try:
-        conn = sqlite3.connect(app_config.DATABASE_PATH)
-        conn.row_factory = sqlite3.Row
+        # Use the centralized DB connection helper to ensure consistent PRAGMA
+        # settings (WAL, busy_timeout) and safety guards.
+        from .database import get_db_connection
+        conn = get_db_connection()
         # Start transaction
         yield conn
         # Commit if no exceptions occurred

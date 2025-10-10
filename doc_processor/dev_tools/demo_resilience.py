@@ -13,12 +13,33 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from batch_resume import get_batch_completion_status, get_incomplete_documents, log_batch_resume_info
 import sqlite3
 from contextlib import contextmanager
+import os
+
+
+def _resolve_db_path():
+    # Prefer explicit env override (used by tests), then app_config, then repo-local fallback
+    db_path = os.getenv('DATABASE_PATH')
+    if not db_path:
+        try:
+            from config_manager import app_config
+            db_path = getattr(app_config, 'DATABASE_PATH', None)
+        except Exception:
+            db_path = None
+    if not db_path:
+        db_path = os.path.join(os.path.dirname(__file__), 'documents.db')
+    return db_path
+
 
 @contextmanager
 def database_connection():
-    """Simple database connection for demo."""
-    db_path = os.path.join(os.path.dirname(__file__), 'documents.db')
-    conn = sqlite3.connect(db_path)
+    """Simple database connection for demo that respects configured DATABASE_PATH."""
+    db_path = _resolve_db_path()
+    # Prefer app's DB helper when available
+    try:
+        from ..database import get_db_connection
+        conn = get_db_connection()
+    except Exception:
+        conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         yield conn

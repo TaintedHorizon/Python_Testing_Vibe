@@ -233,7 +233,17 @@ def rescan_document_api(doc_id: int):
                 throttle_skipped_ai = True
                 logger.info(f"[rescan] Throttling AI (skipping classification) for doc {doc_id}, last run {(now_ts - last_llm_ts):.2f}s ago")
             else:
-                logger.info(f"[rescan] Starting LLM classification doc {doc_id} mode={mode}")
+                # Check whether categories exist before attempting LLM classification.
+                try:
+                    from ..database import get_all_categories as _get_all_categories
+                    _cats = _get_all_categories()
+                except Exception:
+                    _cats = None
+                if not _cats:
+                    ai_error = 'classification_skipped_no_categories'
+                    logger.error(f"[rescan] No categories available in DB; skipping classification for doc {doc_id}")
+                else:
+                    logger.info(f"[rescan] Starting LLM classification doc {doc_id} mode={mode}")
                 try:
                     ai_start = time.time()
                     # Use sample of updated/new ocr text
@@ -327,9 +337,14 @@ def rescan_document_api(doc_id: int):
                             # Category changed but filename unchanged; allow regeneration
                             need_new_filename = True
                         elif text_hash and prev_hash and prev_hash != text_hash:
+                            # Content changed since last recorded hash - allow regeneration
                             need_new_filename = True
                         elif text_hash and not prev_hash:
-                            need_new_filename = True
+                            # No previous hash recorded. Regenerate filename only when AI actually ran
+                            # or when no previous filename exists. This prevents overwriting an
+                            # existing filename when the LLM failed or was skipped.
+                            if updated_flags.get('ai') or not prev_ai_file:
+                                need_new_filename = True
                         # Allow filename generation even if text_sample is empty (tests monkeypatch generator)
                         if new_ai_cat and need_new_filename:
                             try:
