@@ -199,6 +199,22 @@ Important:
 - Smart processing workflow lives under `Batch Control` → “Smart Process” (streams progress and exposes cancel button when active).
  - FAST_TEST_MODE (set in `.env`) short-circuits heavy OCR & AI calls where possible to produce deterministic, fast test outcomes; rescan endpoint honors this mode.
 
+Database backups and retention
+-----------------------------
+
+This project keeps a separate, configurable directory for database backups and original-file retention so those artifacts are not accidentally committed into the repository.
+
+- Default location: the app will use an XDG-friendly path under the current user's data directory, e.g. `~/.local/share/doc_processor/db_backups` when `DB_BACKUP_DIR` is not set.
+- Override: set `DB_BACKUP_DIR` in `doc_processor/.env` (or your environment) to an absolute path outside the repo. Example:
+
+```ini
+# doc_processor/.env
+DB_BACKUP_DIR=/var/lib/doc_processor/db_backups
+```
+
+- Rationale: keeping backups outside the repo prevents accidental commits of binary SQLite files and makes retention/cleanup policies explicit. Tests and dev tools in this repository are adjusted to honor `DB_BACKUP_DIR` and use temporary databases unless explicitly configured otherwise.
+
+
 Batch guard and testing notes
 ----------------------------
 
