@@ -13,6 +13,7 @@ import sys
 import os
 import json
 import logging
+import tempfile
 from datetime import datetime
 
 # Add the parent directory to the path to import our modules
@@ -22,6 +23,17 @@ from database import (
     store_document_tags, get_document_tags, find_similar_documents_by_tags,
     get_tag_usage_stats, analyze_tag_classification_patterns, get_db_connection
 )
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _use_temp_db(monkeypatch, tmp_path):
+    """Automatically use a temporary DATABASE_PATH for these dev tools scripts."""
+    tmp_db = tmp_path / f"tag_db_{os.getpid()}.db"
+    monkeypatch.setenv('DATABASE_PATH', str(tmp_db))
+    monkeypatch.setenv('ALLOW_NEW_DB', '1')
+    yield
 
 # Set up logging
 logging.basicConfig(

@@ -1,25 +1,35 @@
-<!-- Moved from repository root to doc_processor/docs for consolidation -->
 # 🤖 AI Assistant Quick Reference
 
-This quick reference was relocated from the repo root to keep all processor‑specific documentation under `doc_processor/docs/`.
+## ⚠️ CRITICAL COMMANDS (Use These!)
 
-For complete operational guardrails see: `.github/copilot-instructions.md`.
-
-## ⚠️ Critical Commands
+### **Start Application**
 ```bash
 cd /home/svc-scan/Python_Testing_Vibe && ./start_app.sh
-cd /home/svc-scan/Python_Testing_Vibe/doc_processor && source venv/bin/activate
 ```
 
-## Imports
+### **Activate Virtual Environment**
+```bash
+cd /home/svc-scan/Python_Testing_Vibe/doc_processor
+source venv/bin/activate
+```
+
+### **Configuration Import**
 ```python
 from config_manager import app_config
-from database import database_connection
 ```
 
-## Never Do
-- python app.py
-- source .venv/bin/activate (wrong path)
-- from config import ... (use config_manager)
+### **Database Connection**
+```python
+from database import database_connection
+with database_connection() as conn:
+    cursor = conn.cursor()
+```
 
-See `ARCHITECTURE.md` for full file map.
+## 🚨 NEVER DO THESE
+- ❌ `python app.py`
+- ❌ `source .venv/bin/activate`
+- ❌ `from config import SETTING`
+- ❌ `source doc_processor_env/bin/activate`
+
+## 📖 Full Instructions
+See `.github/copilot-instructions.md` for complete details. For architecture and file map orientation, also consult `ARCHITECTURE.md` (root) and the Comprehensive File Map section in `README.md`.

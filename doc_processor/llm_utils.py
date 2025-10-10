@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional, Dict, List
 
 try:
@@ -274,26 +275,47 @@ def _query_ollama(prompt: str, timeout: int = 45, context_window: int = 4096, ta
         
     try:
         import ollama
-        logging.debug(f"🌐 Creating Ollama client for {app_config.OLLAMA_HOST}")
-        client = ollama.Client(host=app_config.OLLAMA_HOST)
-        
+
+        # Determine GPU usage preference: prefer explicit environment variable so tests can monkeypatch it
+        def _ollama_use_gpu() -> bool:
+            v = os.getenv('OLLAMA_NUM_GPU')
+            if v is not None:
+                try:
+                    return int(v) > 0
+                except Exception:
+                    return False
+            try:
+                return bool(getattr(app_config, 'OLLAMA_NUM_GPU', 0) and int(getattr(app_config, 'OLLAMA_NUM_GPU', 0)) > 0)
+            except Exception:
+                return False
+
+        use_gpu = _ollama_use_gpu()
+        logging.debug(f"🌐 Creating Ollama client for {app_config.OLLAMA_HOST} (use_gpu={use_gpu})")
+
+        # Try to pass GPU hint to the client if supported; fall back if the kwarg is not accepted
+        try:
+            client = ollama.Client(host=app_config.OLLAMA_HOST, gpu=use_gpu)
+        except TypeError:
+            client = ollama.Client(host=app_config.OLLAMA_HOST)
+
         messages = [{'role': 'user', 'content': prompt}]
-        options = {'num_ctx': context_window}
-        
+        # Include context and GPU hint in options so servers/clients that accept it can honor it
+        options = {'num_ctx': context_window, 'use_gpu': use_gpu}
+
         logging.info(f"🌐 Sending {task_name} request to Ollama model {app_config.OLLAMA_MODEL} (timeout: {timeout}s)")
         logging.debug(f"🌐 Request options: {options}")
-        
+
         response = client.chat(
             model=app_config.OLLAMA_MODEL,
             messages=messages,
             options=options
         )
-        
+
         result = response['message']['content'].strip()
         logging.info(f"✅ Ollama {task_name} response received: {len(result)} characters")
         logging.debug(f"✅ Response preview: {result[:200]}{'...' if len(result) > 200 else ''}")
         return result
-        
+
     except ImportError as ie:
         logging.error(f"❌ ollama package not installed - run: pip install ollama. Error: {ie}")
         return None

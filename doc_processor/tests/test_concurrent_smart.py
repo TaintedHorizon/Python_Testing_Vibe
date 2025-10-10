@@ -4,10 +4,15 @@ from http import HTTPStatus
 
 import pytest
 
+import tempfile
+import os
+import pytest
+
 from doc_processor.app import create_app
 from doc_processor.database import get_db_connection
 
 
+@pytest.mark.usefixtures('allow_db_creation')
 def _start_server_client():
     app = create_app()
     return app.test_client()
