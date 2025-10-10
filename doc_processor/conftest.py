@@ -19,6 +19,14 @@ def allow_db_creation(monkeypatch, temp_db_path):
     """
     monkeypatch.setenv('DATABASE_PATH', temp_db_path)
     monkeypatch.setenv('ALLOW_NEW_DB', '1')
+    # Initialize schema for tests that expect application tables to exist
+    try:
+        # Import the dev_tools database_setup helper and run create_database()
+        from doc_processor.dev_tools.database_setup import create_database
+        create_database()
+    except Exception:
+        # If create_database is unavailable, tests will still attempt on-demand schema creation
+        pass
     yield temp_db_path
     # best-effort cleanup of the file after test
     try:
