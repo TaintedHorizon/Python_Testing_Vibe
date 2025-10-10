@@ -24,6 +24,17 @@ def allow_db_creation(monkeypatch, temp_db_path):
         # Import the dev_tools database_setup helper and run create_database()
         from doc_processor.dev_tools.database_setup import create_database
         create_database()
+        # Ensure tables added by dev_tools are present for integration-style tests
+        try:
+            from doc_processor.dev_tools.add_single_documents_table import add_single_documents_table
+            add_single_documents_table()
+        except Exception:
+            pass
+        try:
+            from doc_processor.dev_tools.add_document_tags_table import add_document_tags_table
+            add_document_tags_table()
+        except Exception:
+            pass
     except Exception:
         # If create_database is unavailable, tests will still attempt on-demand schema creation
         pass
