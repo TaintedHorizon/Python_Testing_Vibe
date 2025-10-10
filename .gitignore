@@ -58,6 +58,18 @@ documents.db-wal
 documents.db-shm
 *.db-wal
 *.db-shm
+*.db.bak
+
+# Database files and backups
+**/documents.db
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Retention/backups created by the app
+/doc_processor/originals_retention/
+/doc_processor/backups/
 
 # === Project Specific ===
 # Model weights and backup files

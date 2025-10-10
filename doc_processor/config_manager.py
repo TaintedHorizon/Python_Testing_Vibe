@@ -63,6 +63,16 @@ class AppConfig:
     ENABLE_TAG_EXTRACTION: bool = True  # Enable LLM-powered tag extraction during export
     FAST_TEST_MODE: bool = False  # When true, bypass heavy OCR/LLM for tests
     INCLUDE_SOURCE_IMAGES_ON_EXPORT: bool = False  # When true, copy original intake images alongside exported PDFs
+    # When True, prevent automatic deletion of batches unless originals have been
+    # backed up to the `doc_processor/originals_retention/` directory. Admins can
+    # still perform manual cleanup. Default is False to preserve existing test
+    # and CI behavior; enable in production via environment variable if desired.
+    ENFORCE_RETENTION_GUARD: bool = False
+    # Optional directory where backups and retention artifacts are stored.
+    # If not set via environment, we'll default to a user-local location
+    # under $XDG_DATA_HOME or ~/.local/share/doc_processor/db_backups. This
+    # keeps backup artifacts out of the repository by default.
+    DB_BACKUP_DIR: Optional[str] = None
 
     # --- Status Constants ---
     # These are application-level constants and are not meant to be configured
@@ -170,6 +180,8 @@ class AppConfig:
                 OCR_RESCAN_DPI=int(get_env("RESCAN_OCR_DPI", str(cls.OCR_RESCAN_DPI))),
                 OCR_RENDER_SCALE=float(get_env("OCR_RENDER_SCALE", str(cls.OCR_RENDER_SCALE))),
                 OCR_OVERLAY_TEXT_LIMIT=int(get_env("OCR_OVERLAY_TEXT_LIMIT", str(cls.OCR_OVERLAY_TEXT_LIMIT))),
+                # Backup dir can be optionally provided by env
+                DB_BACKUP_DIR=get_optional_env("DB_BACKUP_DIR"),
                 
                 # Status Constants (these are not loaded from environment)
                 STATUS_PENDING_VERIFICATION=cls.STATUS_PENDING_VERIFICATION,
@@ -185,6 +197,18 @@ class AppConfig:
             db_dir = os.path.dirname(config.DATABASE_PATH)
             if db_dir:
                 os.makedirs(db_dir, exist_ok=True)
+
+            # Validate and create backup directory if provided; if not provided,
+            # set a sane default under the user's XDG data folder.
+            try:
+                if not config.DB_BACKUP_DIR:
+                    xdg_data = os.getenv('XDG_DATA_HOME') or os.path.join(os.path.expanduser('~'), '.local', 'share')
+                    default_backup = os.path.join(xdg_data, 'doc_processor', 'db_backups')
+                    config.DB_BACKUP_DIR = default_backup
+                # Create the backup directory and ensure permissions
+                os.makedirs(config.DB_BACKUP_DIR, exist_ok=True)
+            except Exception as e:
+                logging.warning(f"Could not create DB_BACKUP_DIR '{config.DB_BACKUP_DIR}': {e}")
             
             return config
 

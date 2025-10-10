@@ -5,19 +5,36 @@ from doc_processor.database import get_db_connection
 
 
 def test_create_and_reuse_intake_batch(tmp_path, monkeypatch):
-    # Use a temporary DB by copying existing DB to tmp_path and pointing get_db_connection to it
-    src = os.path.join(os.path.dirname(__file__), '..', 'documents.db')
+    # Create an isolated temporary DB in tmp_path and point get_db_connection to it
     dst = tmp_path / 'documents.db'
-    import shutil
-    shutil.copy2(src, dst)
+    dst_parent = dst.parent
+    dst_parent.mkdir(parents=True, exist_ok=True)
+    # Set env to point the app at our tmp DB and allow creation
+    monkeypatch.setenv('DATABASE_PATH', str(dst))
+    monkeypatch.setenv('ALLOW_NEW_DB', '1')
 
-    # Monkeypatch get_db_connection to use tmp DB
-    def _get_db_connection():
-        conn = sqlite3.connect(str(dst))
-        conn.row_factory = sqlite3.Row
-        return conn
-    monkeypatch.setattr('doc_processor.database.get_db_connection', _get_db_connection)
-
+    # Create minimal schema using the same database_connection helper the application uses
+    from doc_processor.processing import database_connection
+    with database_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS batches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                status TEXT,
+                created_at TEXT
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS single_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER,
+                original_pdf_path TEXT
+            )
+        """)
+        conn.commit()
+    # Ensure batch_guard uses the same database_connection (avoid fallback to local-file DB)
+    import doc_processor.processing as proc_mod
+    monkeypatch.setattr('doc_processor.batch_guard.database_connection', proc_mod.database_connection)
     # Ensure no processing batches exist by cleaning up
     cleaned = cleanup_empty_processing_batches()
 
