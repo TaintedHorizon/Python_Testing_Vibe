@@ -152,6 +152,22 @@ def create_app():
     
     # Register core routes (home page and basic functionality)
     register_core_routes(app)
+    # Run a safe startup cleanup to remove any empty processing batches left over from previous runs.
+    # We schedule this as a quick, best-effort call so it doesn't block startup. It will ignore errors.
+    try:
+        from .batch_guard import cleanup_empty_processing_batches
+        # Run cleanup in a background thread to avoid delaying startup; the function itself is fast.
+        import threading
+        def _startup_cleanup():
+            try:
+                cleaned = cleanup_empty_processing_batches()
+                if cleaned:
+                    logger.info(f"Startup cleanup removed empty processing batches: {cleaned}")
+            except Exception as e:
+                logger.warning(f"Startup cleanup failed: {e}")
+        threading.Thread(target=_startup_cleanup, daemon=True).start()
+    except Exception as e:
+        logger.warning(f"Could not start batch cleanup on startup: {e}")
     
     logger.info("Flask application created and configured successfully")
     return app
@@ -342,10 +358,52 @@ def register_template_helpers(app):
     @app.context_processor
     def inject_globals():
         """Inject global variables into all templates."""
+        # Database banner metadata (best-effort; tolerate failures quietly)
+        db_meta = None
+        # Allow operators to hide the DB banner via env var (useful for demos)
+        try:
+            # Default to hiding the DB banner; set SHOW_DB_BANNER=1 to enable it
+            show_db_banner = os.getenv('SHOW_DB_BANNER', '0')
+            if show_db_banner.lower() not in ('1', 'true', 't'):
+                # Explicitly disable banner
+                return {
+                    'app_name': 'Document Processor',
+                    'app_version': '2.0.0',
+                    'current_year': datetime.now().year,
+                    'db_meta': None
+                }
+        except Exception:
+            pass
+        try:
+            from .config_manager import app_config as _cfg
+            db_path = _cfg.DATABASE_PATH
+            import os as _os
+            exists = _os.path.exists(db_path)
+            size = _os.path.getsize(db_path) if exists else 0
+            # Minimal schema heuristic: few tables
+            minimal = False
+            if exists:
+                try:
+                    import sqlite3 as _sq
+                    c = _sq.connect(db_path)
+                    cur = c.cursor()
+                    tables = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+                    c.close()
+                    if len(tables) < 6:
+                        minimal = True
+                except Exception:
+                    pass
+            db_meta = {'path': _os.path.abspath(db_path), 'size': size, 'minimal_schema': minimal}
+            # Don't expose a banner for missing/empty DB files (avoid showing "DB: ( bytes)")
+            if not db_path or size == 0:
+                db_meta = None
+        except Exception:
+            pass
         return {
             'app_name': 'Document Processor',
             'app_version': '2.0.0',
-            'current_year': datetime.now().year
+            'current_year': datetime.now().year,
+            'db_meta': db_meta
         }
 
 # Create the Flask application instance

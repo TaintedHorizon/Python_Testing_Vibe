@@ -15,6 +15,8 @@ import logging
 from typing import Dict, Any, List, Optional
 import json
 import os
+import hashlib
+import sqlite3
 
 # Import existing modules (these imports will need to be adjusted)
 # Import actual database and processing functions
@@ -28,6 +30,96 @@ from ..utils.helpers import create_error_response, create_success_response
 # Create Blueprint
 bp = Blueprint('admin', __name__, url_prefix='/admin')
 logger = logging.getLogger(__name__)
+
+@bp.route('/db_diagnostics')
+def db_diagnostics():
+    """Human-friendly diagnostics page for the active SQLite database.
+
+    Shows: path, size, mtime, sha256 (first 16 chars), table list with row counts,
+    and warnings for minimal schema / missing critical tables.
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # Resolve absolute path (connection doesn't expose path directly; reconstruct from config)
+        from ..config_manager import app_config
+        db_path = os.path.abspath(app_config.DATABASE_PATH)
+        exists = os.path.exists(db_path)
+        size = os.path.getsize(db_path) if exists else 0
+        mtime_iso = None
+        if exists:
+            import time as _t
+            mtime_iso = _t.strftime('%Y-%m-%dT%H:%M:%S', _t.localtime(os.path.getmtime(db_path)))
+        # Compute partial SHA256 (avoid heavy cost on very large files by streaming)
+        sha256_short = 'n/a'
+        if exists and size <= 50_000_000:  # cap at 50MB for hashing
+            h = hashlib.sha256()
+            with open(db_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(8192), b''):
+                    h.update(chunk)
+            sha256_short = h.hexdigest()[:16]
+        # Gather tables & row counts
+        tables = cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()
+        table_infos = []
+        for t in tables:
+            name = t[0]
+            try:
+                rc = cursor.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0]
+            except sqlite3.Error:
+                rc = 'err'
+            table_infos.append({'name': name, 'rows': rc})
+        table_names = {ti['name'] for ti in table_infos}
+        expected_core = {'batches', 'single_documents'}
+        optional_grouped = {'documents', 'document_pages'}
+        optional_tags = {'document_tags', 'tag_usage_stats'}
+        warnings = []
+        if not expected_core.issubset(table_names):
+            warnings.append('Missing core tables: ' + ', '.join(sorted(expected_core - table_names)))
+        # Minimal schema heuristic: fewer than 6 tables typically indicates fresh DB
+        if len(table_names) < 6:
+            warnings.append('Database appears MINIMAL / freshly initialized (fewer than 6 tables).')
+        if 'pages' not in table_names:
+            warnings.append('No pages table found – legacy grouped workflow will not function fully.')
+        ctx = {
+            'db_path': db_path,
+            'exists': exists,
+            'size_bytes': size,
+            'mtime_iso': mtime_iso,
+            'sha256_short': sha256_short,
+            'tables': table_infos,
+            'warnings': warnings,
+        }
+        return render_template('db_diagnostics.html', **ctx)
+    except Exception as e:
+        logger.error(f"Failed to render db diagnostics: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/debug_batches')
+def debug_batches():
+    """Temporary debug: return JSON list of batches the server sees.
+
+    REMOVE or protect this route before production use.
+    """
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        # Detect whether start_time column exists
+        cur.execute("PRAGMA table_info(batches)")
+        cols = [r[1] for r in cur.fetchall()]
+        if 'start_time' in cols:
+            cur.execute("SELECT id, status, COALESCE(start_time,'') as start_time FROM batches ORDER BY id DESC")
+            rows = cur.fetchall()
+            result = [{'id': r['id'], 'status': r['status'], 'start_time': r['start_time']} for r in rows]
+        else:
+            cur.execute("SELECT id, status FROM batches ORDER BY id DESC")
+            rows = cur.fetchall()
+            result = [{'id': r[0], 'status': r[1], 'start_time': ''} for r in rows]
+        conn.close()
+        return jsonify({'batches': result, 'count': len(result)})
+    except Exception as e:
+        logger.error(f"debug_batches error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @bp.route("/categories", methods=["GET"])
 def categories():

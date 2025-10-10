@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 
 ## [Unreleased]
+### Batch Creation Hardening & Deterministic Tests (2025-10-10)
+- Centralized batch creation helpers (`doc_processor/batch_guard.py`) to prevent duplicate/phantom batches during concurrent smart processing.
+- Replaced hot-path raw INSERTs in production code with guarded helpers and `get_or_create_processing_batch()` to ensure idempotent batch creation.
+- Added startup cleanup to remove empty/orphaned processing batches on app start to avoid stale state after crashes/restarts.
+- Added concurrency test `tests/test_concurrent_smart.py` to validate concurrent `/batch/process_smart` requests reuse a single intake batch.
+- Minor fixes: safe handling of `cursor.lastrowid`, improved logging for batch reuse/creation, and defensive fallbacks in route handlers.
+
 ### Restored Grouped Workflow (2025-10-08)
 - Re-introduced lightweight grouped documents schema (on-demand ensure for `documents` & `document_pages`).
 - Added helpers: `insert_grouped_document`, `get_grouped_documents_for_batch`.

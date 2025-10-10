@@ -55,6 +55,14 @@ def find_existing_processing_batch() -> Optional[int]:
         return None
 
 
+def _ensure_lastrowid(cursor) -> int:
+    """Return a safe int for cursor.lastrowid or raise RuntimeError."""
+    val = getattr(cursor, 'lastrowid', None)
+    if val is None:
+        raise RuntimeError("Database did not provide lastrowid after INSERT")
+    return int(val)
+
+
 def check_batch_has_documents(batch_id: int) -> bool:
     """
     Check if a batch has any documents.
@@ -109,7 +117,7 @@ def get_or_create_processing_batch() -> int:
             cursor.execute("""
                 INSERT INTO batches (status) VALUES (?)
             """, ("processing",))
-            new_batch_id = cursor.lastrowid
+            new_batch_id = _ensure_lastrowid(cursor)
             conn.commit()
             
             logging.info(f"✨ Created new processing batch {new_batch_id}")
@@ -124,12 +132,99 @@ def get_or_create_processing_batch() -> int:
                 cursor.execute("""
                     INSERT INTO batches (status) VALUES (?)
                 """, ("processing",))
-                fallback_batch_id = cursor.lastrowid
+                fallback_batch_id = _ensure_lastrowid(cursor)
                 conn.commit()
                 logging.warning(f"Created fallback batch {fallback_batch_id}")
                 return fallback_batch_id
         except Exception as fallback_error:
             logging.error(f"Fallback batch creation failed: {fallback_error}")
+            raise
+
+
+def find_existing_intake_batch() -> Optional[int]:
+    """
+    Find an existing intake/ready batch (not exported) to reuse for intake operations.
+
+    Returns:
+        int: Batch ID if found, None otherwise
+    """
+    try:
+        with database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id FROM batches
+                WHERE status IN ('intake','ready')
+                ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            return row[0] if row else None
+    except Exception as e:
+        logging.error(f"Error finding existing intake batch: {e}")
+        return None
+
+
+def get_or_create_intake_batch() -> int:
+    """
+    Return an existing intake/ready batch or create one if none exists.
+
+    This mirrors get_or_create_processing_batch behaviour but for intake workflows.
+    """
+    try:
+        existing = find_existing_intake_batch()
+        if existing:
+            logging.info(f"♻️  Reusing existing intake batch {existing}")
+            return existing
+
+        with database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO batches (status) VALUES (?)", ("intake",))
+            new_id = _ensure_lastrowid(cursor)
+            conn.commit()
+            logging.info(f"✨ Created new intake batch {new_id}")
+            return new_id
+    except Exception as e:
+        logging.error(f"Error creating intake batch: {e}")
+        # Fallback: try to create raw insert
+        try:
+            with database_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO batches VALUES (NULL, 'intake')")
+                new_id = _ensure_lastrowid(cursor)
+                conn.commit()
+                return new_id
+        except Exception as e2:
+            logging.error(f"Fallback intake batch creation failed: {e2}")
+            raise
+
+
+def create_new_batch(status: str) -> int:
+    """
+    Create a new batch row with the provided status and return its ID.
+
+    Centralizes INSERT semantics so callers don't duplicate raw SQL and so
+    we have a single place to audit/guard batch creation in future.
+    """
+    try:
+        with database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO batches (status) VALUES (?)", (status,))
+            new_id = _ensure_lastrowid(cursor)
+            conn.commit()
+            logging.info(f"✨ Created new batch {new_id} with status '{status}'")
+            return new_id
+    except Exception as e:
+        logging.error(f"Error creating new batch with status '{status}': {e}")
+        # Attempt a minimal fallback insert
+        try:
+            with database_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO batches VALUES (NULL, ?)", (status,))
+                new_id = _ensure_lastrowid(cursor)
+                conn.commit()
+                logging.warning(f"Fallback created new batch {new_id} with status '{status}'")
+                return new_id
+        except Exception as e2:
+            logging.error(f"Fallback new batch creation also failed: {e2}")
             raise
 
 

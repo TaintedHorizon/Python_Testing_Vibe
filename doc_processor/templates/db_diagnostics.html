@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}DB Diagnostics{% endblock %}
+{% block content %}
+<h1>Database Diagnostics</h1>
+<p><strong>Path:</strong> {{ db_path }}</p>
+<p><strong>Exists:</strong> {{ 'Yes' if exists else 'No' }}</p>
+<p><strong>Size:</strong> {{ size_bytes }} bytes</p>
+<p><strong>Last Modified:</strong> {{ mtime_iso if mtime_iso else 'N/A' }}</p>
+<p><strong>SHA256 (first 16):</strong> {{ sha256_short }}</p>
+
+{% if warnings and warnings|length %}
+<div style="background:#fff3cd;border:1px solid #ffeeba;padding:10px;border-radius:4px;margin-bottom:15px;">
+    <strong>Warnings:</strong>
+    <ul>
+        {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+<h2>Tables</h2>
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;background:#fff;">
+    <thead style="background:#4a5568;color:#fff;">
+        <tr><th>Name</th><th>Row Count</th></tr>
+    </thead>
+    <tbody>
+    {% for t in tables %}
+        <tr>
+            <td>{{ t.name }}</td>
+            <td>{{ t.rows }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+<p style="margin-top:20px;font-size:0.9em;color:#555;">If this database was not expected to be newly created, verify your working directory and DATABASE_PATH environment variable. The safety guard requires ALLOW_NEW_DB=1 for new DB creation outside FAST_TEST_MODE.</p>
+{% endblock %}

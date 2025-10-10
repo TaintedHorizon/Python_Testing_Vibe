@@ -14,6 +14,7 @@ from ..document_detector import get_detector
 from ..config_manager import app_config
 from ..database import get_db_connection
 from ..processing import database_connection
+from ..batch_guard import get_or_create_intake_batch
 import logging
 import json
 import os
@@ -209,9 +210,13 @@ def analyze_intake_page():
     except Exception as e:
         logging.warning(f"Failed to overlay persisted rotations onto cached analyses: {e}")
     
+    # If caller provided a batch_id (from Batch Control), pass it through so the
+    # client can be redirected to the appropriate preview when analysis completes.
+    batch_id = request.args.get('batch_id')
     return render_template("intake_analysis.html", 
                          analyses=cached_analyses,  # Use cached if available
-                         intake_dir=app_config.INTAKE_DIR)
+                         intake_dir=app_config.INTAKE_DIR,
+                         batch_id=batch_id)
 
 @intake_bp.route('/api/ensure_batch', methods=['POST'])
 def ensure_active_batch():
@@ -220,24 +225,11 @@ def ensure_active_batch():
     Returns JSON with batch_id.
     """
     try:
-        with database_connection() as conn:
-            cur = conn.cursor()
-            # Try to find a non-exported batch
-            batch_id = None
-            try:
-                cur.execute("SELECT id FROM batches WHERE status NOT IN ('exported','Exported') ORDER BY id DESC LIMIT 1")
-                row = cur.fetchone()
-                if row:
-                    batch_id = row[0]
-            except Exception:
-                pass
-            if batch_id is None:
-                # Create new batch
-                try:
-                    cur.execute("INSERT INTO batches (status) VALUES ('intake')")
-                except Exception:
-                    cur.execute("INSERT INTO batches VALUES (NULL,'intake')")
-                batch_id = cur.lastrowid
+        # Use batch_guard to reliably reuse or create an intake batch
+        try:
+            batch_id = get_or_create_intake_batch()
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
         return jsonify({'success': True, 'batch_id': batch_id})
     except Exception as e:
         logging.error(f"ensure_active_batch failed: {e}")
@@ -456,8 +448,24 @@ def analyze_intake_progress():
             except Exception as cache_err:
                 logging.warning(f"Failed to cache analysis results: {cache_err}")
             
-            # Send completion
-            yield f"data: {json.dumps({'complete': True, 'analyses': analyses, 'total': total_operations, 'single_count': single_count, 'batch_count': batch_count, 'success': True})}\n\n"
+            # Build completion payload. If caller requested a batch_id, include a redirect
+            # to the manipulation view for that batch so the client can follow automatically.
+            complete_payload = {
+                'complete': True,
+                'analyses': analyses,
+                'total': total_operations,
+                'single_count': single_count,
+                'batch_count': batch_count,
+                'success': True
+            }
+            # Respect batch_id query param (if provided by client) for post-analysis redirect
+            try:
+                b_id = request.args.get('batch_id')
+                if b_id:
+                    complete_payload['redirect'] = url_for('manipulation.view_documents', batch_id=int(b_id))
+            except Exception:
+                pass
+            yield f"data: {json.dumps(complete_payload)}\n\n"
             
         except Exception as e:
             logging.error(f"Error in intake analysis SSE: {e}")
@@ -532,13 +540,21 @@ def analyze_intake_api():
         except Exception as cache_err:
             logging.warning(f"Failed to cache analysis results: {cache_err}")
         
-        return jsonify({
+        result = {
             'analyses': analyses_data,
             'total': len(analyses_data),
             'single_count': single_count,
             'batch_count': batch_count,
-            'success': True
-        })
+            'success': True,
+            'redirect': None
+        }
+        try:
+            api_bid = request.args.get('batch_id')
+            if api_bid:
+                result['redirect'] = url_for('manipulation.view_documents', batch_id=int(api_bid))
+        except Exception:
+            pass
+        return jsonify(result)
         
     except Exception as e:
         logging.error(f"Error in analyze_intake_api: {e}")

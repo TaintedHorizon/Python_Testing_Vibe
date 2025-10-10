@@ -4,7 +4,6 @@ Batch Routes Blueprint
 This module contains all routes related to batch control, processing, and management.
 Extracted from the monolithic app.py to improve maintainability.
 """
-
 from flask import Blueprint, request, jsonify, render_template, redirect, url_for, flash
 import logging
 from typing import Dict, Any
@@ -19,6 +18,7 @@ from datetime import datetime
 from ..database import (
     get_db_connection, get_batch_by_id, get_documents_for_batch, insert_grouped_document
 )
+from ..batch_guard import get_or_create_intake_batch, create_new_batch
 from ..processing import process_batch, database_connection, process_single_document
 from ..config_manager import app_config
 from ..utils.helpers import create_error_response, create_success_response
@@ -199,65 +199,75 @@ def _orchestrate_smart_processing(batch_id: int, strategy_overrides: dict, token
     single_batch_id = None
     batch_scan_batch_id = None
 
-    # First pass: single docs (let existing generator create/reuse batch)
+    # First pass: single docs
     if single_docs:
         yield {'message': f'Processing {len(single_docs)} single documents...', 'progress': processed, 'total': processing_total}
-        for out in _relay(_process_single_documents_as_batch_with_progress(single_docs), 'single'):
-            if 'batch_id' in out and single_batch_id is None:
-                single_batch_id = out['batch_id']
-            # Early stop if cancelled propagated
-            if out.get('cancelled'):
-                yield {
-                    'message': 'Smart processing cancelled (single documents phase)',
-                    'progress': processed,
-                    'total': processing_total,
-                    'complete': True,
-                    'single_batch_id': single_batch_id,
-                    'batch_scan_batch_id': batch_scan_batch_id,
-                    'cancelled': True
-                }
-                return
-            yield out
+        # If caller supplied a batch_id, we should NOT put single documents into
+        # that fixed batch (batch_scans are typically the 'grouped' set). Instead
+        # create/reuse a processing batch for single-documents to keep them
+        # separated from the supplied batch. This prevents mixed-state batches.
+        if batch_id is not None:
+            # Use processing guard to obtain/allocate a processing batch for singles
+            from ..batch_guard import get_or_create_processing_batch
+            proc_batch = get_or_create_processing_batch()
+            for out in _relay(_process_docs_into_fixed_batch_with_progress(single_docs, proc_batch), 'single'):
+                if 'batch_id' in out and single_batch_id is None:
+                    single_batch_id = out['batch_id']
+                if 'documents_completed' in out:
+                    processed = out.get('documents_completed', processed + 1)
+                    out['progress'] = processed
+                if out.get('cancelled'):
+                    yield {
+                        'message': 'Smart processing cancelled (single documents phase)',
+                        'progress': processed,
+                        'total': processing_total,
+                        'complete': True,
+                        'single_batch_id': single_batch_id,
+                        'batch_scan_batch_id': batch_scan_batch_id,
+                        'cancelled': True
+                    }
+                    return
+                yield out
+        else:
+            for out in _relay(_process_single_documents_as_batch_with_progress(single_docs), 'single'):
+                if 'batch_id' in out and single_batch_id is None:
+                    single_batch_id = out['batch_id']
+                # Early stop if cancelled propagated
+                if out.get('cancelled'):
+                    yield {
+                        'message': 'Smart processing cancelled (single documents phase)',
+                        'progress': processed,
+                        'total': processing_total,
+                        'complete': True,
+                        'single_batch_id': single_batch_id,
+                        'batch_scan_batch_id': batch_scan_batch_id,
+                        'cancelled': True
+                    }
+                    return
+                yield out
 
-    # Second pass: batch scans (force new dedicated batch if there are docs)
+    # Second pass: batch scans (process into the resolved batch)
     if batch_scans:
-        # Create a dedicated batch row manually (status 'processing')
+        # If no batch_id was provided by the caller but we created one during
+        # the single-docs pass, reuse that batch to avoid creating duplicates.
+        if batch_id is None and single_batch_id is not None:
+            batch_id = single_batch_id
+
+        # Use the resolved batch_id for batch_scans.
+        batch_scan_batch_id = batch_id
         try:
             with database_connection() as conn:
                 cursor = conn.cursor()
-                # Ensure batches table exists (test schemas may omit)
                 try:
-                    cursor.execute("""
-                        CREATE TABLE IF NOT EXISTS batches (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            status TEXT,
-                            has_been_manipulated INTEGER DEFAULT 0
-                        )
-                    """)
-                except Exception as ddl_err:
-                    logger.debug(f"[smart] batches table ensure failed (continuing): {ddl_err}")
-                # Prefer explicit column list; fallback to simple insert if schema minimal
-                created = False
-                try:
-                    cursor.execute("INSERT INTO batches (status) VALUES ('processing')")
-                    created = True
-                except Exception as primary_err:
-                    logger.debug(f"[smart] Primary batch insert failed (trying fallback): {primary_err}")
-                    try:
-                        cursor.execute("INSERT INTO batches VALUES (NULL,'processing')")
-                        created = True
-                    except Exception as fallback_err:
-                        logger.error(f"[smart] Fallback batch insert failed: {fallback_err}")
-                        raise fallback_err
-                if created:
-                    batch_scan_batch_id = cursor.lastrowid
+                    cursor.execute("UPDATE batches SET status = 'processing' WHERE id = ?", (batch_scan_batch_id,))
                     conn.commit()
+                except Exception as upd_err:
+                    logger.debug(f"[smart] Could not mark batch {batch_scan_batch_id} as processing: {upd_err}")
         except Exception as e:
-            logger.error(f"[smart] Failed to create batch-scan batch: {e}")
-            yield {'error': f'Failed to create batch for batch scans: {e}', 'progress': processed, 'total': processing_total}
-        if batch_scan_batch_id:
-            yield {'message': f'Processing {len(batch_scans)} batch-scan documents in separate batch {batch_scan_batch_id}...', 'progress': processed, 'total': processing_total}
-            for out in _relay(_process_docs_into_fixed_batch_with_progress(batch_scans, batch_scan_batch_id), 'batch_scan'):
+            logger.error(f"[smart] Error while updating batch status for batch_scans: {e}")
+
+        yield {'message': f'Processing {len(batch_scans)} batch-scan documents in batch {batch_scan_batch_id}...', 'progress': processed, 'total': processing_total}
+        for out in _relay(_process_docs_into_fixed_batch_with_progress(batch_scans, batch_scan_batch_id), 'batch_scan'):
                 if 'documents_completed' in out:
                     processed = out['documents_completed'] + (len(single_docs) if single_docs else 0)
                     out['progress'] = processed
@@ -322,6 +332,23 @@ def smart_processing_progress_sse():
         'X-Accel-Buffering': 'no'
     }
     return Response(stream_with_context(event_stream()), headers=headers)
+
+@bp.route('/admin/cleanup_empty_processing_batches', methods=['POST'])
+def admin_cleanup_empty_processing_batches():
+    """Admin-only endpoint to cleanup empty processing batches.
+
+    Returns the list of cleaned batch IDs.
+    """
+    # For safety, allow only local requests in this dev environment
+    if request.remote_addr not in ('127.0.0.1', '::1', None):
+        return jsonify(create_error_response('Not allowed from remote hosts')), 403
+    try:
+        from ..batch_guard import cleanup_empty_processing_batches
+        cleaned = cleanup_empty_processing_batches()
+        return jsonify(create_success_response({'cleaned_batches': cleaned}))
+    except Exception as e:
+        logger.error(f"cleanup_empty_processing_batches failed: {e}")
+        return jsonify(create_error_response(str(e))), 500
 
 @bp.route('/api/smart_processing_cancel', methods=['POST'])
 def smart_processing_cancel():
@@ -397,15 +424,8 @@ def process_new_batch():
             return jsonify(create_error_response("Intake directory not configured or doesn't exist"))
         
         # Create new batch
-        with database_connection() as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                INSERT INTO batches (status)
-                VALUES ('intake')
-            """)
-            
-            batch_id = cursor.lastrowid
+        # Create new intake batch via helper to centralize INSERT semantics
+        batch_id = create_new_batch('intake')
         
         # Start processing in background
         def process_batch_async():
@@ -464,14 +484,25 @@ def start_new_batch():
     user choose smart vs traditional.
     """
     try:
-        with database_connection() as conn:
-            cursor = conn.cursor()
-            # Resilient insert (some minimal schemas only have id/status)
+        # Use centralized batch creation to avoid duplicate insert logic
+        try:
+            new_id = create_new_batch('intake')
+        except Exception as e:
+            logger.error(f"start_new_batch: failed to create batch via helper: {e}")
+            # As a resilient fallback, try get_or_create_intake_batch which may reuse existing intake
             try:
-                cursor.execute("INSERT INTO batches (status) VALUES ('intake')")
+                new_id = get_or_create_intake_batch()
             except Exception:
-                cursor.execute("INSERT INTO batches VALUES (NULL,'intake')")
-            new_id = cursor.lastrowid
+                # Final fallback: try a raw insert but keep it minimal and logged
+                with database_connection() as conn:
+                    cursor = conn.cursor()
+                    try:
+                        cursor.execute("INSERT INTO batches (status) VALUES ('intake')")
+                        conn.commit()
+                        new_id = cursor.lastrowid
+                    except Exception as raw_e:
+                        logger.error(f"start_new_batch: raw fallback insert failed: {raw_e}")
+                        new_id = None
         flash(f"Created Batch {new_id}", 'success')
     except Exception as e:
         logger.error(f"start_new_batch failed: {e}")
@@ -514,17 +545,14 @@ def process_batch_smart():
         batch_id = data.get('batch_id') or request.form.get('batch_id')
         raw_overrides = data.get('strategy_overrides') or request.form.get('strategy_overrides')
 
-        # If no batch_id supplied, auto-create a new intake batch (mirrors process_new_batch logic)
+        # If no batch_id supplied, attempt to reuse an existing intake/ready batch or create one
         if not batch_id:
             try:
-                with database_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("INSERT INTO batches (status) VALUES ('intake')")
-                    batch_id = cursor.lastrowid
-                    logger.info(f"[smart] Auto-created new batch {batch_id} (no batch_id supplied)")
+                batch_id = get_or_create_intake_batch()
+                logger.info(f"[smart] Using intake batch {batch_id} (auto-created or reused)")
             except Exception as e:
-                logger.error(f"Failed to auto-create batch for smart processing: {e}")
-                return jsonify(create_error_response(f"Could not create batch: {e}"))
+                logger.error(f"Failed to auto-create or reuse batch for smart processing: {e}")
+                return jsonify(create_error_response(f"Could not create or reuse batch: {e}"))
 
         # Attempt to parse strategy overrides if present (JSON string in form submission)
         strategy_overrides = {}
@@ -547,12 +575,25 @@ def process_batch_smart():
             if not result:
                 # Extremely unlikely if auto-create succeeded; treat as recoverable by creating again
                 try:
-                    cursor.execute("INSERT INTO batches (status) VALUES ('intake')")
-                    batch_id = cursor.lastrowid
+                    batch_id = create_new_batch('intake')
                     logger.warning(f"[smart] Batch vanished; re-created as {batch_id}")
                     cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
                 except Exception as re_e:
-                    return jsonify(create_error_response(f"Batch not found and re-create failed: {re_e}"))
+                    try:
+                        # Try the intake guard to reuse any existing intake batch first
+                        batch_id = get_or_create_intake_batch()
+                        logger.warning(f"[smart] Batch vanished; get_or_create returned {batch_id}")
+                        cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
+                    except Exception as re_e2:
+                        try:
+                            # Final raw fallback
+                            cursor.execute("INSERT INTO batches (status) VALUES ('intake')")
+                            conn.commit()
+                            batch_id = cursor.lastrowid
+                            logger.warning(f"[smart] Batch vanished; re-created as {batch_id} (raw fallback)")
+                            cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
+                        except Exception as re_e3:
+                            return jsonify(create_error_response(f"Batch not found and re-create failed: {re_e3}"))
             else:
                 if result[0] not in ['ready', 'processed', 'intake']:
                     return jsonify(create_error_response(f"Batch is not ready for smart processing (status: {result[0]})"))

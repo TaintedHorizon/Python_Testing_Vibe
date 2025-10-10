@@ -192,15 +192,20 @@ class DocumentService:
     
     def _create_new_batch(self, batch_name: Optional[str] = None) -> int:
         """Create a new batch record in database."""
-        with database_connection() as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                INSERT INTO batches (status)
-                VALUES ('intake')
-            """)
-            
-            return cursor.lastrowid or 0
+        # Use centralized batch creation to ensure consistent semantics and guards
+        from ..batch_guard import create_new_batch
+        try:
+            return create_new_batch('intake')
+        except Exception:
+            # Fallback to raw insert if helper unavailable for any reason
+            with database_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO batches (status) VALUES ('intake')")
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+                return cursor.lastrowid or 0
     
     def get_batch_summary(self, batch_id: int) -> Dict[str, Any]:
         """

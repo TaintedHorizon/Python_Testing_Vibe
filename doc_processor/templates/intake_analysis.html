@@ -1293,8 +1293,13 @@ function startAnalysis() {
     if (errorState) errorState.style.display = 'none';
     if (analysisState) analysisState.style.display = 'none';
     
-    // Use Server-Sent Events for real-time progress
-    const eventSource = new EventSource('/api/analyze_intake_progress');
+    // Use Server-Sent Events for real-time progress. If this page was opened with a
+    // batch_id (from Batch Control), include it so the server can return a redirect
+    // to the appropriate preview when analysis completes.
+    // `batch_id` is provided server-side when coming from Batch Control; serialize it safely.
+    const batch_id = {{ batch_id|tojson | default('null') }};
+    const batchIdParam = (batch_id !== null && batch_id !== undefined) ? `?batch_id=${encodeURIComponent(batch_id)}` : '';
+    const eventSource = new EventSource('/api/analyze_intake_progress' + batchIdParam);
     
     eventSource.onmessage = function(event) {
         try {
@@ -1324,6 +1329,12 @@ function startAnalysis() {
                 if (data.analyses && data.analyses.length === 0) {
                     if (noFilesState) noFilesState.style.display = 'block';
                 } else {
+                    // If the server included a redirect URL (when batch_id was provided), follow it
+                    if (data.redirect) {
+                        showSuccess('Analysis Complete', 'Redirecting to batch preview...');
+                        setTimeout(() => { window.location.href = data.redirect; }, 800);
+                        return;
+                    }
                     // Optionally update the DOM in place; skip auto-reload to preserve rotations
                     showSuccess('Analysis Complete', 'Results are ready. Refresh if needed.');
                 }

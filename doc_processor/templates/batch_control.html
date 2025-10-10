@@ -55,70 +55,66 @@
     <tbody>
         {% for batch in batches %}
         <tr>
-            <td>#{{ batch.id }}</td>
-            <td>{{ batch.start_time }}</td>
-            <td>{{ batch.status | replace('_', ' ') | title }}</td>
-            <td>{{ batch.document_count }}</td>
-            <td>
-                {% if batch.status == 'pending_verification' %}
-                    <a href="{{ url_for('manipulation.verify_batch', batch_id=batch.id) }}" class="action-btn btn-verify">✅ Verify</a>
-                
-                {% elif batch.status == 'verification_complete' %}
-                    <a href="{{ url_for('manipulation.group_documents', batch_id=batch.id) }}" class="action-btn btn-group">📂 Group ({{ batch.ungrouped_count }} ungrouped)</a>
-                    {% if batch.flagged_count > 0 %}
-                        <a href="{{ url_for('manipulation.review_batch', batch_id=batch.id) }}" class="action-btn btn-review">🔍 Review ({{ batch.flagged_count }} flagged)</a>
-                    {% endif %}
-                    <a href="{{ url_for('manipulation.revisit_batch', batch_id=batch.id) }}" class="action-btn btn-revisit">🔄 Revisit Pages</a>
-                
-
-                {% elif batch.status == 'grouping_complete' %}
-                    <a href="{{ url_for('manipulation.order_documents', batch_id=batch.id) }}" class="action-btn btn-order">📋 Order Pages</a>
-                    <form action="{{ url_for('batch.reset_grouping', batch_id=batch.id) }}" method="post" style="display:inline;">
-                        <button type="submit" class="action-btn btn-group">🔄 Revisit Grouping</button>
-                    </form>
-
-                {% elif batch.status == 'ordering_complete' %}
-                    <a href="{{ url_for('export.finalize_page', batch_id=batch.id) }}" class="action-btn btn-finalize">🎯 Finalize & Export</a>
-                    <form action="{{ url_for('manipulation.revisit_ordering_batch', batch_id=batch.id) }}" method="post" style="display:inline;">
-                        <button type="submit" class="action-btn btn-order">🔄 Revisit Ordering</button>
-                    </form>
-                    <a href="{{ url_for('manipulation.view_documents', batch_id=batch.id) }}" class="action-btn btn-view-docs">📄 View Documents</a>
-
-                {% elif batch.status == 'Exported' %}
-                    <a href="{{ url_for('manipulation.view_documents', batch_id=batch.id) }}" class="action-btn btn-view-docs">📄 View Documents</a>
-                    <a href="{{ url_for('manipulation.revisit_batch', batch_id=batch.id) }}" class="action-btn btn-revisit">🔄 Revisit Batch</a>
-
-                {% elif batch.status == 'ready_for_manipulation' %}
-                    {% if batch.has_been_manipulated %}
-                        <form action="{{ url_for('export.finalize_single_documents_batch', batch_id=batch.id) }}" method="post" style="display:inline;">
-                            <button type="submit" class="action-btn btn-group" onclick="return confirm('Export all single documents to category folders?');">🎯 Export Single Documents</button>
+            <tr>
+                <td>#{{ batch.id }}</td>
+                <td>{{ batch.start_time }}</td>
+                <td>{{ batch.status | replace('_', ' ') | title }}</td>
+                <td>{{ batch.document_count }}</td>
+                <td>
+                    {% if batch.status == 'intake' or batch.status == 'created' %}
+                        {# 'intake.intake_analysis' does not exist; use analyze_intake_page and pass batch_id as query param #}
+                        <a href="{{ url_for('intake.analyze_intake_page', batch_id=batch.id) }}" class="action-btn btn-verify">🔎 Analyze Intake</a>
+                    {% elif batch.status == 'pending_verification' %}
+                        <a href="{{ url_for('manipulation.verify_batch', batch_id=batch.id) }}" class="action-btn btn-verify">✅ Verify</a>
+                    {% elif batch.status == 'verification_complete' %}
+                        <a href="{{ url_for('manipulation.group_documents', batch_id=batch.id) }}" class="action-btn btn-group">📂 Group ({{ batch.ungrouped_count }} ungrouped)</a>
+                        {% if batch.flagged_count > 0 %}
+                            <a href="{{ url_for('manipulation.review_batch', batch_id=batch.id) }}" class="action-btn btn-review">🔍 Review ({{ batch.flagged_count }} flagged)</a>
+                        {% endif %}
+                        <a href="{{ url_for('manipulation.revisit_batch', batch_id=batch.id) }}" class="action-btn btn-revisit">🔄 Revisit Pages</a>
+                    {% elif batch.status == 'grouping_complete' %}
+                        <a href="{{ url_for('manipulation.order_documents', batch_id=batch.id) }}" class="action-btn btn-order">📋 Order Pages</a>
+                        <form action="{{ url_for('batch.reset_grouping', batch_id=batch.id) }}" method="post" style="display:inline;">
+                            <button type="submit" class="action-btn btn-group">🔄 Revisit Grouping</button>
                         </form>
+                    {% elif batch.status == 'ordering_complete' %}
+                        <a href="{{ url_for('export.finalize_page', batch_id=batch.id) }}" class="action-btn btn-finalize">🎯 Finalize & Export</a>
+                        <form action="{{ url_for('manipulation.revisit_ordering_batch', batch_id=batch.id) }}" method="post" style="display:inline;">
+                            <button type="submit" class="action-btn btn-order">🔄 Revisit Ordering</button>
+                        </form>
+                        <a href="{{ url_for('manipulation.view_documents', batch_id=batch.id) }}" class="action-btn btn-view-docs">📄 View Documents</a>
+                    {% elif batch.status == 'Exported' %}
+                        <a href="{{ url_for('manipulation.view_documents', batch_id=batch.id) }}" class="action-btn btn-view-docs">📄 View Documents</a>
+                        <a href="{{ url_for('manipulation.revisit_batch', batch_id=batch.id) }}" class="action-btn btn-revisit">🔄 Revisit Batch</a>
+                    {% elif batch.status == 'ready_for_manipulation' %}
+                        {% if batch.has_been_manipulated %}
+                            <form action="{{ url_for('export.finalize_single_documents_batch', batch_id=batch.id) }}" method="post" style="display:inline;">
+                                <button type="submit" class="action-btn btn-group" onclick="return confirm('Export all single documents to category folders?');">🎯 Export Single Documents</button>
+                            </form>
+                        {% else %}
+                            <a href="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch.id) }}" class="action-btn btn-finalize">⚙️ Manipulate Single Documents</a>
+                        {% endif %}
+                        <a href="{{ url_for('manipulation.view_documents', batch_id=batch.id) }}" class="action-btn btn-view-docs">View PDFs</a>
+                    {% elif batch.status == 'ready_for_export' %}
+                        <form action="{{ url_for('export.finalize_single_documents_batch', batch_id=batch.id) }}" method="post" style="display:inline;">
+                            <button type="submit" class="action-btn btn-group" id="export-btn-{{ batch.id }}">🎯 Export Single Documents</button>
+                        </form>
+                        <a href="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch.id) }}" class="action-btn btn-secondary">✏️ Edit Again</a>
+                        <a href="{{ url_for('manipulation.view_documents', batch_id=batch.id) }}" class="action-btn btn-view-docs">📄 View PDFs</a>
                     {% else %}
-                        <a href="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch.id) }}" class="action-btn btn-finalize">⚙️ Manipulate Single Documents</a>
+                        <a href="{{ url_for('manipulation.revisit_batch', batch_id=batch.id) }}" class="action-btn btn-revisit">🔄 Revisit Batch</a>
                     {% endif %}
-                    <a href="{{ url_for('manipulation.view_documents', batch_id=batch.id) }}" class="action-btn btn-view-docs">View PDFs</a>
-                
-                {% elif batch.status == 'ready_for_export' %}
-                    <form action="{{ url_for('export.finalize_single_documents_batch', batch_id=batch.id) }}" method="post" style="display:inline;">
-                        <button type="submit" class="action-btn btn-group" id="export-btn-{{ batch.id }}">🎯 Export Single Documents</button>
-                    </form>
-                    <a href="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch.id) }}" class="action-btn btn-secondary">✏️ Edit Again</a>
-                    <a href="{{ url_for('manipulation.view_documents', batch_id=batch.id) }}" class="action-btn btn-view-docs">📄 View PDFs</a>
 
-                {% else %}
-                    <a href="{{ url_for('manipulation.revisit_batch', batch_id=batch.id) }}" class="action-btn btn-revisit">🔄 Revisit Batch</a>
-                {% endif %}
-
-                {% if batch.status != 'pending_verification' %}
-                    <form action="{{ url_for('batch.reset_batch', batch_id=batch.id) }}" method="post" style="display: inline;" onsubmit="return confirm('Are you sure you want to completely reset this batch? All grouping and ordering will be lost.');">
-                        <button type="submit" class="action-btn btn-reset">🔄 Reset Batch</button>
-                    </form>
-                {% endif %}
-            </td>
-            <td>
-                <a href="{{ batch.audit_url }}" class="action-btn" style="background-color:#343a40;">🔍 Audit</a>
-            </td>
-        </tr>
+                    {% if batch.status != 'pending_verification' %}
+                        <form action="{{ url_for('batch.reset_batch', batch_id=batch.id) }}" method="post" style="display: inline;" onsubmit="return confirm('Are you sure you want to completely reset this batch? All grouping and ordering will be lost.');">
+                            <button type="submit" class="action-btn btn-reset">🔄 Reset Batch</button>
+                        </form>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{{ batch.audit_url }}" class="action-btn" style="background-color:#343a40;">🔍 Audit</a>
+                </td>
+            </tr>
         {% else %}
         <tr>
             <td colspan="6" style="text-align: center;">No batches have been processed yet. Click "Start New Batch" to begin.</td>

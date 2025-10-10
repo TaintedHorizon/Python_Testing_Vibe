@@ -215,6 +215,23 @@ def get_db_connection():
             print(f"[APP][database_init] {payload}")
         _DB_LOGGED_ONCE = True
 
+    # --- SAFETY GUARD: Detect brand-new database creation to avoid silent data loss ---
+    db_existed_before = os.path.exists(db_path)
+    pre_size = os.path.getsize(db_path) if db_existed_before else 0
+    if (not db_existed_before or pre_size == 0):
+        # If file does not exist (or empty) we are about to create/initialize it.
+        # Require explicit opt-in unless running in tests (FAST_TEST_MODE) or an allow flag is set.
+        allow_new = os.getenv('ALLOW_NEW_DB') in ('1','true','TRUE','True')
+        fast_mode = os.getenv('FAST_TEST_MODE','0').lower() in ('1','true','t')
+        if not allow_new and not fast_mode:
+            msg = (
+                f"Refusing to create new database at {db_path}. File missing or empty. "
+                "Set ALLOW_NEW_DB=1 to allow creation (or FAST_TEST_MODE=1 for tests). "
+                "This guard prevents accidental overwriting or pointing to the wrong working directory."
+            )
+            logging.getLogger(__name__).critical(msg)
+            raise RuntimeError(msg)
+
     conn = sqlite3.connect(db_path, timeout=30.0)  # 30 second timeout for locks
     conn.row_factory = sqlite3.Row
     
@@ -261,6 +278,20 @@ def get_db_connection():
                 )
                 """
             )
+        # Emit post-creation warning if we just initialized a brand-new file
+        if (not db_existed_before or pre_size == 0):
+            try:
+                # Count base tables to see if schema is minimal
+                tables = [r[0] for r in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+                logging.getLogger(__name__).warning(
+                    json.dumps({
+                        "event": "new_database_created",
+                        "path": os.path.abspath(db_path),
+                        "tables": tables,
+                        "message": "A NEW SQLite database file was created. Verify this was intentional."})
+                )
+            except Exception:
+                pass
     except Exception as _schema_err:
         # Non-fatal; grouped workflow features will self-diagnose if tables truly missing.
         try:

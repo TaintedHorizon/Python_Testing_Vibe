@@ -984,15 +984,9 @@ def process_single_document(file_path: str, suggested_strategy: str = "single_do
         with database_connection() as conn:
             cursor = conn.cursor()
             
-            # Create a single-document batch
-            cursor.execute(
-                "INSERT INTO batches (status) VALUES (?)",
-                (app_config.STATUS_EXPORTED,)  # Single docs go straight to exported
-            )
-            batch_id = cursor.lastrowid
-            conn.commit()
-            
-            logging.info(f"Created single-document batch: {batch_id}")
+            # Create a single-document batch using the centralized helper
+            from .batch_guard import create_new_batch
+            batch_id = create_new_batch(app_config.STATUS_EXPORTED)
             
             # Extract full text content from PDF for AI classification
             full_text = ""
@@ -1399,6 +1393,10 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                         logging.warning(f"Pre-OCR rotation normalization failed for {pdf_filename}: {pre_rot_err}")
                     
                     # Step 1: Insert document first with basic info (no OCR yet)
+                    # Use the existing processing batch (created earlier) and insert the single_document row
+                    os.makedirs(app_config.ARCHIVE_DIR, exist_ok=True)
+                    batch_image_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
+
                     cursor.execute("""
                         INSERT INTO single_documents (
                             batch_id, original_filename, original_pdf_path,
@@ -2193,12 +2191,9 @@ def _process_batch_traditional(pdf_files_paths: List[str]) -> bool:
         with database_connection() as conn:
             cursor = conn.cursor()
             # Create a new batch record for batch scan processing
-            cursor.execute(
-                "INSERT INTO batches (status) VALUES (?)",
-                (app_config.STATUS_PENDING_VERIFICATION,)
-            )
-            batch_id = cursor.lastrowid
-            conn.commit()
+            # Create a new batch for this traditional batch scan using helper
+            from .batch_guard import create_new_batch
+            batch_id = create_new_batch(app_config.STATUS_PENDING_VERIFICATION)
             logging.info(f"Created new batch scan batch with ID: {batch_id}")
             
             log_interaction(

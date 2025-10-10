@@ -108,25 +108,43 @@ def clear_test_directories():
         clear_dir_contents(path)
 
 def main():
-    """Main function to orchestrate the reset process."""
+    """Main function to orchestrate the reset process with safety guards.
+
+    Safeguards:
+      * Requires environment variable CONFIRM_RESET=1 OR interactive 'yes' prompt.
+      * Supports DRY_RUN=1 to show intended actions without deleting.
+    """
     print("Starting environment reset process...")
-    
-    confirm = input("This will delete all batches, documents, pages, and exported files. Are you sure you want to continue? (yes/no): ")
-    if confirm.lower() != 'yes':
-        print("Operation cancelled.")
-        return
+
+    dry_run = os.getenv('DRY_RUN','0').lower() in ('1','true','t')
+    env_confirm = os.getenv('CONFIRM_RESET','0').lower() in ('1','true','t')
+
+    if not env_confirm:
+        confirm = input("This will DELETE all batches, documents, pages, and exported files. Type 'yes' to continue (or set CONFIRM_RESET=1): ")
+        if confirm.lower() != 'yes':
+            print("Operation cancelled (no confirmation).")
+            return
+    else:
+        print("Environment variable CONFIRM_RESET=1 detected – skipping interactive prompt.")
+    if dry_run:
+        print("DRY_RUN=1 set – no changes will be made. Displaying what WOULD happen:")
 
     conn = get_db_connection()
     if conn:
         try:
-            backup_custom_categories(conn)
-            clear_database_tables(conn)
+            if dry_run:
+                print("[DRY RUN] Would back up custom categories and clear tables: ", TABLES_TO_CLEAR)
+            else:
+                backup_custom_categories(conn)
+                clear_database_tables(conn)
         finally:
             conn.close()
-    
-    clear_test_directories()
-    
-    print("\nEnvironment reset complete. You can now start a new test run.")
+    if dry_run:
+        print(f"[DRY RUN] Would clear directories for PROCESSED_DIR and FILING_CABINET_DIR")
+    else:
+        clear_test_directories()
+
+    print("\nEnvironment reset complete." + (" (dry run)" if dry_run else ""))
 
 if __name__ == "__main__":
     main()

@@ -199,6 +199,19 @@ Important:
 - Smart processing workflow lives under `Batch Control` → “Smart Process” (streams progress and exposes cancel button when active).
  - FAST_TEST_MODE (set in `.env`) short-circuits heavy OCR & AI calls where possible to produce deterministic, fast test outcomes; rescan endpoint honors this mode.
 
+Batch guard and testing notes
+----------------------------
+
+- A centralized batch-creation guard now lives in `doc_processor/batch_guard.py`. Production hot-paths use `get_or_create_processing_batch()` and `create_new_batch()` to avoid duplicate/phantom batches under concurrent requests. This makes smart processing and "Start New Batch" behavior deterministic.
+
+- To run the full test suite locally (recommended before pushing changes):
+```bash
+cd doc_processor
+source venv/bin/activate
+pytest -q
+```
+
+
 #### Rescan Behavior (OCR / LLM)
 Endpoint: `/api/rescan_document/<id>`
 
