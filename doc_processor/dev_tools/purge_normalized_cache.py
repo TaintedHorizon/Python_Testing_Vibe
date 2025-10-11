@@ -5,8 +5,14 @@ Removes all files in the configured NORMALIZED_DIR (image->PDF normalization cac
 Safe to run anytime; rebuilt lazily. Honors configuration via config_manager.
 """
 from __future__ import annotations
-import os, sys, shutil
+import os, sys, shutil, argparse
 from pathlib import Path
+
+parser = argparse.ArgumentParser(description='Purge normalized PDF cache')
+parser.add_argument('--dry-run', action='store_true', help='Show what would be done without applying changes')
+args = parser.parse_args()
+
+dry_run = args.dry_run or os.getenv('DRY_RUN','0').lower() in ('1','true','t')
 
 try:
     from config_manager import app_config
@@ -30,7 +36,8 @@ def main():
     for p in entries:
         try:
             if p.is_file():
-                p.unlink()
+                if not dry_run:
+                    p.unlink()
                 removed += 1
         except Exception as e:
             print(f"⚠️ Failed to remove {p}: {e}")

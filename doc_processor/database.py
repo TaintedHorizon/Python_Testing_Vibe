@@ -178,25 +178,33 @@ def get_db_connection():
     the DATABASE_PATH environment variable for backward compatibility.
     """
     global _DB_LOGGED_ONCE
-    try:
-        # Prefer centralized config first
-        from .config_manager import app_config  # local import to avoid cycles
-        db_path = app_config.DATABASE_PATH
-        # Test fixtures may override DATABASE_PATH via environment AFTER config_manager loaded.
-        # Honor an explicit env var if it points to a different location (exists or parent dir writable).
-        env_override = os.getenv("DATABASE_PATH")
-        if env_override and os.path.abspath(env_override) != os.path.abspath(db_path):
-            try:
-                override_dir = os.path.dirname(env_override)
-                if not override_dir:
-                    override_dir = '.'
-                os.makedirs(override_dir, exist_ok=True)
-                db_path = env_override  # switch to override for this connection
-            except Exception as _ovr_err:
-                logging.getLogger(__name__).warning(f"Ignored DATABASE_PATH override {env_override}: {_ovr_err}")
-    except Exception:
-        # Fallback purely to environment
+    # Allow an explicit environment override to take precedence. This is important
+    # for tests and environments that set DATABASE_PATH at runtime (e.g., pytest
+    # fixtures or CI). We validate/ensure the directory exists before using it.
+    env_override = os.getenv("DATABASE_PATH")
+    db_path = None
+    if env_override:
+        try:
+            override_dir = os.path.dirname(env_override)
+            if not override_dir:
+                override_dir = '.'
+            os.makedirs(override_dir, exist_ok=True)
+            db_path = env_override
+        except Exception as _ovr_err:
+            logging.getLogger(__name__).warning(f"Ignored DATABASE_PATH override {env_override}: {_ovr_err}")
+
+    if not db_path:
+        try:
+            # Prefer centralized config if no valid env override
+            from .config_manager import app_config  # local import to avoid cycles
+            db_path = getattr(app_config, 'DATABASE_PATH', None)
+        except Exception:
+            db_path = None
+
+    # Final fallback to any environment setting (may be None)
+    if not db_path:
         db_path = os.getenv("DATABASE_PATH")
+
     if not db_path:
         raise RuntimeError("Database path is not configured. Set in .env or via config_manager.")
 
@@ -222,8 +230,33 @@ def get_db_connection():
         # If file does not exist (or empty) we are about to create/initialize it.
         # Require explicit opt-in unless running in tests (FAST_TEST_MODE) or an allow flag is set.
         allow_new = os.getenv('ALLOW_NEW_DB') in ('1','true','TRUE','True')
+        allow_backup = os.getenv('ALLOW_NEW_DB') in ('backup', 'BACKUP')
         fast_mode = os.getenv('FAST_TEST_MODE','0').lower() in ('1','true','t')
-        if not allow_new and not fast_mode:
+        # If ALLOW_NEW_DB=backup then we'll first copy any existing file into
+        # the configured DB_BACKUP_DIR before proceeding. This provides a safer
+        # path for scripted upgrades where accidental overwrites were happening.
+        if allow_backup and db_existed_before:
+            try:
+                try:
+                    from .config_manager import app_config
+                    backup_root = getattr(app_config, 'DB_BACKUP_DIR', None)
+                except Exception:
+                    backup_root = os.getenv('DB_BACKUP_DIR')
+                if not backup_root:
+                    import os as _os
+                    xdg_data = os.getenv('XDG_DATA_HOME') or _os.path.join(_os.path.expanduser('~'), '.local', 'share')
+                    backup_root = _os.path.join(xdg_data, 'doc_processor', 'db_backups')
+                os.makedirs(backup_root, exist_ok=True)
+                import shutil, datetime
+                timestamp = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+                src = db_path
+                dest = os.path.join(backup_root, f"documents.db.backup.{timestamp}")
+                shutil.copy2(src, dest)
+                logging.getLogger(__name__).warning(f"Backed up existing DB {src} -> {dest} before re-initialization")
+            except Exception as _bck_err:
+                logging.getLogger(__name__).warning(f"Failed to backup DB before new creation: {_bck_err}")
+
+        if not allow_new and not fast_mode and not allow_backup:
             msg = (
                 f"Refusing to create new database at {db_path}. File missing or empty. "
                 "Set ALLOW_NEW_DB=1 to allow creation (or FAST_TEST_MODE=1 for tests). "
@@ -1354,16 +1387,25 @@ def get_document_tags(document_id):
         dict: Dictionary with tag categories as keys and lists of tag values
     """
     conn = get_db_connection()
-    
+
     try:
         cursor = conn.cursor()
-        results = cursor.execute("""
-            SELECT tag_category, tag_value, extraction_confidence, created_at
-            FROM document_tags 
-            WHERE document_id = ?
-            ORDER BY tag_category, tag_value
-        """, (document_id,)).fetchall()
-        
+        # Inspect table to see which optional columns are present (e.g., extraction_confidence, created_at)
+        try:
+            cols_info = cursor.execute("PRAGMA table_info(document_tags)").fetchall()
+            existing_cols = {c[1] for c in cols_info}
+        except Exception:
+            existing_cols = set()
+
+        select_cols = ["tag_category", "tag_value"]
+        if 'extraction_confidence' in existing_cols:
+            select_cols.append('extraction_confidence')
+        if 'created_at' in existing_cols:
+            select_cols.append('created_at')
+
+        select_sql = f"SELECT {', '.join(select_cols)} FROM document_tags WHERE document_id = ? ORDER BY tag_category, tag_value"
+        results = cursor.execute(select_sql, (document_id,)).fetchall()
+
         # Organize tags by category
         tags_dict = {
             'people': [],
@@ -1375,14 +1417,16 @@ def get_document_tags(document_id):
             'amounts': [],
             'reference_numbers': []
         }
-        
+
         for row in results:
-            category, value, confidence, created_at = row
+            # row[0] = tag_category, row[1] = tag_value
+            category = row[0]
+            value = row[1]
             if category in tags_dict:
                 tags_dict[category].append(value)
-        
+
         return tags_dict
-        
+
     except sqlite3.Error as e:
         logging.error(f"💥 Database error fetching tags for document {document_id}: {e}")
         return {}

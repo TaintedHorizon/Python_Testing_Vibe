@@ -167,7 +167,12 @@ def main():
         logging.error(f"Database not found: {db_path}")
         return 1
 
-    conn = sqlite3.connect(db_path)
+    try:
+        from doc_processor.database import get_db_connection
+        conn = get_db_connection()
+    except Exception:
+        # Fallback to direct connect when running standalone
+        conn = sqlite3.connect(db_path)
     cur = conn.cursor()
 
     # Fetch documents for batch

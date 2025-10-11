@@ -36,7 +36,12 @@ def investigate_ocr_anomalies():
         if not Path(db_path).exists():
             print(f"❌ Database not found: {db_path}")
             return
-        conn = sqlite3.connect(str(db_path))
+        try:
+            from doc_processor.database import get_db_connection
+            conn = get_db_connection()
+        except Exception:
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     print("🔍 OCR Anomaly Investigation Report")

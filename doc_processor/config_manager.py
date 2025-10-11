@@ -138,9 +138,19 @@ class AppConfig:
             ollama_num_gpu = os.getenv("OLLAMA_NUM_GPU")
             ollama_num_gpu = int(ollama_num_gpu) if ollama_num_gpu is not None and ollama_num_gpu != "" else None
             ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "45"))
+            # If running in FAST_TEST_MODE and no DATABASE_PATH is provided, prefer
+            # an isolated temporary database under the system temp directory.
+            db_env = os.getenv('DATABASE_PATH')
+            fast_mode_flag = os.getenv('FAST_TEST_MODE', str(cls.FAST_TEST_MODE)).lower() in ('true', '1', 't')
+            if fast_mode_flag and not db_env:
+                import tempfile
+                test_db_default = os.path.join(tempfile.gettempdir(), f'doc_processor_test_{os.getpid()}.db')
+            else:
+                test_db_default = cls.DATABASE_PATH
+
             config = cls(
                 # Core Application Configuration
-                DATABASE_PATH=get_env("DATABASE_PATH", cls.DATABASE_PATH),
+                DATABASE_PATH=get_env("DATABASE_PATH", test_db_default),
                 INTAKE_DIR=validate_directory(get_env("INTAKE_DIR", cls.INTAKE_DIR), "INTAKE"),
                 PROCESSED_DIR=validate_directory(get_env("PROCESSED_DIR", cls.PROCESSED_DIR), "PROCESSED"),
                 # Allow an optional WIP_DIR override; default to PROCESSED_DIR if not set

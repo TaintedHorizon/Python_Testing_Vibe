@@ -19,7 +19,12 @@ from config_manager import app_config
 db_path = app_config.DATABASE_PATH
 print(f"Using database: {db_path}")
 
-conn = sqlite3.connect(db_path)
+try:
+	from doc_processor.database import get_db_connection
+	conn = get_db_connection()
+except Exception:
+	conn = sqlite3.connect(db_path, timeout=30.0)
+	conn.row_factory = sqlite3.Row
 cursor = conn.cursor()
 
 print("\nAll document_pages for batch 1 (even if orphaned):")

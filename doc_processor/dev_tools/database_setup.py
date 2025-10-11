@@ -38,16 +38,29 @@ def create_database():
         print(f"Created directory: {db_dir}")
 
     conn = None
+    def _connect(path):
+        """Connect to DB: prefer centralized helper when path matches configured DB."""
+        try:
+            # Use the central helper so PRAGMAs, WAL and safety guards apply
+            from doc_processor.database import get_db_connection as _get_db_connection
+            from doc_processor.config_manager import app_config
+            cfg_path = getattr(app_config, 'DATABASE_PATH', None)
+            if cfg_path and os.path.abspath(cfg_path) == os.path.abspath(path):
+                return _get_db_connection()
+        except Exception:
+            pass
+        return sqlite3.connect(path, timeout=30.0)
+
     try:
         # Prefer the application's centralized DB helper when running inside
         # the app context. This applies PRAGMA settings and safety guards.
         try:
-            from ..database import get_db_connection
-            conn = get_db_connection()
+            conn = _connect(db_path)
             cursor = conn.cursor()
         except Exception:
             # Standalone fallback: direct sqlite connect with a timeout
             conn = sqlite3.connect(db_path, timeout=30.0)
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
         print(f"Successfully connected to database at '{os.path.abspath(db_path)}'")
 

@@ -19,14 +19,15 @@ def get_db_connection():
     """Establishes a connection to the SQLite database."""
     # Prefer the application's centralized DB connection helper when available
     try:
-        from ..database import get_db_connection
-        return get_db_connection()
+        # Prefer the central helper which applies PRAGMAs and safety checks
+        from doc_processor.database import get_db_connection as _get_db_connection
+        return _get_db_connection()
     except Exception:
         # Fallback: ensure env or config_manager provides a path and connect directly
         db_path = os.getenv('DATABASE_PATH')
         if not db_path:
             try:
-                from ..config_manager import app_config
+                from config_manager import app_config
                 db_path = getattr(app_config, 'DATABASE_PATH', None)
             except Exception:
                 db_path = None

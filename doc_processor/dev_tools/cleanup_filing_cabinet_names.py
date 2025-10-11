@@ -86,19 +86,19 @@ class FilingCabinetCleanup:
             # Skip backup directory
             if ".cleanup_backup" in root:
                 continue
-                
+
             # Check directory names
             for dir_name in dirs:
                 if dir_name.startswith('.'):  # Skip hidden directories
                     continue
-                    
+
                 scan_results["total_directories"] += 1
                 sanitized_name = _sanitize_category(dir_name)
-                
+
                 if dir_name != sanitized_name:
                     dir_path = os.path.join(root, dir_name)
                     new_path = os.path.join(root, sanitized_name)
-                    
+
                     scan_results["directories_to_rename"].append({
                         "original_path": dir_path,
                         "new_path": new_path,
@@ -106,19 +106,19 @@ class FilingCabinetCleanup:
                         "new_name": sanitized_name,
                         "relative_path": os.path.relpath(dir_path, self.filing_cabinet_path)
                     })
-            
+
             # Check file names
             for file_name in files:
                 if file_name.startswith('.') or file_name in ['cleanup.log', 'cleanup_log.json']:
                     continue
-                    
+
                 scan_results["total_files"] += 1
                 sanitized_name = sanitize_filename(file_name)
-                
+
                 if file_name != sanitized_name:
                     file_path = os.path.join(root, file_name)
                     new_path = os.path.join(root, sanitized_name)
-                    
+
                     scan_results["files_to_rename"].append({
                         "original_path": file_path,
                         "new_path": new_path,
@@ -126,7 +126,7 @@ class FilingCabinetCleanup:
                         "new_name": sanitized_name,
                         "relative_path": os.path.relpath(file_path, self.filing_cabinet_path)
                     })
-        
+
         return scan_results
     
     def check_for_conflicts(self, scan_results: Dict) -> List[Dict]:

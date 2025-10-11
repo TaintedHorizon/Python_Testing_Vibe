@@ -2,39 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
-
 ## [Unreleased]
-### Batch Creation Hardening & Deterministic Tests (2025-10-10)
-- Centralized batch creation helpers (`doc_processor/batch_guard.py`) to prevent duplicate/phantom batches during concurrent smart processing.
-- Replaced hot-path raw INSERTs in production code with guarded helpers and `get_or_create_processing_batch()` to ensure idempotent batch creation.
-- Added startup cleanup to remove empty/orphaned processing batches on app start to avoid stale state after crashes/restarts.
-- Added concurrency test `tests/test_concurrent_smart.py` to validate concurrent `/batch/process_smart` requests reuse a single intake batch.
-- Minor fixes: safe handling of `cursor.lastrowid`, improved logging for batch reuse/creation, and defensive fallbacks in route handlers.
+### DB safety, deterministic tests, and LLM mocking (2025-10-11)
 
-### Restored Grouped Workflow (2025-10-08)
-- Re-introduced lightweight grouped documents schema (on-demand ensure for `documents` & `document_pages`).
-- Added helpers: `insert_grouped_document`, `get_grouped_documents_for_batch`.
-- Service bridge `DocumentService.record_grouped_document` for decoupled creation.
-- Batch Control route hardened against missing `start_time` column and now exposes `/batch/start_new` for quick batch creation.
-- Added intake auto-batch support (`/intake/api/ensure_batch`) and cache purge when all batches exported so Analyze Intake starts fresh.
-- Added grouped export placeholder `ExportService.export_grouped_documents` so UI can call stable action while full export matures.
-- Template `batch_control.html` updated with Start New Batch button & resilient columns.
-- Dev simulation route `/batch/dev/simulate_grouped/<batch_id>` (enabled only with `FLASK_DEBUG=1`) to fabricate grouped doc quickly.
-- Documentation updates to reflect restored workflow.
-- Enhancement: Hydrated manipulation UI for single document workflow. Added `get_single_documents_for_batch` accessor, real data population (AI + OCR) and improved empty-state UX. Added basic tests for route.
-- Enhancement: Grouped-document parity (Level A) in manipulation route with first-page OCR preview and filename editing.
-- Feature: Added `/document/api/rotate_document/<id>` and `/document/api/rescan_document/<id>` Tier 2 endpoints (AI refresh) for single-document workflow.
-- Performance: Added active category caching with explicit invalidation on insert and new-category creation.
-- Test: Added auto-save integration test verifying JSON success and persistence.
-- Test: Added `test_grouped_rotation.py` covering grouped-document rotation parity (via single-doc route) and double-rotation prevention logic.
-- Test: Added `conftest.py` with reusable fixtures (`temp_db_path`, `app`, `client`, `seed_conn`) to standardize isolated DB + app factory usage.
-- Quality: Ensured no double-rotation when physical PDF rotation matches stored rotation (cache reuse asserted).
- - Feature: Added OCR file-signature caching & invalidation (size+mtime+SHA1 first 64KB) for searchable PDF reuse.
- - Feature: Added fallback searchable PDF generation in FAST_TEST_MODE for deterministic tests.
- - Config: New env vars `FAST_TEST_MODE`, `OCR_RENDER_SCALE`, `OCR_OVERLAY_TEXT_LIMIT` documented in `.env.sample` & `docs/CONFIGURATION.md`.
- - Test: Added `test_cached_searchable.py` and `test_ocr_cache_invalidation.py` covering cached reuse & signature invalidation paths.
- - Refactor: Extracted `_ensure_searchable_pdf_fallback` helper to centralize finalization fallback logic.
- - Docs: Created `doc_processor/docs/CONFIGURATION.md`; updated `.env.sample` with new tuning flags.
+- Hardened SQLite usage to avoid accidental repo-local DB creation and overwrites:
+  - `get_db_connection()` now prefers an explicit `DATABASE_PATH` environment override and performs safe retries, WAL mode, and busy-timeout PRAGMAs.
+  - Added support for backing up an existing DB when `ALLOW_NEW_DB=backup` and `DB_BACKUP_DIR` is configured.
+
+- Made tests deterministic and isolated:
+  - Added `doc_processor/conftest.py` global autouse fixture to set an isolated temporary `DATABASE_PATH`, `ALLOW_NEW_DB=1`, and `FAST_TEST_MODE=1` during test sessions.
+  - Centralized test fixtures in `doc_processor/tests/conftest.py` (temp DB, app factory, test client, seed connection) to avoid import-time ordering issues.
+  - `config_manager` will choose a temp DB when `FAST_TEST_MODE` is enabled and no `DATABASE_PATH` provided, preventing import-time binding to the repo DB.
+
+- Prevented live LLM calls during unit tests:
+  - Added a `mock_llm` fixture that stubs `_get_ai_suggestions_for_document` and `_query_ollama` to deterministic values.
+  - Enforced CPU-only LLM behavior when `OLLAMA_NUM_GPU=0` by clearing `CUDA_VISIBLE_DEVICES` for test runs.
+
+- Minor fixes and developer tooling:
+  - Removed ad-hoc test files from `dev_tools/` and moved CI-ready tests into `doc_processor/tests/`.
+  - Archived manual test scripts to `docs/examples/manual_tests/` and added README entries.
+  - Small config and helper tweaks to reduce flakiness (fast-path searchable PDF fallback, robust schema creation in the test DB).
+
+This release entry documents safety and test-determinism work done to prepare the codebase for reliable CI runs.
+
 
 ## [2025-10-07] - ♻️ Rescan Stability & Test Determinism Improvements
 ### Added

@@ -14,8 +14,24 @@ from pathlib import Path
 # Add the parent directory to the path to import our modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+import argparse
+import sys
 from config_manager import app_config
 from processing import cleanup_empty_batch_directory
+
+parser = argparse.ArgumentParser(description='Cleanup empty batch directories (destructive)')
+parser.add_argument('--batch', type=int, help='Specific batch ID to cleanup (optional)')
+parser.add_argument('--dry-run', action='store_true', help='Show what would be done without applying changes')
+parser.add_argument('--yes', '-y', action='store_true', help='Auto-confirm destructive actions (or set CONFIRM_RESET=1)')
+args = parser.parse_args()
+
+dry_run = args.dry_run or os.getenv('DRY_RUN','0').lower() in ('1','true','t')
+env_confirm = os.getenv('CONFIRM_RESET','0').lower() in ('1','true','t')
+if args.batch and not (env_confirm or args.yes):
+    confirm = input(f"This will delete files for batch {args.batch} if empty. Type 'yes' to continue: ")
+    if confirm.lower() != 'yes':
+        print("Operation cancelled (no confirmation).")
+        sys.exit(0)
 
 def scan_and_cleanup_empty_directories():
     """
@@ -97,12 +113,9 @@ def cleanup_specific_batch(batch_id: int):
         print(f"❌ Batch {batch_id} cleanup failed or directory not empty")
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        try:
-            batch_id = int(sys.argv[1])
-            cleanup_specific_batch(batch_id)
-        except ValueError:
-            print("Error: Batch ID must be a number")
-            sys.exit(1)
+    if args.batch:
+        cleanup_specific_batch(args.batch)
     else:
+        if dry_run:
+            print("DRY-RUN mode - no directories will be removed. Showing what would be done:")
         scan_and_cleanup_empty_directories()

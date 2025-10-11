@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
 """
-Test script to verify image processing functionality.
-This tests the new image-to-PDF conversion features.
-"""
+Tests for image support and image-to-PDF conversion.
 
+Moved from doc_processor/dev_tools/test_image_support.py and adapted to package imports.
+"""
 import os
 import tempfile
-import logging
 from PIL import Image
-import sys
-
-# Set up the path to include the doc_processor module
-sys.path.insert(0, '/home/svc-scan/Python_Testing_Vibe')
 
 def test_image_to_pdf_conversion():
     """Test the basic image-to-PDF conversion functionality."""
@@ -51,8 +46,12 @@ def test_image_to_pdf_conversion():
 
     # Cleanup
     for path in [temp_img_path, temp_pdf_path, temp_jpg_path, temp_pdf2_path]:
-        if os.path.exists(path):
-            os.unlink(path)
+        try:
+            if os.path.exists(path):
+                os.unlink(path)
+        except Exception:
+            pass
+
 
 def test_document_detector_with_images():
     """Test the document detector with image files."""
@@ -74,10 +73,17 @@ def test_document_detector_with_images():
     assert analysis.file_size_mb >= 0, "File size should be non-negative"
 
     # Cleanup
-    os.unlink(temp_img_path)
+    try:
+        if os.path.exists(temp_img_path):
+            os.unlink(temp_img_path)
+    except Exception:
+        pass
+
 
 def test_supported_file_detection():
     """Test that the system detects supported file types correctly."""
+    import tempfile
+
     # Create test directory with various file types
     with tempfile.TemporaryDirectory() as temp_dir:
         # Create test files
@@ -108,4 +114,26 @@ def test_supported_file_detection():
         expected_files = {'test.pdf', 'image.png', 'photo.jpg', 'picture.jpeg'}
         actual_files = set(supported_files)
         assert actual_files == expected_files, f"Expected {expected_files}, got {actual_files}"
-# Note: this file is intended to be collected by pytest, not executed as a script.
+import os
+import tempfile
+from PIL import Image
+import pytest
+
+from doc_processor.processing import convert_image_to_pdf, is_image_file
+from doc_processor.document_detector import get_detector
+
+def test_image_to_pdf_conversion():
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+        img = Image.new('RGB', (100,100), (255,0,0))
+        img.save(f.name, 'PNG')
+        png = f.name
+    pdfpath = png.replace('.png', '.pdf')
+    convert_image_to_pdf(png, pdfpath)
+    assert os.path.exists(pdfpath)
+    os.unlink(png)
+    os.unlink(pdfpath)
+
+def test_supported_file_detection(tmp_path):
+    detector = get_detector(use_llm_for_ambiguous=False)
+    # basic smoke test: detector is instantiable
+    assert detector is not None

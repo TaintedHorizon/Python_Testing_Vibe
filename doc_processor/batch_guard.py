@@ -11,82 +11,51 @@ import os
 import shutil
 import threading
 
-# Add the parent directory to the path for imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-try:
-    from processing import database_connection
-except ImportError:
-    # Fallback for standalone execution
-    # Minimal fallback: delegate to the application's centralized DB helper when
-    # available. This ensures PRAGMA settings, safety guards, and retries are
-    # consistently applied across all code paths. We import lazily to avoid
-    # circular import at module load time.
-    try:
-        from .database import get_db_connection as _get_db_connection
-
-        @contextmanager
-        def database_connection():
-            conn = None
-            try:
-                conn = _get_db_connection()
-                yield conn
-            finally:
-                if conn:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-    except Exception:
-        # If the application's database helper isn't importable (standalone
-        # execution outside the app), fall back to a simple env/app_config
-        # resolution and direct sqlite3 connect. This preserves backward
-        # compatibility for one-off developer scripts.
-        import sqlite3 as _sqlite3
-        from contextlib import contextmanager as _cm
-
-        @_cm
-        def database_connection():
-            db_path = os.getenv('DATABASE_PATH')
-            if not db_path:
-                try:
-                    from config_manager import app_config
-                    db_path = getattr(app_config, 'DATABASE_PATH', None)
-                except Exception:
-                    db_path = None
-            if not db_path:
-                db_path = os.path.join(os.path.dirname(__file__), 'documents.db')
-            conn = _sqlite3.connect(db_path)
-            conn.row_factory = _sqlite3.Row
-            try:
-                yield conn
-            finally:
-                conn.close()
-
-# Prefer importing the processing.database_connection lazily to avoid circular
-# import problems during module import. If it's not available, fall back to a
-# small contextmanager that opens the DB at DATABASE_PATH (or repo fallback).
 from contextlib import contextmanager
 import sqlite3 as _sqlite3
 
+# Provide a single, robust database_connection contextmanager for this module.
+# Order of preference:
+# 1. delegate to processing.database_connection (when running inside app)
+# 2. use doc_processor.database.get_db_connection() to get consistent PRAGMA/guards
+# 3. fallback to direct sqlite3.connect(db_path)
 @contextmanager
 def database_connection():
     try:
-        # Import inside function to avoid circular imports at module load.
+        # 1) delegate to processing.module's database_connection if available
         from .processing import database_connection as _proc_db_conn
-        # _proc_db_conn is itself a contextmanager; delegate to it.
         with _proc_db_conn() as conn:
             yield conn
             return
     except Exception:
-        # Fallback - honor DATABASE_PATH env when present (test overrides)
-        db_path = os.getenv('DATABASE_PATH') or os.path.join(os.path.dirname(__file__), 'documents.db')
-        conn = _sqlite3.connect(db_path)
-        conn.row_factory = _sqlite3.Row
+        pass
+
+    # 2) Try the centralized get_db_connection from this package
+    try:
+        from .database import get_db_connection as _get_db_connection
+        conn = _get_db_connection()
         try:
             yield conn
         finally:
-            conn.close()
+            if conn:
+                conn.close()
+        return
+    except Exception:
+        pass
+
+    # 3) Last-resort fallback honoring DATABASE_PATH env var
+    db_path = os.getenv('DATABASE_PATH') or os.path.join(os.path.dirname(__file__), 'documents.db')
+    try:
+        # Prefer the centralized helper when available so PRAGMAs, WAL and guards apply
+        from .database import get_db_connection as _get_db_connection
+        conn = _get_db_connection()
+    except Exception:
+        conn = _sqlite3.connect(db_path, timeout=30.0)
+        conn.row_factory = _sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def find_existing_processing_batch() -> Optional[int]:

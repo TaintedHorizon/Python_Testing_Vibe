@@ -13,7 +13,22 @@ from datetime import datetime
 # Add parent directory to path to import modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import argparse
+import sys
 from config_manager import app_config
+
+parser = argparse.ArgumentParser(description='Cleanup orphaned WIP batch directories (destructive)')
+parser.add_argument('--dry-run', action='store_true', help='Show what would be done without applying changes')
+parser.add_argument('--yes', '-y', action='store_true', help='Auto-confirm destructive actions (or set CONFIRM_RESET=1)')
+args = parser.parse_args()
+
+dry_run = args.dry_run or os.getenv('DRY_RUN','0').lower() in ('1','true','t')
+env_confirm = os.getenv('CONFIRM_RESET','0').lower() in ('1','true','t')
+if not (env_confirm or args.yes):
+    confirm = input("This will permanently delete WIP batch directories after backing up. Type 'yes' to continue: ")
+    if confirm.lower() != 'yes':
+        print("Operation cancelled (no confirmation).")
+        sys.exit(0)
 
 def cleanup_orphaned_wip_batches():
     """Remove WIP directories for batches that no longer exist in database."""
@@ -52,17 +67,22 @@ def cleanup_orphaned_wip_batches():
                     # Move to backup before deletion
                     backup_batch_dir = os.path.join(backup_dir, f"batch_{batch_id}")
                     print(f"Backing up to: {backup_batch_dir}")
-                    shutil.copytree(batch_wip_dir, backup_batch_dir)
-                    
-                    # Remove the original
-                    print(f"Removing: {batch_wip_dir}")
-                    shutil.rmtree(batch_wip_dir)
+                    if not dry_run:
+                        shutil.copytree(batch_wip_dir, backup_batch_dir)
+                        # Remove the original
+                        print(f"Removing: {batch_wip_dir}")
+                        shutil.rmtree(batch_wip_dir)
+                    else:
+                        print("DRY-RUN: would copy and remove the directory")
                     
                     total_files_removed += file_count
                     print(f"✅ Removed batch {batch_id} WIP directory ({file_count} files)")
                 else:
                     print(f"📁 Empty directory, removing: {batch_wip_dir}")
-                    shutil.rmtree(batch_wip_dir)
+                    if not dry_run:
+                        shutil.rmtree(batch_wip_dir)
+                    else:
+                        print("DRY-RUN: would remove empty directory")
                     
             except subprocess.CalledProcessError as e:
                 print(f"❌ Error processing batch {batch_id}: {e}")

@@ -39,7 +39,11 @@ except ImportError:
             from ..database import get_db_connection
             conn = get_db_connection()
         except Exception:
-            conn = sqlite3.connect(db_path)
+            try:
+                from doc_processor.database import get_db_connection
+                conn = get_db_connection()
+            except Exception:
+                conn = sqlite3.connect(db_path)
         assert conn is not None
         conn.row_factory = sqlite3.Row
         try:
