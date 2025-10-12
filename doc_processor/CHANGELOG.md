@@ -29,6 +29,13 @@ All notable changes to this project will be documented in this file.
 
 This release entry documents safety and test-determinism work done to prepare the codebase for reliable CI runs.
 
+### Status update (2025-10-12)
+
+- Final lint pass: resolved remaining unused-import and whitespace issues flagged by ruff for the selected rule set (F401/F821/W291/W293). See commit history for details.
+- All unit tests now pass locally: `43 passed, 4 skipped, 5 warnings` (run date: 2025-10-12). This confirms DB hardening, deterministic test fixtures, and dev_tools migrations are functioning as intended.
+
+Small follow-ups: consider enabling a CI job to enforce the selected ruff rule subset and run the full pytest suite on every PR.
+
 
 ## [2025-10-07] - ♻️ Rescan Stability & Test Determinism Improvements
 ### Added
