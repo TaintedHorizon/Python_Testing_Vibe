@@ -48,11 +48,15 @@ def recover(batch_id: int, dry_run: bool = False) -> int:
         logging.error(f"Database not found at {db_path}")
         return 0
 
+    conn = None
     try:
-        from doc_processor.database import get_db_connection
-        conn = get_db_connection()
+        from doc_processor.dev_tools.db_connect import connect as db_connect
+        conn = db_connect(db_path, timeout=30.0)
+        conn.row_factory = sqlite3.Row
     except Exception:
-        conn = sqlite3.connect(db_path, timeout=30.0)
+        # Fallback to helper connect to keep behavior consistent
+        from doc_processor.dev_tools.db_connect import connect as db_connect
+        conn = db_connect(db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute("SELECT id, original_pdf_path, final_category, final_filename, ai_suggested_category, ai_suggested_filename FROM single_documents WHERE batch_id=?", (batch_id,))

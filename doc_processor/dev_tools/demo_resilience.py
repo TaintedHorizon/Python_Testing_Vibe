@@ -43,7 +43,12 @@ def database_connection():
             from doc_processor.database import get_db_connection
             conn = get_db_connection()
         except Exception:
-            conn = sqlite3.connect(db_path)
+            try:
+                from doc_processor.dev_tools.db_connect import connect as db_connect
+                conn = db_connect(db_path, timeout=30.0)
+            except Exception:
+                from .db_connect import connect as db_connect
+                conn = db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         yield conn

@@ -248,7 +248,9 @@ def get_db_connection():
                     backup_root = _os.path.join(xdg_data, 'doc_processor', 'db_backups')
                 os.makedirs(backup_root, exist_ok=True)
                 import shutil, datetime
-                timestamp = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+                # Use timezone-aware UTC timestamp to avoid naive datetime deprecation
+                # Use timezone-aware UTC timestamp
+                timestamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
                 src = db_path
                 dest = os.path.join(backup_root, f"documents.db.backup.{timestamp}")
                 shutil.copy2(src, dest)
@@ -366,6 +368,7 @@ def get_db_connection():
                 page_count INTEGER,
                 file_size_bytes INTEGER,
                 status TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 ai_suggested_category TEXT,
                 ai_suggested_filename TEXT,
                 ai_confidence REAL,
@@ -379,8 +382,12 @@ def get_db_connection():
             CREATE TABLE IF NOT EXISTS document_tags (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 document_id INTEGER,
-                tag_category TEXT,
-                tag_value TEXT
+                tag_category TEXT CHECK(tag_category IN ('people','organizations','places','dates','document_types','keywords','amounts','reference_numbers')),
+                tag_value TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                llm_source TEXT,
+                extraction_confidence REAL,
+                UNIQUE(document_id, tag_category, tag_value)
             );
         """)
 
@@ -492,11 +499,19 @@ def get_db_connection():
         _ensure_column('single_documents', 'searchable_pdf_path', 'TEXT')
         _ensure_column('single_documents', 'ocr_source_signature', 'TEXT')
         _ensure_column('single_documents', 'final_category', 'TEXT')
+        _ensure_column('single_documents', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
         _ensure_column('single_documents', 'final_filename', 'TEXT')
         _ensure_column('single_documents', 'processed_at', 'TIMESTAMP')
         # Tag extraction additional fields
         _ensure_column('document_tags', 'extraction_confidence', 'REAL')
         _ensure_column('document_tags', 'llm_source', 'TEXT')
+        _ensure_column('document_tags', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+        # Ensure a uniqueness constraint exists to prevent duplicate tag entries
+        try:
+            # Create a unique index if it does not already exist
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_document_tags_document_category_value ON document_tags(document_id, tag_category, tag_value)")
+        except Exception:
+            pass
         try:
             conn.commit()
         except Exception:

@@ -50,12 +50,23 @@ def database_connection():
         from .database import get_db_connection as _get_db_connection
         conn = _get_db_connection()
     except Exception:
-        conn = _sqlite3.connect(db_path, timeout=30.0)
+        # Try to re-use the dev_tools helper which will return the app's
+        # get_db_connection() when the path matches, or a normal sqlite3
+        # connection otherwise. This keeps a single, consistent connect
+        # strategy across dev tools and runtime code.
+        try:
+            from .dev_tools.db_connect import connect as _dev_connect
+            conn = _dev_connect(db_path, timeout=30.0)
+        except Exception:
+            conn = _sqlite3.connect(db_path, timeout=30.0)
         conn.row_factory = _sqlite3.Row
     try:
         yield conn
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def find_existing_processing_batch() -> Optional[int]:

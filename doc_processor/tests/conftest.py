@@ -63,6 +63,80 @@ def ensure_minimal_grouped_schema(conn):
     cur.execute("""CREATE TABLE IF NOT EXISTS intake_rotations (filename TEXT PRIMARY KEY, rotation INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
     conn.commit()
 
+
+@pytest.fixture()
+def allow_db_creation(monkeypatch, temp_db_path):
+    """Ensure the temporary DB has the minimal schema used by integration tests."""
+    # Ensure ALLOW_NEW_DB so get_db_connection won't refuse creation in some code paths
+    monkeypatch.setenv('ALLOW_NEW_DB', '1')
+    import sqlite3
+    conn = sqlite3.connect(str(temp_db_path))
+    cur = conn.cursor()
+    # Minimal tables used across integration tests
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS batches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        status TEXT,
+        start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS single_documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        batch_id INTEGER,
+        original_filename TEXT,
+        original_pdf_path TEXT,
+        page_count INTEGER,
+        file_size_bytes INTEGER,
+        status TEXT,
+        ai_suggested_category TEXT,
+        ai_suggested_filename TEXT,
+        ai_confidence REAL,
+        ai_summary TEXT,
+        ocr_text TEXT,
+        ocr_confidence_avg REAL
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS document_tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        document_id INTEGER,
+        tag_category TEXT CHECK(tag_category IN ('people','organizations','places','dates','document_types','keywords','amounts','reference_numbers')),
+        tag_value TEXT,
+        extraction_confidence REAL,
+        llm_source TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(document_id, tag_category, tag_value)
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        is_active INTEGER DEFAULT 1
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS interaction_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        batch_id INTEGER,
+        document_id INTEGER,
+        event_type TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS pages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        batch_id INTEGER,
+        source_filename TEXT,
+        page_number INTEGER
+    )
+    """)
+    conn.commit()
+    conn.close()
+    yield
+
 # Global warning filters for FAST_TEST_MODE to reduce noisy OCR-related deprecations.
 if os.getenv('FAST_TEST_MODE','0').lower() in ('1','true','t'):
     import warnings

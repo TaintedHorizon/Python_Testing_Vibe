@@ -167,12 +167,27 @@ def main():
         logging.error(f"Database not found: {db_path}")
         return 1
 
+    # Acquire a DB connection preferring the app helper, then the dev_tools helper, then sqlite3.connect
+    conn = None
     try:
-        from doc_processor.database import get_db_connection
-        conn = get_db_connection()
-    except Exception:
-        # Fallback to direct connect when running standalone
-        conn = sqlite3.connect(db_path)
+        try:
+            from doc_processor.database import get_db_connection
+            conn = get_db_connection()
+            conn.row_factory = sqlite3.Row
+        except Exception:
+            try:
+                from doc_processor.dev_tools.db_connect import connect as db_connect
+                conn = db_connect(db_path, timeout=30.0)
+                conn.row_factory = sqlite3.Row
+            except Exception:
+                # Final fallback to direct sqlite3.connect for uncommon
+                # environments where the helper isn't importable.
+                conn = sqlite3.connect(db_path, timeout=30.0)
+                conn.row_factory = sqlite3.Row
+    except Exception as e:
+        logging.error(f"Failed to open database connection: {e}")
+        return 1
+
     cur = conn.cursor()
 
     # Fetch documents for batch

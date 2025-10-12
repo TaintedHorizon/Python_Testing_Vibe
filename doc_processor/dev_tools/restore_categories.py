@@ -1,6 +1,7 @@
 # doc_processor/restore_categories.py
 import os
 import sqlite3
+from doc_processor.dev_tools.db_connect import connect as db_connect
 import json
 from dotenv import load_dotenv
 
@@ -27,18 +28,29 @@ if not (env_confirm or args.yes):
         sys.exit(0)
 
 def get_db_connection():
-    """Establishes a connection to the SQLite database."""
+    """Establishes a connection to the SQLite database using dev_tools.db_connect.connect.
+
+    This respects the application's configured DB helper when the path matches,
+    otherwise falls back to a direct sqlite3 connection.
+    """
     db_path = os.getenv("DATABASE_PATH")
     if not db_path or not os.path.exists(db_path):
         print(f"[ERROR] Database path not found at '{db_path}'. Please check your .env file.")
         return None
     try:
-        from doc_processor.database import get_db_connection
-        conn = get_db_connection()
-    except Exception:
-        conn = sqlite3.connect(db_path, timeout=30.0)
+        conn = db_connect(db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
-    return conn
+        return conn
+    except Exception:
+        # As a last resort, direct sqlite3 connect
+        try:
+            # Use the helper as a final fallback as well for consistent behavior
+            conn = db_connect(db_path, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            return conn
+        except Exception:
+            print("[ERROR] Failed to connect to the database using db_connect")
+            return None
 
 def main():
     """

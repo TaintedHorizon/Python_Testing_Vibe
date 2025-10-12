@@ -34,14 +34,20 @@ def _resolve_db_path():
 def database_connection():
     db_path = _resolve_db_path()
     try:
-        from ..database import get_db_connection
-        conn = get_db_connection()
-    except Exception:
         try:
-            from doc_processor.database import get_db_connection
+            from ..database import get_db_connection
             conn = get_db_connection()
         except Exception:
-            conn = sqlite3.connect(db_path)
+            try:
+                from doc_processor.database import get_db_connection
+                conn = get_db_connection()
+            except Exception:
+                try:
+                    from doc_processor.dev_tools.db_connect import connect as db_connect
+                    conn = db_connect(db_path)
+                except Exception:
+                    from sqlite3 import connect as sqlite_connect
+                    conn = sqlite_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         yield conn

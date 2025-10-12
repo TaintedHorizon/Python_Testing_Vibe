@@ -7,6 +7,7 @@ Adds file_type and processing_strategy columns to documents table with safe defa
 import os
 import sys
 import sqlite3
+from doc_processor.dev_tools.db_connect import connect as db_connect
 from pathlib import Path
 
 # Add doc_processor to Python path
@@ -34,13 +35,16 @@ if not (env_confirm or args.yes):
 
 def _connect_preferring_helper(path):
     try:
-        from doc_processor.database import get_db_connection as _get_db_connection
-        from doc_processor.config_manager import app_config as _cfg
-        if os.path.abspath(getattr(_cfg, 'DATABASE_PATH', '')) == os.path.abspath(path):
-            return _get_db_connection()
+        # Prefer the centralized dev_tools helper which will return the
+        # application's get_db_connection() when the path matches the
+        # configured DATABASE_PATH. This ensures PRAGMAs/WAL and safety
+        # guards are applied consistently.
+        conn = db_connect(path, timeout=30.0)
+        return conn
     except Exception:
-        pass
-    return sqlite3.connect(str(path), timeout=30.0)
+        # As a last-resort fallback, use sqlite3.connect directly. Keep the
+        # explicit str() conversion for Path objects.
+        return sqlite3.connect(str(path), timeout=30.0)
 
 def upgrade_database():
     """Add columns for single document support with safe defaults."""
@@ -49,11 +53,8 @@ def upgrade_database():
     # Prefer centralized DB helper to get consistent PRAGMA settings when run
     # within the application context. Fallback to direct connect for standalone runs.
     conn = None
-    try:
-        conn = _connect_preferring_helper(app_config.DATABASE_PATH)
-    except Exception:
-        conn = sqlite3.connect(str(app_config.DATABASE_PATH), timeout=30.0)
-        conn.row_factory = sqlite3.Row
+    conn = _connect_preferring_helper(app_config.DATABASE_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     try:

@@ -23,6 +23,10 @@ All notable changes to this project will be documented in this file.
   - Archived manual test scripts to `docs/examples/manual_tests/` and added README entries.
   - Small config and helper tweaks to reduce flakiness (fast-path searchable PDF fallback, robust schema creation in the test DB).
 
+  - Dev tools and docs:
+    - Migrated dev helper scripts to use a centralized `doc_processor.dev_tools.db_connect` helper so PRAGMAs/WAL and DB guards apply consistently.
+    - Added a docs note in `doc_processor/docs/USAGE.md` to avoid starting the Flask dev server during automated tests; prefer `./start_app.sh` or the Flask test client.
+
 This release entry documents safety and test-determinism work done to prepare the codebase for reliable CI runs.
 
 

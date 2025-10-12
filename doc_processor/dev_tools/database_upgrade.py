@@ -64,8 +64,15 @@ def upgrade_database():
                 from doc_processor.database import get_db_connection
                 conn = get_db_connection()
             except Exception:
-                conn = sqlite3.connect(db_path, timeout=30.0)
-                conn.row_factory = sqlite3.Row
+                # Fallback to the dev_tools helper which will prefer the app helper
+                try:
+                    from doc_processor.dev_tools.db_connect import connect as db_connect
+                    conn = db_connect(db_path, timeout=30.0)
+                    conn.row_factory = sqlite3.Row
+                except Exception:
+                    from doc_processor.dev_tools.db_connect import connect as db_connect
+                    conn = db_connect(db_path, timeout=30.0)
+                    conn.row_factory = sqlite3.Row
         assert conn is not None
         cursor = conn.cursor()
         print(f"Successfully connected to database at '{db_path}' for upgrade.")

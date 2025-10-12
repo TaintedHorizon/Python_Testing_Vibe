@@ -188,6 +188,47 @@ Legacy document scanner using Ollama integration.
 *Status: Archived - superseded by doc_processor (source code only, venv removed)*
 
 ## Quick Start
+To run the application locally and avoid accidental repository-local DB creation, follow these steps:
+
+1. Create and activate the virtualenv in the `doc_processor/` directory:
+
+```bash
+cd doc_processor
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+2. If you're starting the app in a development environment and don't have an existing DB, either:
+
+- Explicitly allow DB creation (intentional):
+
+```bash
+export ALLOW_NEW_DB=1
+```
+
+- Or configure a backup-before-create location and choose backup behavior:
+
+```bash
+export DB_BACKUP_DIR=/var/lib/doc_processor/db_backups
+export ALLOW_NEW_DB=backup
+```
+
+3. Start the app using the repository-provided startup script (this ensures the correct venv and environment are used):
+
+```bash
+./start_app.sh
+```
+
+Notes:
+- For running tests and CI, use `FAST_TEST_MODE=1` and the test harness will create isolated temporary databases and skip heavy OCR/LLM work:
+
+```bash
+FAST_TEST_MODE=1 OLLAMA_NUM_GPU=0 pytest
+```
+
+- Avoid running `python -m doc_processor.app` directly in CI or test environments as it may start a long-lived dev server that interferes with test harnesses.
+
 
 ## Documentation
 

@@ -31,9 +31,15 @@ def gather_db_info(path: Path) -> dict:
                 conn = get_db_connection()
             else:
                 # Open read-only to avoid accidental writes
-                conn = sqlite3.connect(f'file:{str(path)}?mode=ro', uri=True, timeout=5.0)
+                from .db_connect import connect as db_connect
+                conn = db_connect(f'file:{str(path)}?mode=ro', uri=True, timeout=5.0)
         except Exception:
-            conn = sqlite3.connect(f'file:{str(path)}?mode=ro', uri=True, timeout=5.0)
+            # Fallback to safe read-only connection via helper
+            try:
+                from .db_connect import connect as db_connect
+                conn = db_connect(f'file:{str(path)}?mode=ro', uri=True, timeout=5.0)
+            except Exception:
+                conn = None
         assert conn is not None
         cur = conn.cursor()
         tables = {r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}

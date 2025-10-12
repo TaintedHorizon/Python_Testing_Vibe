@@ -32,13 +32,21 @@ def get_db_connection():
             except Exception:
                 db_path = None
 
-        if not db_path:
-            print(f"[ERROR] Database path not found. Please check your .env or app_config.")
-            return None
+            if not db_path:
+                print(f"[ERROR] Database path not found. Please check your .env or app_config.")
+                return None
 
-        conn = sqlite3.connect(db_path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        return conn
+            # Use dev_tools helper as a robust fallback which prefers the app helper
+            try:
+                from doc_processor.dev_tools.db_connect import connect as db_connect
+                conn = db_connect(db_path, timeout=30.0)
+                conn.row_factory = sqlite3.Row
+                return conn
+            except Exception:
+                from .db_connect import connect as db_connect
+                conn = db_connect(db_path, timeout=30.0)
+                conn.row_factory = sqlite3.Row
+                return conn
 
 def backup_custom_categories(conn):
     """Saves custom categories to a JSON file."""

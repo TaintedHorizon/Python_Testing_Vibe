@@ -120,18 +120,13 @@ def get_db_path() -> Path:
     return Path(db_path).expanduser().resolve()
 
 def connect(db_path: Path) -> sqlite3.Connection:
-    def _connect(path):
-        try:
-            # Prefer central helper for configured DB to get PRAGMAs and guards
-            from doc_processor.database import get_db_connection
-            from doc_processor.config_manager import app_config as _cfg
-            if os.path.abspath(str(getattr(_cfg, 'DATABASE_PATH', ''))) == os.path.abspath(str(path)):
-                return get_db_connection()
-        except Exception:
-            pass
-        return sqlite3.connect(str(path), timeout=30.0)
+    from doc_processor.dev_tools.db_connect import connect as db_connect
 
-    conn = _connect(db_path)
+    try:
+        conn = db_connect(str(db_path), timeout=30.0)
+    except Exception:
+    from .db_connect import connect as db_connect
+    conn = db_connect(str(db_path), timeout=30.0)
     conn.row_factory = sqlite3.Row
     return conn
 

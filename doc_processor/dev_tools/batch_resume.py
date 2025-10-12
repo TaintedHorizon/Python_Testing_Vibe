@@ -43,7 +43,12 @@ except ImportError:
                 from doc_processor.database import get_db_connection
                 conn = get_db_connection()
             except Exception:
-                conn = sqlite3.connect(db_path)
+                    try:
+                        from doc_processor.dev_tools.db_connect import connect as db_connect
+                        conn = db_connect(db_path, timeout=30.0)
+                    except Exception:
+                        from .db_connect import connect as db_connect
+                        conn = db_connect(db_path, timeout=30.0)
         assert conn is not None
         conn.row_factory = sqlite3.Row
         try:
@@ -55,25 +60,25 @@ except ImportError:
 def get_batch_completion_status(batch_id: int) -> Dict[str, Any]:
     """
     Check the completion status of a batch.
-    
+
     Args:
         batch_id: ID of the batch to check
-        
+
     Returns:
         dict: Completion status with detailed breakdown
     """
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Get batch info
             cursor.execute("SELECT status FROM batches WHERE id = ?", (batch_id,))
             batch_row = cursor.fetchone()
             if not batch_row:
                 return {"error": f"Batch {batch_id} not found"}
-            
+
             batch_status = batch_row[0]
-            
+
             # Get document completion stats
             cursor.execute("""
                 SELECT 
@@ -86,7 +91,7 @@ def get_batch_completion_status(batch_id: int) -> Dict[str, Any]:
                 FROM single_documents 
                 WHERE batch_id = ?
             """, (batch_id,))
-            
+
             stats = cursor.fetchone()
             if not stats:
                 return {
@@ -97,13 +102,13 @@ def get_batch_completion_status(batch_id: int) -> Dict[str, Any]:
                     "needs_resume": False,
                     "resume_point": "completed"
                 }
-            
+
             total, completed, processing, analyzed, ocr_completed, searchable_pdfs = stats
-            
+
             # Determine resume point
             needs_resume = batch_status == "processing" and completed < total
             completion_percentage = (completed / total * 100) if total > 0 else 100.0
-            
+
             resume_point = "completed"
             if needs_resume:
                 if ocr_completed < total:
@@ -112,7 +117,7 @@ def get_batch_completion_status(batch_id: int) -> Dict[str, Any]:
                     resume_point = "ai_analysis"
                 else:
                     resume_point = "finalization"
-            
+
             return {
                 "batch_id": batch_id,
                 "batch_status": batch_status,
@@ -125,7 +130,6 @@ def get_batch_completion_status(batch_id: int) -> Dict[str, Any]:
                 "needs_resume": needs_resume,
                 "resume_point": resume_point
             }
-            
     except Exception as e:
         logging.error(f"Error checking batch {batch_id} completion status: {e}")
         return {"error": str(e)}

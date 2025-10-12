@@ -40,8 +40,14 @@ def investigate_ocr_anomalies():
             from doc_processor.database import get_db_connection
             conn = get_db_connection()
         except Exception:
-            conn = sqlite3.connect(str(db_path))
-            conn.row_factory = sqlite3.Row
+            try:
+                from doc_processor.dev_tools.db_connect import connect as db_connect
+                conn = db_connect(str(db_path), timeout=30.0)
+                conn.row_factory = sqlite3.Row
+            except Exception:
+                from .db_connect import connect as db_connect
+                conn = db_connect(str(db_path))
+                conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     print("🔍 OCR Anomaly Investigation Report")
