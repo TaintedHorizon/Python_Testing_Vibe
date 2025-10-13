@@ -1,4 +1,3 @@
-import pytest
 from doc_processor import app
 
 def test_home_route():

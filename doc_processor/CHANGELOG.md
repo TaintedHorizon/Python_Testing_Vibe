@@ -29,6 +29,17 @@ All notable changes to this project will be documented in this file.
 
 This release entry documents safety and test-determinism work done to prepare the codebase for reliable CI runs.
 
+### Local DB initialization & schema enhancements (2025-10-13)
+
+- Added an idempotent extension to `dev_tools/database_setup.py` to create modern workflow tables if missing:
+  - `single_documents` (single-file workflow fields)
+  - `document_tags` (tag extraction storage) with UNIQUE(document_id, tag_category, tag_value)
+  - `tag_usage_stats`
+  - Best-effort ALTER TABLE steps to add `documents.final_filename_base` and `batches.has_been_manipulated` when absent.
+- Initialized a local, writable database at `/home/svc-scan/db/documents.db` (safe alternative to storing active DB on CIFS share). This change is intended for local development and CI; network-hosted DBs still require proper filesystem locking support.
+
+Note: If you prefer the DB on a network share, remount the share with Unix extension/locking support; otherwise keep the runtime DB local and use the network share for periodic backups only.
+
 ### Status update (2025-10-12)
 
 - Final lint pass: resolved remaining unused-import and whitespace issues flagged by ruff for the selected rule set (F401/F821/W291/W293). See commit history for details.

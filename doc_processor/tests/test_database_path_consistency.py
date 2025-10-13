@@ -1,6 +1,4 @@
 import os
-import sys
-import pytest
 from doc_processor.config_manager import app_config
 
 def test_database_path_consistency(tmp_path):

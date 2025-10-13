@@ -11,8 +11,8 @@ from datetime import datetime, timedelta
 from PIL import Image
 import logging
 import warnings
-import ollama 
-import easyocr 
+import ollama
+import easyocr
 import pytesseract
 from prompts import CLASSIFICATION_PROMPT_TEMPLATE, TITLING_PROMPT_TEMPLATE, ORDERING_PROMPT
 
@@ -54,7 +54,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 # --- Suppress Specific Warnings ---
 # This will hide the specific "pin_memory" UserWarning from PyTorch.
 warnings.filterwarnings(
-    "ignore", 
+    "ignore",
     message=".*'pin_memory' argument is set as true but no accelerator is found.*"
 )
 
@@ -360,7 +360,7 @@ def split_and_process_pdf(original_pdf_path: str, final_documents: list[dict]) -
 def main():
     logging.info("\n" + "="*60 + "\n========== STARTING NEW DOCUMENT PROCESSING RUN ==========\n" + "="*60)
     cleanup_archive(ARCHIVE_DIR, ARCHIVE_RETENTION_DAYS)
-    
+
     logging.info("--- STAGE 1 of 5: Preparing Batch File ---")
     try:
         initial_files = [os.path.join(INTAKE_DIR, f) for f in os.listdir(INTAKE_DIR) if f.lower().endswith(".pdf") and os.path.isfile(os.path.join(INTAKE_DIR, f))]
@@ -373,7 +373,7 @@ def main():
 
     file_to_process = None
     temp_merged_path = None
-    
+
     if len(initial_files) > 1:
         logging.info(f"Found {len(initial_files)} PDF files. Merging them into a single batch.")
         temp_merged_name = f"temp_mega_batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -382,15 +382,15 @@ def main():
     elif len(initial_files) == 1:
         logging.info("Found 1 PDF file. Processing it directly.")
         file_to_process = initial_files[0]
-    
+
     if not file_to_process:
         logging.error("Failed to prepare a file for processing.")
         return
     logging.info("--- STAGE 1 COMPLETE ---")
-    
+
     file_name = os.path.basename(file_to_process)
     logging.info(f"\n***************** PROCESSING BATCH: {file_name} *****************")
-    
+
     all_input_pages = set()
     try:
         with fitz.open(file_to_process) as doc:
@@ -399,7 +399,7 @@ def main():
     except Exception as e:
         logging.critical(f"Could not open and count pages in '{file_name}'. Halting. Error: {e}")
         return
-    
+
     processed_successfully = False
     temp_split_paths: list[str] = []
     try:
@@ -418,15 +418,15 @@ def main():
                 logging.warning(f"Page {i} has no text content. Assigning to 'other' category.")
                 page_classifications.append({'page_num': i, 'category': 'other'})
                 continue
-            
+
             logging.info(f"Classifying page {i}/{page_count} (Context: {recent_categories})...")
             category = classify_single_page(page_text, recent_categories)
             page_classifications.append({'page_num': i, 'category': category})
             logging.info(f"Page {i} classified as: '{category}'")
-            
+
             if category not in recent_categories and category != 'other':
                 recent_categories.append(category)
-        
+
         logging.info("--- STAGE 3 COMPLETE ---")
         logging.debug(f"Full classification results: {page_classifications}")
 
@@ -455,12 +455,12 @@ def main():
         for group in document_groups:
             pages = group['pages']
             category = group['category']
-            
+
             group_text_blob = "".join(PAGE_MARKER_TEMPLATE.format(page_num) + get_text_for_page(full_pdf_text, page_num) for page_num in pages)
-            
+
             sub_category, title = generate_title_and_subcategory(group_text_blob, category)
             page_order = get_correct_page_order(group_text_blob, pages)
-            
+
             final_documents.append({
                 'category': category,
                 'sub_category': sub_category,
@@ -480,13 +480,13 @@ def main():
 
         if lost_pages:
             logging.critical(f"CRITICAL: {len(lost_pages)} pages were lost during processing! Pages: {lost_pages}. Creating a '_lost_and_found' document for them.")
-            
+
             lost_category_name = "_lost_and_found"
             if lost_category_name not in ABSOLUTE_CATEGORIES:
                 lost_path = os.path.join(PROCESSED_DIR, lost_category_name)
                 os.makedirs(lost_path, exist_ok=True)
                 ABSOLUTE_CATEGORIES[lost_category_name] = lost_path
-            
+
             final_documents.append({
                 'category': 'other',
                 'sub_category': lost_category_name,
@@ -530,7 +530,7 @@ def main():
                 logging.info(f"Removed temporary merged file: {os.path.basename(temp_merged_path)}")
             except Exception as e:
                 logging.error(f"Failed to remove temporary merged file: {e}")
-        
+
         if temp_split_paths:
             for temp_path in temp_split_paths:
                 if os.path.exists(temp_path):
@@ -539,7 +539,7 @@ def main():
                         logging.info(f"Removed temporary split file: {os.path.basename(temp_path)}")
                     except Exception as e:
                         logging.error(f"Failed to remove temporary file '{temp_path}': {e}")
-    
+
     logging.info(f"***************** FINISHED PROCESSING BATCH: {file_name} *****************")
     logging.info("\n" + "="*60 + "\n============== DOCUMENT PROCESSING RUN COMPLETE ===============\n" + "="*60)
 

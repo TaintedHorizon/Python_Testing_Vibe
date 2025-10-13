@@ -1,5 +1,4 @@
 import os
-import tempfile
 import sqlite3
 import pytest
 import sys

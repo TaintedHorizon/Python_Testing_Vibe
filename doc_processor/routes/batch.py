@@ -6,20 +6,18 @@ Extracted from the monolithic app.py to improve maintainability.
 """
 from flask import Blueprint, request, jsonify, render_template, redirect, url_for, flash
 import logging
-from typing import Dict, Any
 import os
 import json
 import uuid
 import time
 import threading
-from datetime import datetime
 
 # Import existing modules (these imports will need to be adjusted based on the actual module structure)
 from ..database import (
-    get_db_connection, get_batch_by_id, get_documents_for_batch, insert_grouped_document
+    insert_grouped_document
 )
 from ..batch_guard import get_or_create_intake_batch, create_new_batch
-from ..processing import process_batch, database_connection, process_single_document
+from ..processing import process_batch, database_connection
 from ..config_manager import app_config
 from ..utils.helpers import create_error_response, create_success_response
 from ..document_detector import get_detector, DocumentAnalysis
@@ -60,7 +58,9 @@ def _start_smart_token_cleanup_thread():
 
 def _load_cached_intake_analyses(intake_dir: str) -> dict:
     """Attempt to load cached intake analyses from pickle, return mapping path->DocumentAnalysis."""
-    import os, pickle, logging as _logging
+    import os
+    import pickle
+    import logging as _logging
     cache_file = "/tmp/intake_analysis_cache.pkl"
     if not os.path.exists(cache_file):
         return {}
@@ -74,7 +74,6 @@ def _load_cached_intake_analyses(intake_dir: str) -> dict:
             elif isinstance(item, dict):
                 # Legacy key fix: filename -> file_path
                 if 'filename' in item and 'file_path' not in item:
-                    import os as _os
                     item['file_path'] = os.path.join(intake_dir, item['filename'])
                     item.pop('filename', None)
                 try:
@@ -89,7 +88,8 @@ def _load_cached_intake_analyses(intake_dir: str) -> dict:
 
 def _orchestrate_smart_processing(batch_id: int, strategy_overrides: dict, token: str):
     """Generator that replicates legacy smart processing progress flow using SSE-friendly yields."""
-    import os, time as _time, json as _json, logging as _logging
+    import os
+    import logging as _logging
     from ..config_manager import app_config as _cfg
 
     intake_dir = _cfg.INTAKE_DIR
@@ -409,7 +409,7 @@ def batch_control():
                     'audit_url': url_for('batch.batch_audit', batch_id=batch_id)
                 })
             return render_template('batch_control.html', batches=batches)
-            
+
     except Exception as e:
         logger.error(f"Error loading batch control page: {e}")
         flash(f"Error loading batches: {str(e)}", "error")
@@ -422,11 +422,11 @@ def process_new_batch():
         intake_dir = app_config.INTAKE_DIR
         if not intake_dir or not os.path.exists(intake_dir):
             return jsonify(create_error_response("Intake directory not configured or doesn't exist"))
-        
+
         # Create new batch
         # Create new intake batch via helper to centralize INSERT semantics
         batch_id = create_new_batch('intake')
-        
+
         # Start processing in background
         def process_batch_async():
             try:
@@ -436,10 +436,10 @@ def process_new_batch():
                         'progress': 0,
                         'message': 'Starting batch processing...'
                     }
-                
+
                 # Process the batch
                 result = process_batch()
-                
+
                 with processing_lock:
                     if result:
                         processing_status[batch_id] = {
@@ -453,7 +453,7 @@ def process_new_batch():
                             'progress': 0,
                             'message': 'Batch processing failed'
                         }
-                        
+
             except Exception as e:
                 logger.error(f"Error in async batch processing: {e}")
                 with processing_lock:
@@ -462,15 +462,15 @@ def process_new_batch():
                         'progress': 0,
                         'message': f"Processing error: {str(e)}"
                     }
-        
+
         thread = threading.Thread(target=process_batch_async)
         thread.start()
-        
+
         return jsonify(create_success_response({
             'batch_id': batch_id,
             'message': f'Batch {batch_id} created and processing started'
         }))
-        
+
     except Exception as e:
         logger.error(f"Error creating new batch: {e}")
         return jsonify(create_error_response(f"Failed to create batch: {str(e)}"))
@@ -566,7 +566,7 @@ def process_batch_smart():
                 logger.warning(f"Invalid strategy_overrides payload ignored: {e}")
         if strategy_overrides:
             logger.info(f"[smart] Received {len(strategy_overrides)} strategy overrides for batch {batch_id}")
-        
+
         # Validate batch exists (after auto-create logic, so should exist)
         with database_connection() as conn:
             cursor = conn.cursor()
@@ -578,13 +578,13 @@ def process_batch_smart():
                     batch_id = create_new_batch('intake')
                     logger.warning(f"[smart] Batch vanished; re-created as {batch_id}")
                     cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
-                except Exception as re_e:
+                except Exception:
                     try:
                         # Try the intake guard to reuse any existing intake batch first
                         batch_id = get_or_create_intake_batch()
                         logger.warning(f"[smart] Batch vanished; get_or_create returned {batch_id}")
                         cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
-                    except Exception as re_e2:
+                    except Exception:
                         try:
                             # Final raw fallback
                             cursor.execute("INSERT INTO batches (status) VALUES ('intake')")
@@ -603,7 +603,7 @@ def process_batch_smart():
                         logger.info(f"[smart] Elevated batch {batch_id} status from 'intake' to 'ready'")
                     except Exception as e:
                         logger.warning(f"Failed to update batch status to ready: {e}")
-        
+
         # Instead of starting processing here, create a token & stash parameters for SSE orchestrator
         # Persist per-document strategies if documents already exist for this batch (best-effort)
         if strategy_overrides:
@@ -644,7 +644,7 @@ def process_batch_smart():
             'token': token,
             'strategy_overrides_count': len(strategy_overrides)
         }))
-        
+
     except Exception as e:
         logger.error(f"Error starting smart processing: {e}")
         return jsonify(create_error_response(f"Failed to start smart processing: {str(e)}"))
@@ -656,7 +656,7 @@ def process_batch_all_single():
         batch_id = request.json.get('batch_id') if request.json else None
         if not batch_id:
             return jsonify(create_error_response("Batch ID is required"))
-        
+
         # Start single document processing
         def process_single_async():
             try:
@@ -666,36 +666,36 @@ def process_batch_all_single():
                         'progress': 0,
                         'message': 'Processing as single documents...'
                     }
-                
+
                 # Get all documents in batch
                 with database_connection() as conn:
                     cursor = conn.cursor()
                     cursor.execute("SELECT id FROM documents WHERE batch_id = ?", (batch_id,))
                     document_ids = [row[0] for row in cursor.fetchall()]
-                
+
                 total_docs = len(document_ids)
                 processed = 0
-                
+
                 for doc_id in document_ids:
                     try:
                         # TODO: Fix this function call - process_single_document needs correct implementation
                         # process_single_document(doc_id)
                         processed += 1
-                        
+
                         with processing_lock:
                             processing_status[batch_id]['progress'] = int(processed / total_docs * 100)
                             processing_status[batch_id]['message'] = f'Processed {processed}/{total_docs} documents'
-                            
+
                     except Exception as e:
                         logger.error(f"Error processing document {doc_id}: {e}")
-                
+
                 with processing_lock:
                     processing_status[batch_id] = {
                         'status': 'completed',
                         'progress': 100,
                         'message': f'Completed processing {processed}/{total_docs} documents'
                     }
-                    
+
             except Exception as e:
                 logger.error(f"Error in single document processing: {e}")
                 with processing_lock:
@@ -704,15 +704,15 @@ def process_batch_all_single():
                         'progress': 0,
                         'message': f"Processing error: {str(e)}"
                     }
-        
+
         thread = threading.Thread(target=process_single_async)
         thread.start()
-        
+
         return jsonify(create_success_response({
             'message': 'Single document processing started',
             'batch_id': batch_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error starting single document processing: {e}")
         return jsonify(create_error_response(f"Failed to start processing: {str(e)}"))
@@ -724,7 +724,7 @@ def process_batch_force_traditional():
         batch_id = request.json.get('batch_id') if request.json else None
         if not batch_id:
             return jsonify(create_error_response("Batch ID is required"))
-        
+
         # Start traditional processing
         def traditional_process_async():
             try:
@@ -734,10 +734,10 @@ def process_batch_force_traditional():
                         'progress': 0,
                         'message': 'Starting traditional processing...'
                     }
-                
+
                 # Process with traditional methods (no AI)
                 result = process_batch()
-                
+
                 with processing_lock:
                     if result:
                         processing_status[batch_id] = {
@@ -751,7 +751,7 @@ def process_batch_force_traditional():
                             'progress': 0,
                             'message': 'Traditional processing failed'
                         }
-                        
+
             except Exception as e:
                 logger.error(f"Error in traditional processing: {e}")
                 with processing_lock:
@@ -760,15 +760,15 @@ def process_batch_force_traditional():
                         'progress': 0,
                         'message': f"Processing error: {str(e)}"
                     }
-        
+
         thread = threading.Thread(target=traditional_process_async)
         thread.start()
-        
+
         return jsonify(create_success_response({
             'message': 'Traditional processing started',
             'batch_id': batch_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error starting traditional processing: {e}")
         return jsonify(create_error_response(f"Failed to start processing: {str(e)}"))
@@ -779,23 +779,23 @@ def reset_batch(batch_id: int):
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Reset batch status
             cursor.execute("UPDATE batches SET status = 'intake' WHERE id = ?", (batch_id,))
-            
+
             # Reset all documents in batch
             cursor.execute("UPDATE documents SET status = 'pending' WHERE batch_id = ?", (batch_id,))
-            
+
             # Clear any processing status
             with processing_lock:
                 if batch_id in processing_status:
                     del processing_status[batch_id]
-        
+
         return jsonify(create_success_response({
             'message': f'Batch {batch_id} has been reset',
             'batch_id': batch_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error resetting batch {batch_id}: {e}")
         return jsonify(create_error_response(f"Failed to reset batch: {str(e)}"))
@@ -806,22 +806,22 @@ def reset_grouping(batch_id: int):
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Reset grouping information
             cursor.execute("""
-                UPDATE documents 
-                SET group_id = NULL, group_position = NULL 
+                UPDATE documents
+                SET group_id = NULL, group_position = NULL
                 WHERE batch_id = ?
             """, (batch_id,))
-            
+
             # Update batch status if needed
             cursor.execute("UPDATE batches SET status = 'processed' WHERE id = ?", (batch_id,))
-        
+
         return jsonify(create_success_response({
             'message': f'Grouping reset for batch {batch_id}',
             'batch_id': batch_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error resetting grouping for batch {batch_id}: {e}")
         return jsonify(create_error_response(f"Failed to reset grouping: {str(e)}"))
@@ -832,41 +832,41 @@ def batch_audit(batch_id: int):
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Get batch info
             cursor.execute("SELECT * FROM batches WHERE id = ?", (batch_id,))
             batch = cursor.fetchone()
-            
+
             if not batch:
                 flash("Batch not found", "error")
                 return redirect(url_for('batch.batch_control'))
-            
+
             # Get detailed document information
             cursor.execute("""
-                SELECT id, filename, status, category, confidence_score, 
+                SELECT id, filename, status, category, confidence_score,
                        ocr_text, created_at, updated_at
-                FROM documents 
+                FROM documents
                 WHERE batch_id = ?
                 ORDER BY id
             """, (batch_id,))
-            
+
             documents = cursor.fetchall()
-            
+
             # Get processing statistics
             cursor.execute("""
                 SELECT status, COUNT(*) as count
-                FROM documents 
+                FROM documents
                 WHERE batch_id = ?
                 GROUP BY status
             """, (batch_id,))
-            
+
             status_counts = dict(cursor.fetchall())
-            
-            return render_template('batch_audit.html', 
-                                 batch=batch, 
+
+            return render_template('batch_audit.html',
+                                 batch=batch,
                                  documents=documents,
                                  status_counts=status_counts)
-            
+
     except Exception as e:
         logger.error(f"Error loading batch audit for {batch_id}: {e}")
         flash(f"Error loading audit: {str(e)}", "error")
@@ -898,7 +898,7 @@ def api_smart_processing_progress():
     """API endpoint for smart processing progress."""
     try:
         with processing_lock:
-            smart_status = {k: v for k, v in processing_status.items() 
+            smart_status = {k: v for k, v in processing_status.items()
                           if v.get('status') == 'smart_processing'}
             return jsonify(create_success_response(smart_status))
     except Exception as e:

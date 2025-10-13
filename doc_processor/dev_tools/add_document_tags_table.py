@@ -8,7 +8,6 @@ This creates a new table to store structured tags extracted from documents:
 - Provides foundation for intelligent pattern recognition
 """
 
-import sqlite3
 import logging
 import sys
 import os
@@ -23,27 +22,27 @@ def add_document_tags_table():
     Add the document_tags table to the database for RAG functionality.
     """
     logging.basicConfig(level=logging.INFO)
-    
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     try:
         # Check if table already exists
         result = cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='document_tags'"
         ).fetchone()
-        
+
         if result:
             print("document_tags table already exists. Skipping creation.")
             return
-        
+
         # Create the document_tags table
         cursor.execute("""
             CREATE TABLE document_tags (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 document_id INTEGER NOT NULL,
                 tag_category TEXT NOT NULL CHECK(tag_category IN (
-                    'people', 'organizations', 'places', 'dates', 
+                    'people', 'organizations', 'places', 'dates',
                     'document_types', 'keywords', 'amounts', 'reference_numbers'
                 )),
                 tag_value TEXT NOT NULL,
@@ -54,17 +53,17 @@ def add_document_tags_table():
                 UNIQUE(document_id, tag_category, tag_value)
             )
         """)
-        
+
         # Create indexes for efficient tag-based queries
         cursor.execute("CREATE INDEX idx_document_tags_category_value ON document_tags(tag_category, tag_value)")
         cursor.execute("CREATE INDEX idx_document_tags_document_id ON document_tags(document_id)")
         cursor.execute("CREATE INDEX idx_document_tags_category ON document_tags(tag_category)")
         cursor.execute("CREATE INDEX idx_document_tags_value ON document_tags(tag_value)")
-        
+
         # Create view for tag analysis
         cursor.execute("""
             CREATE VIEW tag_usage_stats AS
-            SELECT 
+            SELECT
                 tag_category,
                 tag_value,
                 COUNT(*) as usage_count,
@@ -72,17 +71,17 @@ def add_document_tags_table():
                 AVG(extraction_confidence) as avg_confidence,
                 MIN(created_at) as first_used,
                 MAX(created_at) as last_used
-            FROM document_tags 
+            FROM document_tags
             GROUP BY tag_category, tag_value
             ORDER BY usage_count DESC
         """)
-        
+
         conn.commit()
-        
+
         print("✓ Created document_tags table with indexes")
         print("✓ Created tag_usage_stats view for analysis")
         print("✓ Database schema updated for tag-based RAG functionality")
-        
+
         # Print schema summary
         print("\nNew table schema:")
         print("document_tags:")
@@ -94,7 +93,7 @@ def add_document_tags_table():
         print("  - llm_source: Which LLM extracted the tag")
         print("  - created_at: Timestamp")
         print("  - Unique constraint on (document_id, tag_category, tag_value)")
-        
+
     except Exception as e:
         print(f"Error adding document_tags table: {e}")
         conn.rollback()

@@ -5,6 +5,8 @@ Recent changes (see `doc_processor/CHANGELOG.md` for full details):
 
 Note: As of 2025-10-12 the `chore/db-backup-tests` branch includes a final lint pass and green unit tests (43 passed, 4 skipped). See changelog for details.
 
+Update (2025-10-13): Local DB schema extensions and initialization added; the `database_setup.py` script now creates `document_tags`, `single_documents`, and `tag_usage_stats`. For local development the DB was initialized at `/home/svc-scan/db/documents.db`.
+
 - Hardened database behavior: the application now protects against accidental
    creation or overwrite of repository-local SQLite files. Tests and local runs
    run against a temporary database unless explicitly allowed. A `DB_BACKUP_DIR`

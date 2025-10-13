@@ -1,4 +1,5 @@
-import sqlite3, pytest
+import sqlite3
+import pytest
 from doc_processor.app import create_app
 
 @pytest.fixture()

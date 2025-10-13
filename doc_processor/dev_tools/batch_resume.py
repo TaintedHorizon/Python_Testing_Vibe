@@ -5,7 +5,7 @@ Provides functions to check batch completion status and resume interrupted proce
 """
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 import sys
 import os
 
@@ -81,14 +81,14 @@ def get_batch_completion_status(batch_id: int) -> Dict[str, Any]:
 
             # Get document completion stats
             cursor.execute("""
-                SELECT 
+                SELECT
                     COUNT(*) as total_docs,
                     COUNT(CASE WHEN status = 'ready_for_manipulation' THEN 1 END) as completed_docs,
                     COUNT(CASE WHEN status = 'processing' THEN 1 END) as processing_docs,
                     COUNT(CASE WHEN ai_suggested_category IS NOT NULL THEN 1 END) as analyzed_docs,
                     COUNT(CASE WHEN ocr_text IS NOT NULL THEN 1 END) as ocr_completed_docs,
                     COUNT(CASE WHEN searchable_pdf_path IS NOT NULL THEN 1 END) as searchable_pdfs
-                FROM single_documents 
+                FROM single_documents
                 WHERE batch_id = ?
             """, (batch_id,))
 
@@ -138,31 +138,31 @@ def get_batch_completion_status(batch_id: int) -> Dict[str, Any]:
 def get_incomplete_documents(batch_id: int) -> List[Dict[str, Any]]:
     """
     Get list of documents in a batch that still need processing.
-    
+
     Args:
         batch_id: ID of the batch to check
-        
+
     Returns:
         list: Documents that need processing
     """
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            
+
             cursor.execute("""
-                SELECT 
-                    id, original_filename, status, 
+                SELECT
+                    id, original_filename, status,
                     (ocr_text IS NOT NULL) as has_ocr,
                     (ai_suggested_category IS NOT NULL) as has_ai_analysis
-                FROM single_documents 
+                FROM single_documents
                 WHERE batch_id = ? AND status != 'ready_for_manipulation'
                 ORDER BY id
             """, (batch_id,))
-            
+
             incomplete = []
             for row in cursor.fetchall():
                 doc_id, filename, status, has_ocr, has_ai_analysis = row
-                
+
                 next_step = "unknown"
                 if not has_ocr:
                     next_step = "ocr_processing"
@@ -170,7 +170,7 @@ def get_incomplete_documents(batch_id: int) -> List[Dict[str, Any]]:
                     next_step = "ai_analysis"
                 else:
                     next_step = "finalization"
-                
+
                 incomplete.append({
                     "document_id": doc_id,
                     "filename": filename,
@@ -179,9 +179,9 @@ def get_incomplete_documents(batch_id: int) -> List[Dict[str, Any]]:
                     "has_ai_analysis": bool(has_ai_analysis),
                     "next_step": next_step
                 })
-            
+
             return incomplete
-            
+
     except Exception as e:
         logging.error(f"Error getting incomplete documents for batch {batch_id}: {e}")
         return []
@@ -190,10 +190,10 @@ def get_incomplete_documents(batch_id: int) -> List[Dict[str, Any]]:
 def can_resume_batch(batch_id: int) -> bool:
     """
     Check if a batch can be safely resumed.
-    
+
     Args:
         batch_id: ID of the batch to check
-        
+
     Returns:
         bool: True if batch can be resumed
     """
@@ -204,20 +204,20 @@ def can_resume_batch(batch_id: int) -> bool:
 def log_batch_resume_info(batch_id: int) -> None:
     """
     Log detailed information about batch resume status.
-    
+
     Args:
         batch_id: ID of the batch to log info for
     """
     status = get_batch_completion_status(batch_id)
     incomplete = get_incomplete_documents(batch_id)
-    
+
     logging.info(f"📊 Batch {batch_id} Resume Status:")
     logging.info(f"   Total Documents: {status.get('total_documents', 0)}")
     logging.info(f"   Completed: {status.get('completed_documents', 0)}")
     logging.info(f"   Completion: {status.get('completion_percentage', 0):.1f}%")
     logging.info(f"   Resume Point: {status.get('resume_point', 'unknown')}")
     logging.info(f"   Needs Resume: {status.get('needs_resume', False)}")
-    
+
     if incomplete:
         logging.info(f"   Incomplete Documents: {len(incomplete)}")
         for doc in incomplete[:5]:  # Show first 5

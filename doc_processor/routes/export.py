@@ -12,7 +12,7 @@ Extracted from the monolithic app.py to improve maintainability.
 
 from flask import Blueprint, request, jsonify, render_template, redirect, url_for, flash, send_file
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 import os
 import json
 import threading
@@ -21,11 +21,9 @@ import hashlib
 
 # Import existing modules (these imports will need to be adjusted)
 from ..database import (
-    get_db_connection, get_documents_for_batch, get_batch_by_id,
-    get_all_categories
+    get_db_connection
 )
 from ..processing import (
-    safe_move,
     finalize_single_documents_batch_with_progress,
 )
 from ..config_manager import app_config
@@ -61,12 +59,12 @@ def finalize_page(batch_id: int):
         #     cursor = conn.cursor()
         #     batch = get_batch_by_id(batch_id)
         #     documents = get_documents_by_batch(batch_id, status='ready_for_export')
-        
-        return render_template('finalize.html', 
-                             batch_id=batch_id, 
-                             batch={}, 
+
+        return render_template('finalize.html',
+                             batch_id=batch_id,
+                             batch={},
                              documents=[])
-        
+
     except Exception as e:
         logger.error(f"Error loading finalization page for batch {batch_id}: {e}")
         flash(f"Error loading finalization: {str(e)}", "error")
@@ -78,18 +76,18 @@ def export_batch(batch_id: int):
     try:
         export_format = request.form.get('export_format', 'pdf')
         include_originals = request.form.get('include_originals', False)
-        
+
         # Validate batch is ready for export
         # with database_connection() as conn:
         #     cursor = conn.cursor()
         #     batch_status = get_batch_status(batch_id)
         #     if batch_status not in ['ordered', 'ready_for_export']:
         #         return jsonify(create_error_response(f"Batch not ready for export (status: {batch_status})"))
-        
+
         # Integrate with service (placeholder documents until grouping export implemented)
         service_result = export_service.export_batch(batch_id, export_format=export_format, include_originals=bool(include_originals))
         return jsonify(service_result if service_result.get('success') else create_error_response(service_result.get('error', 'Unknown error')))
-        
+
     except Exception as e:
         logger.error(f"Error starting export for batch {batch_id}: {e}")
         return jsonify(create_error_response(f"Failed to start export: {str(e)}"))
@@ -210,7 +208,7 @@ def finalize_batch(batch_id: int):
         grouping_method = request.form.get('grouping_method', 'ai_suggested')
         # Placeholder: until grouped export implemented, return 501 or call service with grouping placeholder
         return jsonify(create_error_response('Grouped finalization not yet implemented in refactor')), 501
-        
+
     except Exception as e:
         logger.error(f"Error starting batch finalization: {e}")
         return jsonify(create_error_response(f"Failed to start finalization: {str(e)}"))
@@ -329,20 +327,20 @@ def download_export(filepath: str):
         # Get export directory from config
         # export_dir = app_config.get('EXPORT_DIR', '/tmp/exports')
         export_dir = '/tmp/exports'  # Placeholder
-        
+
         full_path = os.path.join(export_dir, filepath)
-        
+
         if not os.path.exists(full_path):
             flash("Export file not found", "error")
             return redirect(url_for('batch.batch_control'))
-        
+
         # Security check - ensure file is within export directory
         if not os.path.abspath(full_path).startswith(os.path.abspath(export_dir)):
             flash("Invalid file path", "error")
             return redirect(url_for('batch.batch_control'))
-        
+
         return send_file(full_path, as_attachment=True)
-        
+
     except Exception as e:
         logger.error(f"Error downloading export file {filepath}: {e}")
         flash(f"Error downloading file: {str(e)}", "error")
@@ -355,18 +353,18 @@ def serve_processed_file(filepath: str):
         # Get processed files directory from config
         # processed_dir = app_config.get('PROCESSED_DIR', '/tmp/processed')
         processed_dir = '/tmp/processed'  # Placeholder
-        
+
         full_path = os.path.join(processed_dir, filepath)
-        
+
         if not os.path.exists(full_path):
             return jsonify(create_error_response("File not found")), 404
-        
+
         # Security check
         if not os.path.abspath(full_path).startswith(os.path.abspath(processed_dir)):
             return jsonify(create_error_response("Invalid file path")), 403
-        
+
         return send_file(full_path)
-        
+
     except Exception as e:
         logger.error(f"Error serving processed file {filepath}: {e}")
         return jsonify(create_error_response(f"Error serving file: {str(e)}")), 500
@@ -379,7 +377,7 @@ def serve_original_pdf(filename: str):
         import tempfile
         from pathlib import Path
         from PIL import Image
-        
+
         # Files should be served from the intake directory for analysis
         intake_dir = app_config.INTAKE_DIR
         requested_filename = filename  # keep what the client asked for (may be a synthetic .pdf)
@@ -388,7 +386,7 @@ def serve_original_pdf(filename: str):
         # Basic existence check (no path hunting now that manipulation uses direct DB paths)
         if not os.path.exists(original_path):
             return jsonify(create_error_response(f"File not found: {requested_filename}")), 404
-        
+
         # Security check - ensure file is within intake directory
         if not os.path.abspath(original_path).startswith(os.path.abspath(intake_dir)):
             return jsonify(create_error_response("Invalid file path")), 403
@@ -418,7 +416,7 @@ def serve_original_pdf(filename: str):
                 conn.close()
             except Exception:
                 pass
-        
+
         # If the file is already a PDF, serve it directly
         file_ext = Path(original_path).suffix.lower()
         if file_ext == '.pdf':
@@ -470,7 +468,7 @@ def serve_original_pdf(filename: str):
 
             # Serve the converted PDF
             return send_file(converted_pdf_path, mimetype='application/pdf', as_attachment=False)
-        
+
         # For other file types, serve the original
         return send_file(original_path)
     except Exception as e:
@@ -580,10 +578,10 @@ def get_available_exports():
     try:
         # export_dir = app_config.get('EXPORT_DIR', '/tmp/exports')
         export_dir = '/tmp/exports'  # Placeholder
-        
+
         if not os.path.exists(export_dir):
             return jsonify(create_success_response({'exports': []}))
-        
+
         exports = []
         for filename in os.listdir(export_dir):
             file_path = os.path.join(export_dir, filename)
@@ -595,9 +593,9 @@ def get_available_exports():
                     'created': datetime.fromtimestamp(stat.st_ctime).isoformat(),
                     'download_url': url_for('export.download_export', filepath=filename)
                 })
-        
+
         return jsonify(create_success_response({'exports': exports}))
-        
+
     except Exception as e:
         logger.error(f"Error getting available exports: {e}")
         return jsonify(create_error_response(f"Failed to get exports: {str(e)}"))

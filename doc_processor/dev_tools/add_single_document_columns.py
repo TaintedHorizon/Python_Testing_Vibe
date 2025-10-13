@@ -14,8 +14,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config_manager import app_config
-import sqlite3
-import os
 import argparse
 import sys
 
@@ -49,14 +47,14 @@ def _connect_preferring_helper(path):
 def upgrade_database():
     """Add columns for single document support with safe defaults."""
     print(f"Upgrading database at: {app_config.DATABASE_PATH}")
-    
+
     # Prefer centralized DB helper to get consistent PRAGMA settings when run
     # within the application context. Fallback to direct connect for standalone runs.
     conn = None
     conn = _connect_preferring_helper(app_config.DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
+
     try:
         # Add file_type column (defaults to 'pdf' for existing records)
         try:
@@ -70,7 +68,7 @@ def upgrade_database():
                 print("- file_type column already exists")
             else:
                 raise
-        
+
         # Add processing_strategy column (defaults to 'batch_scan' for existing records)
         try:
             if dry_run:
@@ -83,7 +81,7 @@ def upgrade_database():
                 print("- processing_strategy column already exists")
             else:
                 raise
-                
+
         # Add original_file_path column for tracking source files in single-doc workflow
         try:
             if dry_run:
@@ -102,7 +100,7 @@ def upgrade_database():
         else:
             conn.commit()
             print("✓ Database upgrade completed successfully")
-        
+
     except Exception as e:
         print(f"✗ Error during database upgrade: {e}")
         conn.rollback()

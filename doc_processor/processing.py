@@ -1,5 +1,6 @@
 from typing import Optional  # Early import needed for annotations used before bulk imports
-import os, logging
+import os
+import logging
 
 # --- SAFE FILE MOVE UTILITY ---
 def safe_move(src, dst):
@@ -7,28 +8,29 @@ def safe_move(src, dst):
     Safely move a file with proper error handling and backup preservation.
     Only removes source after successful copy verification.
     """
-    import shutil, os
-    
+    import shutil
+    import os
+
     try:
         # Ensure destination directory exists
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        
+
         # Copy the file first
         shutil.copy2(src, dst)
-        
+
         # Verify the copy was successful by checking size and existence
         if not os.path.exists(dst):
             raise OSError(f"Copy failed - destination file does not exist: {dst}")
-        
+
         src_size = os.path.getsize(src)
         dst_size = os.path.getsize(dst)
         if src_size != dst_size:
             raise OSError(f"Copy failed - size mismatch: src={src_size} dst={dst_size}")
-        
+
         # Only remove source after successful verification
         os.remove(src)
         logging.debug(f"✓ Safe move completed: {os.path.basename(src)} -> {dst}")
-        
+
     except Exception as e:
         # If anything fails, ensure destination is cleaned up (partial copy)
         if os.path.exists(dst):
@@ -101,14 +103,14 @@ def _lookup_forced_rotation(filename: str) -> Optional[int]:
 def convert_image_to_pdf(image_path: str, output_pdf_path: str) -> str:
     """
     Convert an image file (PNG, JPG, JPEG) to PDF format.
-    
+
     Args:
         image_path: Path to the source image file
         output_pdf_path: Path where the converted PDF will be saved
-        
+
     Returns:
         str: Path to the created PDF file
-        
+
     Raises:
         FileProcessingError: If conversion fails
     """
@@ -116,31 +118,31 @@ def convert_image_to_pdf(image_path: str, output_pdf_path: str) -> str:
         # Validate input file
         if not os.path.exists(image_path):
             raise FileProcessingError(f"Image file does not exist: {image_path}")
-        
+
         # Check if it's a supported image format
         supported_formats = ['.png', '.jpg', '.jpeg']
         file_ext = os.path.splitext(image_path)[1].lower()
         if file_ext not in supported_formats:
             raise FileProcessingError(f"Unsupported image format: {file_ext}")
-        
+
         # Ensure output directory exists
         os.makedirs(os.path.dirname(output_pdf_path), exist_ok=True)
-        
+
         logging.info(f"Converting image to PDF: {os.path.basename(image_path)} -> {os.path.basename(output_pdf_path)}")
-        
+
         # Open and process the image
         with Image.open(image_path) as img:
             # Convert to RGB if necessary (required for PDF)
             if img.mode != 'RGB':
                 img = img.convert('RGB')
-            
+
             # Save as PDF
             img.save(output_pdf_path, "PDF", resolution=150.0)
-        
+
         # Verify the PDF was created successfully
         if not os.path.exists(output_pdf_path):
             raise FileProcessingError(f"PDF conversion failed - output file not created: {output_pdf_path}")
-        
+
         # Verify it's a valid PDF by trying to open it
         try:
             with fitz.open(output_pdf_path) as doc:
@@ -148,10 +150,10 @@ def convert_image_to_pdf(image_path: str, output_pdf_path: str) -> str:
                     raise FileProcessingError("Converted PDF has no pages")
         except Exception as pdf_error:
             raise FileProcessingError(f"Converted PDF is invalid: {pdf_error}")
-        
+
         logging.info(f"✅ Successfully converted image to PDF: {os.path.basename(output_pdf_path)}")
         return output_pdf_path
-        
+
     except Exception as e:
         # Clean up any partial output
         if os.path.exists(output_pdf_path):
@@ -159,7 +161,7 @@ def convert_image_to_pdf(image_path: str, output_pdf_path: str) -> str:
                 os.remove(output_pdf_path)
             except:
                 pass
-        
+
         error_msg = f"Failed to convert image {image_path} to PDF: {e}"
         logging.error(error_msg)
         raise FileProcessingError(error_msg)
@@ -167,14 +169,14 @@ def convert_image_to_pdf(image_path: str, output_pdf_path: str) -> str:
 def process_image_file(image_path: str, batch_id: int) -> str:
     """
     Process an image file by converting it to PDF and moving it to the batch directory.
-    
+
     Args:
         image_path: Path to the source image file
         batch_id: ID of the batch to process the image into
-        
+
     Returns:
         str: Path to the processed PDF file in the batch directory
-        
+
     Raises:
         FileProcessingError: If processing fails
     """
@@ -182,26 +184,26 @@ def process_image_file(image_path: str, batch_id: int) -> str:
         # Generate output filename (replace image extension with .pdf)
         filename_base = os.path.splitext(os.path.basename(image_path))[0]
         pdf_filename = f"{filename_base}.pdf"
-        
+
         # Create batch directory structure
         batch_dir = os.path.join(app_config.WIP_DIR, str(batch_id))
         original_pdfs_dir = os.path.join(batch_dir, "original_pdfs")
         os.makedirs(original_pdfs_dir, exist_ok=True)
-        
+
         # Convert image to PDF in the batch directory
         output_pdf_path = os.path.join(original_pdfs_dir, pdf_filename)
         convert_image_to_pdf(image_path, output_pdf_path)
-        
+
         # Archive the original image file
         archive_dir = os.path.join(app_config.ARCHIVE_DIR, f"batch_{batch_id}_images")
         os.makedirs(archive_dir, exist_ok=True)
-        
+
         archived_image_path = os.path.join(archive_dir, os.path.basename(image_path))
         safe_move(image_path, archived_image_path)
-        
+
         logging.info(f"✅ Processed image file: {os.path.basename(image_path)} -> {pdf_filename} (archived to {archive_dir})")
         return output_pdf_path
-        
+
     except Exception as e:
         error_msg = f"Failed to process image file {image_path}: {e}"
         logging.error(error_msg)
@@ -210,42 +212,19 @@ def process_image_file(image_path: str, batch_id: int) -> str:
 def is_image_file(file_path: str) -> bool:
     """
     Check if a file is a supported image format.
-    
+
     Args:
         file_path: Path to the file to check
-        
+
     Returns:
         bool: True if the file is a supported image format
     """
     supported_extensions = ['.png', '.jpg', '.jpeg']
     file_ext = os.path.splitext(file_path)[1].lower()
     return file_ext in supported_extensions
-"""
-This module handles the core backend logic for the document processing pipeline.
-It includes functions for:
-- Converting PDF files into images.
-- Running OCR (Optical Character Recognition) on images to extract text.
-- Interacting with an AI model (via Ollama) for tasks like document
-  classification, page number extraction, and filename suggestion.
-- Managing the p                cursor.execute(
-                "INSERT INTO batches (status) VALUES (?)",
-                (app_config.STATUS_PENDING_VERIFICATION,)
-            )
-            batch_id = cursor.lastrowid
-            conn.commit()
-            logging.info(f"Created new batch with ID: {batch_id}")
-            os.makedirs(app_config.ARCHIVE_DIR, exist_ok=True)
-            batch_image_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id)) workflow via a SQLite database.
-- Exporting the final, processed documents into various formats.
-
-The main entry point for the pipeline is the `process_batch` function, which
-orchestrates the initial intake and processing of new PDF files.
-"""
 
 # Standard library imports
 import json
-import logging
-import os
 import re
 import shutil
 import sqlite3
@@ -253,20 +232,19 @@ import warnings
 from io import BytesIO
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 # Third-party imports
 import fitz  # PyMuPDF
 import numpy as np
 import pytesseract
-import requests
 from pdf2image import convert_from_path
 from PIL import Image
 
 # Local application imports
 from .config_manager import app_config
-from .exceptions import FileProcessingError, OCRError, AIServiceError
-from .security import validate_path, sanitize_filename
+from .exceptions import FileProcessingError
+from .security import sanitize_filename
 from .database import get_all_categories, log_interaction, store_document_tags
 from .llm_utils import _query_ollama, extract_document_tags
 from .batch_guard import get_or_create_processing_batch
@@ -287,7 +265,8 @@ def create_searchable_pdf(original_pdf_path: str, output_path: str, document_id:
         # Utility to compute a deterministic source signature (size + mtime + sha1 head)
         def _compute_signature(path: str) -> str:
             try:
-                import hashlib, os
+                import hashlib
+                import os
                 st = os.stat(path)
                 size = st.st_size
                 mtime = int(st.st_mtime)
@@ -403,7 +382,7 @@ def create_searchable_pdf(original_pdf_path: str, output_path: str, document_id:
             pdf_doc = fitz.open(original_pdf_path)
         except Exception as open_e:
             logging.error(f"Unable to open PDF for OCR: {open_e}")
-            return "", 0.0, f"error(open) {open_e}" 
+            return "", 0.0, f"error(open) {open_e}"
 
         # Prepare output document with original page images + invisible text layer
         with fitz.open() as out_doc:
@@ -537,7 +516,7 @@ def _add_invisible_text_overlay(page, text: str):
 def safe_log_interaction(batch_id, document_id=None, user_id=None, event_type=None, step=None, content=None, notes=None, max_retries=3):
     """
     Safely log interactions with retry logic and graceful failure handling.
-    
+
     This wrapper prevents database lock issues from crashing the processing pipeline.
     """
     for attempt in range(max_retries):
@@ -683,10 +662,10 @@ def _query_ollama(prompt: str, timeout: int = 45, context_window: int = 4096, ta
 def _validate_file_type(file_path: str) -> bool:
     """
     Validates that a file is a legitimate PDF by checking its magic numbers and structure.
-    
+
     Args:
         file_path (str): Path to the file to validate
-        
+
     Returns:
         bool: True if file is a valid PDF, False otherwise
     """
@@ -697,14 +676,14 @@ def _validate_file_type(file_path: str) -> bool:
             if header != b'%PDF':
                 logging.error(f"Invalid PDF header in file: {file_path}")
                 return False
-            
+
             # Basic structure validation
             f.seek(0, 2)  # Seek to end
             file_size = f.tell()
             if file_size < 32:  # Minimum size for a valid PDF
                 logging.error(f"File too small to be valid PDF: {file_path}")
                 return False
-            
+
         return True
     except Exception as e:
         logging.error(f"Error validating file {file_path}: {e}")
@@ -895,7 +874,8 @@ TEXT:\n{truncated}\n"""
         # Strip code fences
         raw_clean = raw.strip().strip('`')
         # Try find JSON braces
-        import re, json as _json
+        import re
+        import json as _json
         match = re.search(r'{.*}', raw_clean, re.DOTALL)
         if match:
             snippet = match.group(0)
@@ -927,36 +907,36 @@ TEXT:\n{truncated}\n"""
 def process_single_document(file_path: str, suggested_strategy: str = "single_document") -> Optional[int]:
     """
     DEPRECATED: Legacy single document processor that moves files to archive.
-    
+
     ⚠️ WARNING: This function incorrectly moves single documents to archive instead
     of going through proper workflow to category folders. All callers should use
     _process_single_documents_as_batch() instead for correct behavior.
-    
+
     Args:
         file_path: Path to the PDF file
         suggested_strategy: Processing strategy hint from detection
-    
+
     Returns:
         Document ID if successful, None if failed
     """
     logging.warning(f"⚠️ DEPRECATED FUNCTION CALLED: process_single_document({file_path}) - This should use _process_single_documents_as_batch() instead!")
     logging.info(f"--- LEGACY PROCESSING SINGLE DOCUMENT: {file_path} ---")
-    
+
     try:
         filename = os.path.basename(file_path)
         sanitized_name = sanitize_filename(filename)
-        
+
         with database_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Create a single-document batch using the centralized helper
             from .batch_guard import create_new_batch
             batch_id = create_new_batch(app_config.STATUS_EXPORTED)
-            
+
             # Extract full text content from PDF for AI classification
             full_text = ""
             page_count = 0
-            
+
             with fitz.open(file_path) as doc:
                 page_count = len(doc)
                 # Extract text from all pages
@@ -965,27 +945,27 @@ def process_single_document(file_path: str, suggested_strategy: str = "single_do
                     # Use modern PyMuPDF API if available, else fallback
                     page_text = ""
                     full_text += f"\n--- Page {page_num + 1} ---\n{page_text}"
-            
+
             logging.info(f"Extracted text from {page_count} pages")
-            
+
             # Get AI classification for the full document
             ai_category = get_ai_classification_single_document(full_text, filename)
-            
+
             # Create document record with single-document strategy
             cursor.execute(
-                """INSERT INTO documents 
+                """INSERT INTO documents
                    (batch_id, document_name, status, file_type, processing_strategy, original_file_path)
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (batch_id, sanitized_name, "pending_finalization", "pdf", suggested_strategy, file_path)
             )
             document_id = cursor.lastrowid
             conn.commit()
-            
+
             logging.info(f"Created document record: {document_id}")
-            
+
             # Store the document content and classification without pages table
             # This is a simplified storage approach for single documents
-            
+
             # Move original to archive
             archive_path = os.path.join(app_config.ARCHIVE_DIR, filename)
             os.makedirs(app_config.ARCHIVE_DIR, exist_ok=True)
@@ -999,9 +979,9 @@ def process_single_document(file_path: str, suggested_strategy: str = "single_do
                 content=json.dumps({"strategy": suggested_strategy, "pages": page_count, "ai_category": ai_category}),
                 notes=f"Single document processed: {filename}"
             )
-            
+
             return document_id
-            
+
     except Exception as e:
         logging.error(f"Error processing single document {file_path}: {e}")
         return None
@@ -1014,12 +994,12 @@ def get_ai_classification_single_document(content: str, filename: str) -> Option
     """
     if not content.strip():
         return None
-    
+
     # Truncate content if too long to fit in context window
     max_chars = 4000  # Leave room for prompt text
     if len(content) > max_chars:
         content = content[:max_chars] + "\n[... content truncated ...]"
-    
+
     prompt = f"""You are analyzing a complete PDF document for categorization.
 
 FILENAME: {filename}
@@ -1044,33 +1024,33 @@ Respond with ONLY the category name that best fits this document."""
             # Extract category from response
             response_clean = response.strip().lower()
             available_categories = [cat.lower() for cat in get_all_categories()]
-            
+
             # Find matching category
             for category in available_categories:
                 if category in response_clean:
                     return category.title()
-            
+
             # If no exact match, return the response for manual review
             return response.strip()
-            
+
     except Exception as e:
         logging.error(f"Error getting AI classification: {e}")
-    
+
     return None
 
 
-def get_ai_document_type_analysis(file_path: str, content_sample: str, filename: str, 
+def get_ai_document_type_analysis(file_path: str, content_sample: str, filename: str,
                                  page_count: int, file_size_mb: float) -> Optional[Dict]:
     """
     Uses LLM to analyze document type based on content and metadata.
-    
+
     Args:
         file_path: Full path to the PDF file
         content_sample: Sample text from the document
         filename: Base filename for analysis
         page_count: Number of pages in document
         file_size_mb: File size in megabytes
-        
+
     Returns:
         Dict with classification, confidence, reasoning, and llm_used flag
     """
@@ -1102,19 +1082,19 @@ Provide your analysis now:"""
 
         # Query the LLM
         response = _query_ollama(prompt, timeout=app_config.OLLAMA_TIMEOUT, context_window=app_config.OLLAMA_CTX_CATEGORY, task_name="document_type_analysis")
-        
+
         if not response:
             return None
-            
+
         # Parse the LLM response (handle both plain and markdown formats)
         classification = None
         confidence = 0
         reasoning = None
         lines = response.strip().split('\n')
-        
+
         # Log raw response at DEBUG level to keep it in logs but not spam console
         logging.debug(f"Raw LLM response for {filename}: {response}")
-        
+
         for line in lines:
             line = line.strip()
             # Handle both plain format (CLASSIFICATION:) and markdown format (**CLASSIFICATION:**)
@@ -1151,10 +1131,10 @@ Provide your analysis now:"""
             # Log successful LLM analysis for training data collection
             log_interaction(
                 batch_id=None,
-                document_id=None, 
+                document_id=None,
                 user_id=get_current_user_id(),
                 event_type="llm_detection_analysis",
-                step="document_classification", 
+                step="document_classification",
                 content=f"{{\"filename\": \"{filename}\", \"page_count\": {page_count}, \"file_size_mb\": {file_size_mb}, \"prompt\": \"{prompt[:200]}...\", \"response\": \"{response[:200]}...\", \"parsed_result\": {result}}}",
                 notes=f"LLM document type analysis - {classification} ({confidence}%)"
             )
@@ -1165,15 +1145,15 @@ Provide your analysis now:"""
             log_interaction(
                 batch_id=None,
                 document_id=None,
-                user_id=get_current_user_id(), 
+                user_id=get_current_user_id(),
                 event_type="llm_detection_parse_error",
                 step="document_classification",
                 content=f"{{\"filename\": \"{filename}\", \"prompt\": \"{prompt[:200]}...\", \"response\": \"{response[:200]}...\", \"error\": \"Could not parse classification\"}}",
                 notes="LLM response parsing failed"
             )
-            
+
             return None
-            
+
     except Exception as e:
         logging.error(f"Error getting LLM document type analysis for {filename}: {e}")
         # Log LLM analysis errors
@@ -1181,7 +1161,7 @@ Provide your analysis now:"""
             batch_id=None,
             document_id=None,
             user_id=get_current_user_id(),
-            event_type="llm_detection_error", 
+            event_type="llm_detection_error",
             step="document_classification",
             content=f"{{\"filename\": \"{filename}\", \"error\": \"{str(e)}\", \"prompt\": \"N/A\"}}",
             notes=f"LLM detection analysis failed: {e}"
@@ -1192,39 +1172,39 @@ Provide your analysis now:"""
 def process_batch() -> bool:
     """
     Enhanced batch processing with intelligent document type detection.
-    
+
     This function now analyzes intake files first and routes them to appropriate
     processing strategies:
     1. Single documents bypass page decomposition for efficiency
     2. Batch scans use traditional page-by-page workflow
     3. Mixed intakes are handled according to per-file detection
-    
+
     Returns:
         bool: True if batch processing was successful, False otherwise
     """
     logging.info("--- Starting Enhanced Batch Processing ---")
-    
+
     # Step 1: Analyze all PDF files and determine processing strategies
     try:
         detector = get_detector()
         analyses = detector.analyze_intake_directory(app_config.INTAKE_DIR)
-        
+
         if not analyses:
             logging.info("No PDF files found in intake directory.")
             return True
-        
+
         # Log detection results for transparency
-        logging.info(f"--- DOCUMENT ANALYSIS RESULTS ---")
+        logging.info("--- DOCUMENT ANALYSIS RESULTS ---")
         single_docs = [a for a in analyses if a.processing_strategy == "single_document"]
         batch_scans = [a for a in analyses if a.processing_strategy == "batch_scan"]
-        
+
         logging.info(f"Files to process as single documents: {len(single_docs)}")
         logging.info(f"Files to process as batch scans: {len(batch_scans)}")
-        
+
         for analysis in analyses:
             logging.info(f"  {os.path.basename(analysis.file_path)}: {analysis.processing_strategy} "
                         f"({analysis.page_count} pages, confidence: {analysis.confidence:.2f})")
-        
+
         # Step 2: Process single documents as ONE batch (proper workflow)
         single_batch_id = None
         single_doc_ids = []
@@ -1236,26 +1216,26 @@ def process_batch() -> bool:
                 single_doc_ids = [single_batch_id]  # Track the batch, not individual docs
             else:
                 logging.error("✗ Failed to create single documents batch")
-        
+
         # Step 3: If there are batch scans, process them with traditional workflow
         batch_success = True
         if batch_scans:
             logging.info(f"Processing {len(batch_scans)} files as traditional batch scan...")
             batch_success = _process_batch_traditional([a.file_path for a in batch_scans])
-        
+
         # Summary
         total_files = len(analyses)
         processed_single = len(single_doc_ids)
         processed_batch = len(batch_scans) if batch_success else 0
-        
-        logging.info(f"--- PROCESSING SUMMARY ---")
+
+        logging.info("--- PROCESSING SUMMARY ---")
         logging.info(f"Total files: {total_files}")
         logging.info(f"Single documents processed: {processed_single}")
         logging.info(f"Batch scan files processed: {processed_batch}")
         logging.info(f"Success rate: {(processed_single + processed_batch) / total_files * 100:.1f}%")
-        
+
         return (processed_single + processed_batch) == total_files
-        
+
     except Exception as e:
         logging.error(f"Error in enhanced batch processing: {e}")
         return False
@@ -1264,35 +1244,35 @@ def process_batch() -> bool:
 def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> Optional[int]:
     """
     Process multiple single documents using the improved workflow.
-    
+
     New workflow: OCR → Create Searchable PDF → AI Suggestions → Ready for Manipulation
     This preserves document structure and creates proper outputs.
-    
+
     Args:
         single_docs: List of DocumentAnalysis objects for files identified as single documents
-        
+
     Returns:
         int: The batch ID if successful, None if failed
     """
     if not single_docs:
         return None
-        
+
     logging.info(f"Processing {len(single_docs)} single documents with improved workflow...")
-    
+
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Get or create processing batch (prevents duplicates)
             batch_id = get_or_create_processing_batch()
-            
+
             logging.info(f"Using batch {batch_id} for single documents processing")
-            
+
             # Set up directories
             batch_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
             searchable_dir = os.path.join(batch_dir, "searchable_pdfs")
             os.makedirs(searchable_dir, exist_ok=True)
-            
+
             # Process each single document with improved workflow
             total_documents_processed = 0
             for analysis in single_docs:
@@ -1300,7 +1280,7 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                     filename = os.path.basename(analysis.file_path)
                     base_name = os.path.splitext(filename)[0]
                     logging.info(f"Processing {filename} with improved single document workflow...")
-                    
+
                     # Handle image files - prefer early normalized PDF from analysis if available
                     if is_image_file(analysis.file_path):
                         batch_wip_dir = os.path.join(app_config.WIP_DIR, str(batch_id))
@@ -1356,7 +1336,7 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                             doc_pre.close()
                     except Exception as pre_rot_err:
                         logging.warning(f"Pre-OCR rotation normalization failed for {pdf_filename}: {pre_rot_err}")
-                    
+
                     # Step 1: Insert document first with basic info (no OCR yet)
                     # Use the existing processing batch (created earlier) and insert the single_document row
                     os.makedirs(app_config.ARCHIVE_DIR, exist_ok=True)
@@ -1374,41 +1354,41 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                     ))
                     doc_id = cursor.lastrowid
                     conn.commit()  # Commit immediately to save progress
-                    
+
                     # Step 2: Create searchable PDF with OCR (with caching)
                     searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
                     # After normalization, forced_rotation should be 0 for OCR creation to avoid re-rotating
                     ocr_text, ocr_confidence, ocr_status = create_searchable_pdf(
                         pdf_path_for_processing, searchable_pdf_path, doc_id, forced_rotation=0
                     )
-                    
+
                     if ocr_status != "success" and not ocr_status.startswith("success"):
                         logging.error(f"Failed to create searchable PDF for {filename}: {ocr_status}")
                         continue
-                    
+
                     # Step 3: Get AI suggestions (with caching)
                     ai_category, ai_filename, ai_confidence, ai_summary = _get_ai_suggestions_for_document(
                         ocr_text, filename, analysis.page_count, analysis.file_size_mb, doc_id
                     )
-                    
+
                     # Step 4: Update document with AI analysis results
                     cursor.execute("""
-                        UPDATE single_documents SET 
+                        UPDATE single_documents SET
                             ai_suggested_category = ?, ai_suggested_filename = ?,
                             ai_confidence = ?, ai_summary = ?, status = ?
                         WHERE id = ?
                     """, (ai_category, ai_filename, ai_confidence, ai_summary, "ready_for_manipulation", doc_id))
                     conn.commit()  # Commit AI results immediately
-                    
+
                     total_documents_processed += 1
                     logging.info(f"✓ Processed {filename} - Category: {ai_category}, Name: {ai_filename}")
-                    
+
                 except Exception as e:
                     logging.error(f"Error processing {analysis.file_path}: {e}")
                     continue
-            
+
             conn.commit()
-            
+
             # Log the batch creation
             safe_log_interaction(
                 batch_id=batch_id,
@@ -1423,17 +1403,17 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                 }),
                 notes=f"Improved single document workflow - {total_documents_processed} documents ready"
             )
-            
+
             # Update batch status to ready_for_manipulation now that processing is complete
             cursor.execute(
                 "UPDATE batches SET status = ? WHERE id = ?",
                 (app_config.STATUS_READY_FOR_MANIPULATION, batch_id)
             )
             conn.commit()
-            
+
             logging.info(f"✓ Successfully created batch {batch_id} with {total_documents_processed} documents ready for manipulation")
             return batch_id
-            
+
     except Exception as e:
         logging.error(f"Error creating single documents batch: {e}")
         return None
@@ -1442,41 +1422,41 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
 def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentAnalysis]):
     """
     Process multiple single documents using the improved workflow with progress tracking.
-    
+
     This is a generator function that yields progress updates for real-time tracking.
-    
+
     Args:
         single_docs: List of DocumentAnalysis objects for files identified as single documents
-        
+
     Yields:
         dict: Progress updates with keys like 'batch_id', 'document_start', 'document_complete', 'error'
     """
     if not single_docs:
         return
-        
+
     logging.info(f"Processing {len(single_docs)} single documents with progress tracking...")
-    
+
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Get or create processing batch (prevents duplicates)
             batch_id = get_or_create_processing_batch()
-            
+
             logging.info(f"Using batch {batch_id} for single documents with progress tracking")
             yield {'batch_id': batch_id}
-            
+
             # Set up directories
             batch_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
             searchable_dir = os.path.join(batch_dir, "searchable_pdfs")
             os.makedirs(searchable_dir, exist_ok=True)
-            
+
             # Process each single document with improved workflow
             total_documents_processed = 0
             for i, analysis in enumerate(single_docs, 1):
                 filename = os.path.basename(analysis.file_path)
                 base_name = os.path.splitext(filename)[0]
-                
+
                 try:
                     # Signal document processing start
                     yield {
@@ -1485,9 +1465,9 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                         'document_number': i,
                         'total_documents': len(single_docs)
                     }
-                    
+
                     logging.info(f"Processing {filename} with improved single document workflow...")
-                    
+
                     # Handle image files - convert to PDF first
                     if is_image_file(analysis.file_path):
                         batch_wip_dir = os.path.join(app_config.WIP_DIR, str(batch_id))
@@ -1526,7 +1506,7 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                     else:
                         pdf_path_for_processing = analysis.file_path
                         pdf_filename = filename
-                    
+
                     # Step 1: Insert document first with basic info (no OCR yet)
                     cursor.execute("""
                         INSERT INTO single_documents (
@@ -1540,14 +1520,14 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                     ))
                     doc_id = cursor.lastrowid
                     conn.commit()  # Commit immediately to save progress
-                    
+
                     # Step 2: Create searchable PDF with OCR (with caching)
                     searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
                     forced_rotation = _lookup_forced_rotation(os.path.basename(pdf_filename))
                     ocr_text, ocr_confidence, ocr_status = create_searchable_pdf(
                         pdf_path_for_processing, searchable_pdf_path, doc_id, forced_rotation=forced_rotation
                     )
-                    
+
                     if ocr_status != "success" and not ocr_status.startswith("success"):
                         error_msg = f"Failed to create searchable PDF: {ocr_status}"
                         logging.error(f"Failed to create searchable PDF for {filename}: {ocr_status}")
@@ -1558,24 +1538,24 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                             'total_documents': len(single_docs)
                         }
                         continue
-                    
+
                     # Step 3: Get AI suggestions (with caching)
                     ai_category, ai_filename, ai_confidence, ai_summary = _get_ai_suggestions_for_document(
                         ocr_text, filename, analysis.page_count, analysis.file_size_mb, doc_id
                     )
-                    
+
                     # Step 4: Update document with AI analysis results
                     cursor.execute("""
-                        UPDATE single_documents SET 
+                        UPDATE single_documents SET
                             ai_suggested_category = ?, ai_suggested_filename = ?,
                             ai_confidence = ?, ai_summary = ?, status = ?
                         WHERE id = ?
                     """, (ai_category, ai_filename, ai_confidence, ai_summary, "ready_for_manipulation", doc_id))
                     conn.commit()  # Commit AI results immediately
-                    
+
                     total_documents_processed += 1
                     logging.info(f"✓ Processed {filename} - Category: {ai_category}, Name: {ai_filename}")
-                    
+
                     # Signal document completion
                     yield {
                         'document_complete': True,
@@ -1587,7 +1567,7 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                         'total_documents': len(single_docs),
                         'documents_completed': total_documents_processed
                     }
-                    
+
                 except Exception as e:
                     error_msg = f"Error processing document: {str(e)}"
                     logging.error(f"Error processing {analysis.file_path}: {e}")
@@ -1598,9 +1578,9 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                         'total_documents': len(single_docs)
                     }
                     continue
-            
+
             conn.commit()
-            
+
             # Log the batch creation
             safe_log_interaction(
                 batch_id=batch_id,
@@ -1615,16 +1595,16 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                 }),
                 notes=f"Improved single document workflow with progress - {total_documents_processed} documents ready"
             )
-            
+
             # Update batch status to ready_for_manipulation now that processing is complete
             cursor.execute(
                 "UPDATE batches SET status = ? WHERE id = ?",
                 (app_config.STATUS_READY_FOR_MANIPULATION, batch_id)
             )
             conn.commit()
-            
+
             logging.info(f"✓ Successfully created batch {batch_id} with {total_documents_processed} documents ready for manipulation")
-            
+
     except Exception as e:
         logging.error(f"Error creating single documents batch: {e}")
         yield {
@@ -1719,7 +1699,7 @@ def _process_docs_into_fixed_batch_with_progress(docs: List[DocumentAnalysis], b
                         ocr_text, filename, analysis.page_count, analysis.file_size_mb, doc_id
                     )
                     cursor.execute("""
-                        UPDATE single_documents SET 
+                        UPDATE single_documents SET
                             ai_suggested_category = ?, ai_suggested_filename = ?,
                             ai_confidence = ?, ai_summary = ?, status = ?
                         WHERE id = ?
@@ -1764,32 +1744,32 @@ def _process_docs_into_fixed_batch_with_progress(docs: List[DocumentAnalysis], b
 def cleanup_empty_batch_directory(batch_id: int) -> bool:
     """
     Clean up empty batch directories after processing is complete.
-    
+
     This function safely removes empty batch directories and their subdirectories
     from the processed directory (WIP) after a batch has been exported/completed.
-    
+
     Args:
         batch_id (int): The batch ID to clean up
-        
+
     Returns:
         bool: True if cleanup was successful or not needed, False if error occurred
     """
     try:
         batch_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
-        
+
         if not os.path.exists(batch_dir):
             logging.debug(f"Batch directory {batch_dir} doesn't exist - no cleanup needed")
             return True
-            
+
         logging.info(f"Checking for cleanup of batch directory: {batch_dir}")
-        
+
         # Check if directory and all subdirectories are empty
         def is_directory_empty_recursive(path):
             """Check if directory and all subdirectories are empty."""
             try:
                 if not os.path.isdir(path):
                     return False
-                    
+
                 for item in os.listdir(path):
                     item_path = os.path.join(path, item)
                     if os.path.isfile(item_path):
@@ -1800,7 +1780,7 @@ def cleanup_empty_batch_directory(batch_id: int) -> bool:
                 return True
             except Exception:
                 return False
-        
+
         if is_directory_empty_recursive(batch_dir):
             # Safe to remove - directory and all subdirectories are empty
             import shutil
@@ -1813,11 +1793,11 @@ def cleanup_empty_batch_directory(batch_id: int) -> bool:
             for root, dirs, files in os.walk(batch_dir):
                 for file in files:
                     files_found.append(os.path.relpath(os.path.join(root, file), batch_dir))
-            
+
             logging.info(f"⚠️  Batch directory {batch_dir} not empty - keeping it")
             logging.debug(f"  Files found: {files_found[:5]}{'...' if len(files_found) > 5 else ''}")
             return True
-            
+
     except Exception as e:
         logging.error(f"Error during batch directory cleanup for batch {batch_id}: {e}")
         return False
@@ -1826,20 +1806,20 @@ def cleanup_empty_batch_directory(batch_id: int) -> bool:
 def cleanup_batch_on_completion(batch_id: int, completion_type: str = "export") -> bool:
     """
     Perform cleanup operations when a batch is completed.
-    
+
     Args:
         batch_id (int): The batch ID that was completed
         completion_type (str): Type of completion ('export', 'finalize', etc.)
-        
+
     Returns:
         bool: True if cleanup was successful
     """
     try:
         logging.info(f"Starting batch completion cleanup for batch {batch_id} ({completion_type})")
-        
+
         # Clean up empty directories
         cleanup_success = cleanup_empty_batch_directory(batch_id)
-        
+
         # Log cleanup action for audit trail
         log_interaction(
             batch_id=batch_id,
@@ -1850,9 +1830,9 @@ def cleanup_batch_on_completion(batch_id: int, completion_type: str = "export") 
             content=f"Cleanup performed after {completion_type}",
             notes=f"Directory cleanup: {'success' if cleanup_success else 'failed'}"
         )
-        
+
         return cleanup_success
-        
+
     except Exception as e:
         logging.error(f"Error in batch completion cleanup: {e}")
         return False
@@ -1861,31 +1841,31 @@ def cleanup_batch_on_completion(batch_id: int, completion_type: str = "export") 
 def _detect_best_rotation(image_path: str) -> tuple[int, float, str]:
     """
     Automatically detect the best rotation for an image by testing OCR confidence at different rotations.
-    
+
     Args:
         image_path (str): Path to the image file
-        
+
     Returns:
         tuple: (best_rotation_angle, confidence_score, ocr_text)
     """
     if not os.path.exists(image_path):
         logging.warning(f"Image not found for rotation detection: {image_path}")
         return 0, 0.0, ""
-        
+
     try:
         from PIL import Image
         import numpy as np
-        
+
         # Test rotations: 0, 90, 180, 270 degrees
         rotations_to_test = [0, 90, 180, 270]
         best_rotation = 0
         best_confidence = 0.0
         best_text = ""
         results = {}
-        
+
         with Image.open(image_path) as img:
             reader = EasyOCRSingleton.get_reader()
-            
+
             for rotation in rotations_to_test:
                 try:
                     # Rotate image for testing
@@ -1893,10 +1873,10 @@ def _detect_best_rotation(image_path: str) -> tuple[int, float, str]:
                         test_img = img
                     else:
                         test_img = img.rotate(-rotation, expand=True)
-                    
+
                     # Run OCR and get results with confidence scores
                     ocr_results = reader.readtext(np.array(test_img))
-                    
+
                     if ocr_results:
                         # Calculate average confidence and extract text
                         confidences = [conf for (_, _, conf) in ocr_results]
@@ -1908,65 +1888,65 @@ def _detect_best_rotation(image_path: str) -> tuple[int, float, str]:
                         else:
                             avg_confidence = 0.0
                         text = " ".join([text for (_, text, _) in ocr_results])
-                        
+
                         # Additional heuristics for better detection
                         text_length = len(text.strip())
                         word_count = len(text.split())
-                        
+
                         # Boost score for longer, more readable text
                         adjusted_confidence = avg_confidence
                         if text_length > 50:  # Reasonable amount of text
                             adjusted_confidence *= 1.1
                         if word_count > 10:  # Good word count
                             adjusted_confidence *= 1.05
-                            
+
                         results[rotation] = {
                             'confidence': adjusted_confidence,
                             'text': text,
                             'raw_confidence': avg_confidence,
                             'text_length': text_length
                         }
-                        
+
                         logging.debug(f"Rotation {rotation}°: confidence={avg_confidence:.3f}, adjusted={adjusted_confidence:.3f}, text_len={text_length}")
-                        
+
                         if adjusted_confidence > best_confidence:
                             best_confidence = adjusted_confidence
                             best_rotation = rotation
                             best_text = text
                     else:
                         results[rotation] = {'confidence': 0.0, 'text': '', 'raw_confidence': 0.0, 'text_length': 0}
-                        
+
                 except Exception as rotation_error:
                     logging.warning(f"Failed to test rotation {rotation}°: {rotation_error}")
                     results[rotation] = {'confidence': 0.0, 'text': '', 'raw_confidence': 0.0, 'text_length': 0}
-        
+
         # Log results for debugging
         logging.info(f"Rotation detection results for {os.path.basename(image_path)}:")
         for rot, res in results.items():
             logging.info(f"  {rot}°: confidence={res['raw_confidence']:.3f}, text_length={res['text_length']}")
         logging.info(f"  → Best rotation: {best_rotation}° (confidence: {best_confidence:.3f})")
-        
+
         return best_rotation, best_confidence, best_text
-        
+
     except Exception as e:
         logging.error(f"Error in rotation detection: {e}")
         return 0, 0.0, ""
 
 
-def _get_ai_suggestions_for_document(ocr_text: str, filename: str, page_count: int, 
+def _get_ai_suggestions_for_document(ocr_text: str, filename: str, page_count: int,
                                    file_size_mb: float, document_id: Optional[int] = None) -> tuple[str, str, float, str]:
     """
     Get AI suggestions for document category, filename, and summary.
-    
+
     First checks database cache, only makes LLM calls if needed.
-    
+
     Args:
         ocr_text: Extracted OCR text from the document
         filename: Original filename
         page_count: Number of pages in the document
         file_size_mb: File size in megabytes
         document_id: Optional document ID to check for cached results
-        
+
     Returns:
         tuple: (category, suggested_filename, confidence, summary)
     """
@@ -1976,35 +1956,35 @@ def _get_ai_suggestions_for_document(ocr_text: str, filename: str, page_count: i
             with database_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT ai_suggested_category, ai_suggested_filename, ai_confidence, ai_summary 
-                    FROM single_documents 
+                    SELECT ai_suggested_category, ai_suggested_filename, ai_confidence, ai_summary
+                    FROM single_documents
                     WHERE id = ? AND ai_suggested_category IS NOT NULL
                 """, (document_id,))
                 cached_result = cursor.fetchone()
-                
+
                 if cached_result:
                     category, suggested_filename, confidence, summary = cached_result
                     logging.info(f"✅ Using cached AI analysis for document {document_id}: {category}")
                     return category, suggested_filename, confidence or 0.8, summary or ""
-        
+
         # No cache found, proceed with LLM analysis
         logging.info(f"🤖 Generating new AI analysis for document: {filename}")
-        
+
         # Get available categories from database
         with database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM categories ORDER BY name")
             categories = [row[0] for row in cursor.fetchall()]
-        
+
         if not categories:
             categories = ["Uncategorized"]
-        
+
         # Prepare prompt for AI classification
         categories_text = ", ".join(categories)
-        
+
         # Truncate OCR text if too long (keep first 2000 characters)
         ocr_sample = ocr_text[:2000] if len(ocr_text) > 2000 else ocr_text
-        
+
         prompt = f"""Document Classification and Naming Analysis
 
 Document Info:
@@ -2030,10 +2010,10 @@ Respond in this exact JSON format:
 }}"""
 
         # Get AI response using direct Ollama query for JSON response
-        response = _query_ollama(prompt, 
-                                context_window=app_config.OLLAMA_CTX_CLASSIFICATION, 
+        response = _query_ollama(prompt,
+                                context_window=app_config.OLLAMA_CTX_CLASSIFICATION,
                                 task_name="document_analysis")
-        
+
         # Parse JSON response
         if response:
             import json
@@ -2045,13 +2025,13 @@ Respond in this exact JSON format:
                     start = response_clean.find('{')
                     end = response_clean.rfind('}') + 1
                     json_str = response_clean[start:end]
-                    
+
                     parsed = json.loads(json_str)
-                    
+
                     # Validate that suggested filename is different from original
                     ai_filename = parsed.get("filename", "").strip()
                     original_base = filename.replace(".pdf", "").replace(".PDF", "")
-                    
+
                     # If AI didn't provide a meaningful filename, create one based on content
                     if not ai_filename or ai_filename == original_base:
                         # Generate filename based on category and content
@@ -2062,21 +2042,21 @@ Respond in this exact JSON format:
                             ai_filename = f"{category}_{summary}".replace(" ", "_").replace(",", "").replace(".", "")[:50]
                         else:
                             ai_filename = f"{category}_Document"
-                    
+
                     result = (
                         parsed.get("category", "Uncategorized"),
                         ai_filename,
                         float(parsed.get("confidence", 0.5)),
                         parsed.get("summary", "AI analysis completed")
                     )
-                    
+
                     # Save to database cache if document_id provided
                     if document_id:
                         try:
                             with database_connection() as conn:
                                 cursor = conn.cursor()
                                 cursor.execute("""
-                                    UPDATE single_documents SET 
+                                    UPDATE single_documents SET
                                         ai_suggested_category = ?, ai_suggested_filename = ?,
                                         ai_confidence = ?, ai_summary = ?
                                     WHERE id = ?
@@ -2085,13 +2065,13 @@ Respond in this exact JSON format:
                                 logging.info(f"💾 Cached AI analysis for document {document_id}")
                         except Exception as cache_error:
                             logging.warning(f"Failed to cache AI analysis: {cache_error}")
-                    
+
                     return result
-                    
+
             except Exception as e:
                 logging.warning(f"Failed to parse AI response as JSON: {e}")
                 logging.debug(f"Response was: {response}")
-                
+
         # Fallback if AI response fails
         return (
             "Uncategorized",
@@ -2099,11 +2079,11 @@ Respond in this exact JSON format:
             0.3,
             "AI classification failed - manual review needed"
         )
-            
+
     except Exception as e:
         logging.error(f"Error getting AI suggestions: {e}")
         return (
-            "Uncategorized", 
+            "Uncategorized",
             filename.replace(".pdf", ""),
             0.1,
             f"Error during AI analysis: {str(e)}"
@@ -2116,32 +2096,32 @@ Respond in this exact JSON format:
 def _process_batch_traditional(pdf_files_paths: List[str]) -> bool:
     """
     Traditional batch processing workflow for files identified as batch scans.
-    
+
     This maintains the original page-by-page processing logic but only processes
     the specified files rather than scanning the entire intake directory.
-    
+
     Args:
         pdf_files_paths: List of absolute paths to PDF files to process as batch scan
-    
+
     Returns:
         bool: True if batch processing was successful, False otherwise
     """
     logging.info("--- Starting Traditional Batch Processing ---")
     batch_id = -1
-    
+
     # Validate configuration
     required_dirs = {
         "INTAKE_DIR": app_config.INTAKE_DIR,
         "ARCHIVE_DIR": app_config.ARCHIVE_DIR,
         "PROCESSED_DIR": app_config.PROCESSED_DIR
     }
-    
+
     # Check all required directories are configured and accessible
     for dir_name, dir_path in required_dirs.items():
         if not dir_path:
             logging.error(f"{dir_name} environment variable is not set.")
             return False
-            
+
         abs_path = os.path.abspath(dir_path)
         try:
             os.makedirs(abs_path, exist_ok=True)
@@ -2151,7 +2131,7 @@ def _process_batch_traditional(pdf_files_paths: List[str]) -> bool:
         except OSError as e:
             logging.error(f"Failed to create/access directory {abs_path}: {e}")
             return False
-    
+
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
@@ -2160,7 +2140,7 @@ def _process_batch_traditional(pdf_files_paths: List[str]) -> bool:
             from .batch_guard import create_new_batch
             batch_id = create_new_batch(app_config.STATUS_PENDING_VERIFICATION)
             logging.info(f"Created new batch scan batch with ID: {batch_id}")
-            
+
             log_interaction(
                 batch_id=batch_id,
                 document_id=None,
@@ -2170,7 +2150,7 @@ def _process_batch_traditional(pdf_files_paths: List[str]) -> bool:
                 content=f"Batch scan batch {batch_id} created.",
                 notes=None
             )
-            
+
             os.makedirs(app_config.ARCHIVE_DIR, exist_ok=True)
             batch_image_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
             os.makedirs(batch_image_dir, exist_ok=True)
@@ -2202,10 +2182,10 @@ def _process_batch_traditional(pdf_files_paths: List[str]) -> bool:
                             source_filename=filename,
                             page_num=i + 1
                         )
-                
+
                 conn.commit()  # Commit after each PDF is fully processed
                 logging.info(f"✓ Processed {len(images)} pages from {filename}")
-                
+
                 # Archive the original file - ONLY after successful processing
                 try:
                     archive_path = os.path.join(app_config.ARCHIVE_DIR, filename)
@@ -2222,7 +2202,7 @@ def _process_batch_traditional(pdf_files_paths: List[str]) -> bool:
                 "SELECT id, ocr_text FROM pages WHERE batch_id = ?", (batch_id,)
             )
             pages_to_classify = cursor.fetchall()
-            
+
             for page in pages_to_classify:
                 ai_category = get_ai_classification(page["ocr_text"])
                 cursor.execute(
@@ -2238,7 +2218,7 @@ def _process_batch_traditional(pdf_files_paths: List[str]) -> bool:
                     content=f"AI classified page {page['id']} as '{ai_category}'",
                     notes=None
                 )
-            
+
             conn.commit()
             logging.info(f"✓ Traditional batch processing complete for batch {batch_id}")
             return True
@@ -2262,14 +2242,14 @@ def rerun_ocr_on_page(page_id: int, rotation_angle: int) -> bool:
     """
     Re-runs the OCR process on a single page, applying a specified rotation.
     This is used when the user manually corrects the orientation of a page.
-    
+
     Args:
         page_id (int): The ID of the page to process
         rotation_angle (int): Rotation angle in degrees (must be 0, 90, 180, or 270)
-        
+
     Returns:
         bool: True if OCR was successful, False otherwise
-        
+
     Raises:
         ValueError: If rotation_angle is not valid
     """
@@ -2278,18 +2258,18 @@ def rerun_ocr_on_page(page_id: int, rotation_angle: int) -> bool:
     if rotation_angle not in valid_rotations:
         logging.error(f"Invalid rotation angle: {rotation_angle}. Must be one of {valid_rotations}")
         raise ValueError(f"Rotation angle must be one of {valid_rotations}")
-    
+
     logging.info(
         f"--- Re-running OCR for Page ID: {page_id} with rotation {rotation_angle} ---"
     )
-    
+
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
             page = cursor.execute(
                 "SELECT processed_image_path, batch_id FROM pages WHERE id = ?", (page_id,)
             ).fetchone()
-            
+
             if not page:
                 logging.error(f"Page ID {page_id} not found in database")
                 return False
@@ -2410,13 +2390,13 @@ def get_ai_suggested_filename(document_text: str, category: str) -> str:
     """Asks the AI to generate a descriptive filename for the document."""
     prompt = f"""
 You are a file naming expert. Create a descriptive filename using ONLY these characters:
-- Letters (a-z, A-Z)  
+- Letters (a-z, A-Z)
 - Numbers (0-9)
 - Underscores (_)
 
 REQUIRED FORMAT: Use_Underscores_Between_Words
 GOOD: loan_settlement_statement_mccaleb
-BAD: loan-settlement-statement-mccaleb  
+BAD: loan-settlement-statement-mccaleb
 BAD: LoanSettlementStatementMcCaleb
 BAD: loan settlement statement mccaleb
 
@@ -2444,7 +2424,7 @@ DOCUMENT TEXT (Category: '{category}'):
     # Clean up the AI's response to be a safe filename
     # Remove common conversational prefixes more comprehensively
     ai_title = re.sub(r'^\s*(Here\s+is.*?:\s*|Based\s+on.*?:\s*|A\s+good.*?:\s*)', '', ai_title, flags=re.IGNORECASE)
-    
+
     # Convert spaces and hyphens to underscores for consistency with security.sanitize_filename()
     ai_title = re.sub(r'[\s\-]+', '_', ai_title)  # Convert whitespace and hyphens to underscores
     # Remove any characters that are not alphanumeric or underscore
@@ -2463,10 +2443,10 @@ def export_document(
     1. A standard, multi-page PDF from the images.
     2. A searchable, multi-page PDF with the OCR text embedded.
     3. A Markdown file containing the full OCR text and metadata."""
-    
+
     # Sanitize inputs for filesystem safety and consistency
     final_name_base = sanitize_filename(final_name_base)
-    
+
     logging.info(f"--- EXPORTING Document: {final_name_base} ---")
     # Log export event (status_change: finalize/export) after destination_dir is defined
     try:
@@ -2547,7 +2527,7 @@ def export_document(
 
         # --- 3. Markdown Log File with Optional Tag Extraction ---
         markdown_path = os.path.join(destination_dir, f"{final_name_base}_log.md")
-        
+
         # Extract tags using LLM if enabled
         extracted_tags = None
         if app_config.ENABLE_TAG_EXTRACTION:
@@ -2558,7 +2538,7 @@ def export_document(
                     total_tags = sum(len(tag_list) for tag_list in extracted_tags.values())
                     logging.info(f"✅ Tag extraction SUCCESS: {total_tags} tags extracted for {final_name_base}")
                     logging.debug(f"🏷️  Tag breakdown: {[(cat, len(tags)) for cat, tags in extracted_tags.items() if tags]}")
-                    
+
                     # Store tags in database if document_id is provided
                     if document_id:
                         try:
@@ -2567,7 +2547,7 @@ def export_document(
                         except Exception as db_e:
                             logging.error(f"💥 Failed to store tags in database for document {document_id}: {db_e}")
                     else:
-                        logging.debug(f"🏷️  No document_id provided - tags stored in markdown only")
+                        logging.debug("🏷️  No document_id provided - tags stored in markdown only")
                 else:
                     logging.warning(f"⚠️  Tag extraction returned no results for {final_name_base}")
             except Exception as e:
@@ -2575,7 +2555,7 @@ def export_document(
                 extracted_tags = None
         else:
             logging.debug(f"🏷️  Tag extraction DISABLED by configuration for {final_name_base}")
-        
+
         log_content = f"""# Document Export Log
 
 - **Final Filename**: `{final_name_base}`
@@ -2587,17 +2567,17 @@ def export_document(
         # Add extracted tags section if available
         if extracted_tags:
             log_content += "\n## Extracted Tags\n\n"
-            
+
             for tag_category, tag_list in extracted_tags.items():
                 if tag_list:  # Only include categories that have tags
                     category_name = tag_category.replace('_', ' ').title()
                     log_content += f"**{category_name}**: {', '.join(tag_list)}\n\n"
-            
+
             # Add a summary for quick reference
             all_tags = []
             for tag_list in extracted_tags.values():
                 all_tags.extend(tag_list)
-            
+
             if all_tags:
                 log_content += f"**All Tags** ({len(all_tags)} total): {', '.join(all_tags)}\n\n"
 
@@ -2666,18 +2646,18 @@ def verify_no_file_loss() -> dict:
         "potential_losses": [],
         "status": "safe"
     }
-    
+
     try:
         # Check intake directory
         if os.path.exists(app_config.INTAKE_DIR):
             intake_pdfs = [f for f in os.listdir(app_config.INTAKE_DIR) if f.lower().endswith('.pdf')]
             report["intake_files"] = intake_pdfs
-        
+
         # Check archive directory
         if os.path.exists(app_config.ARCHIVE_DIR):
             archive_pdfs = [f for f in os.listdir(app_config.ARCHIVE_DIR) if f.lower().endswith('.pdf')]
             report["archive_files"] = archive_pdfs
-        
+
         # Check filing cabinet (recursively)
         if os.path.exists(app_config.FILING_CABINET_DIR):
             filing_pdfs = []
@@ -2686,35 +2666,35 @@ def verify_no_file_loss() -> dict:
                     if file.lower().endswith('.pdf'):
                         filing_pdfs.append(os.path.relpath(os.path.join(root, file), app_config.FILING_CABINET_DIR))
             report["filing_cabinet_files"] = filing_pdfs
-        
+
         # Log summary
         total_files = len(report["intake_files"]) + len(report["archive_files"]) + len(report["filing_cabinet_files"])
         logging.info(f"📊 File safety check: {total_files} PDFs found across all directories")
         logging.info(f"📁 Intake: {len(report['intake_files'])}, Archive: {len(report['archive_files'])}, Filing Cabinet: {len(report['filing_cabinet_files'])}")
-        
+
     except Exception as e:
         report["status"] = "error"
         report["error"] = str(e)
         logging.error(f"File safety check failed: {e}")
-    
+
     return report
 
 
 def finalize_single_documents_batch_with_progress(batch_id: int, progress_callback=None) -> bool:
     """
     Finalize and export all single documents in a batch with progress tracking.
-    
+
     Args:
         batch_id: The batch ID to export
         progress_callback: Function to call with progress updates (current, total, message, details)
-    
+
     Returns:
         bool: True if successful, False otherwise
     """
     def update_progress(current, total, message, details=""):
         if progress_callback:
             progress_callback(current, total, message, details)
-    
+
     success = True
     from .database import get_db_connection as _get_db_conn
     conn = _get_db_conn()
@@ -2729,7 +2709,7 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
 
     total_docs = len(docs)
     update_progress(0, total_docs, "Starting export process...", "Preparing to export documents")
-    
+
     # If FAST_TEST_MODE is set, ensure we are not using any stale absolute paths from original env.
     filing_base = app_config.FILING_CABINET_DIR
     if app_config.FAST_TEST_MODE and not os.path.isdir(filing_base):
@@ -2742,22 +2722,22 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
         doc_id = doc[0]
         original_pdf = doc[1]
         searchable_pdf = doc[2]
-        
+
         # Use final category/filename if available, otherwise fall back to AI suggestions
         category = doc[3] or doc[5] or "Uncategorized"
         filename_base = doc[4] or doc[6] or f"document_{doc_id}"
-        
+
         update_progress(i, total_docs, f"Exporting: {filename_base}", f"Processing document {i+1} of {total_docs}")
-        
+
         # Sanitize filename for filesystem safety and consistency
         filename_base = sanitize_filename(filename_base)
         ocr_text = doc[7] or ""
-        
+
         # Destination folder - sanitize category name
         category_dir_name = _sanitize_category(category)
         category_dir = os.path.join(filing_base, category_dir_name)
         os.makedirs(category_dir, exist_ok=True)
-        
+
         # Prepare all destination paths
         dest_original = os.path.join(category_dir, f"{filename_base}_original.pdf")
         dest_searchable = os.path.join(category_dir, f"{filename_base}_searchable.pdf")
@@ -2771,7 +2751,7 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
                     original_source_image_export = os.path.join(category_dir, f"{filename_base}_source{_ext}")
         except Exception as prep_e:
             logging.debug(f"Could not prepare raw image export for {original_pdf}: {prep_e}")
-        
+
         try:
             # Extract tags if enabled
             extracted_tags = None
@@ -2783,7 +2763,7 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
                     if extracted_tags:
                         total_tags = sum(len(tag_list) for tag_list in extracted_tags.values())
                         logging.info(f"✅ Tag extraction SUCCESS: {total_tags} tags extracted for {filename_base}")
-                        
+
                         # Store tags in database
                         try:
                             tags_stored = store_document_tags(doc_id, extracted_tags)
@@ -2795,9 +2775,9 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
                 except Exception as tag_e:
                     logging.error(f"💥 Tag extraction FAILED for {filename_base}: {tag_e}")
                     extracted_tags = None
-            
+
             update_progress(i, total_docs, f"Creating markdown: {filename_base}", "Generating markdown file")
-            
+
             # Create enhanced markdown content
             # Fetch AI metadata for enrichment (use fresh short-lived connection to avoid long locks)
             ai_suggested_category = doc[5]  # ai_suggested_category
@@ -2848,14 +2828,14 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
                 ocr_dpi=ocr_dpi_used,
                 rescan_events=rescan_events,
             )
-            
+
             # Write markdown file
             with open(dest_markdown, 'w', encoding='utf-8') as f:
                 f.write(markdown_content)
             logging.info(f"📝 Created markdown: {dest_markdown}")
-            
+
             update_progress(i, total_docs, f"Copying files: {filename_base}", "Moving PDF files to category folder")
-            
+
             # Copy files (don't move original files, copy them for safety)
             if original_pdf and os.path.exists(original_pdf):
                 # If it's actually an image, we copy it as raw image; only create _original.pdf for real PDFs
@@ -2870,7 +2850,7 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
                             logging.info(f"🖼️ Copied original source image (non-PDF): {original_pdf} → {original_source_image_export}")
                         except Exception as img_copy_e:
                             logging.warning(f"Could not copy original source image for doc {doc_id}: {img_copy_e}")
-            
+
             # Ensure/search for searchable PDF artifact (helper encapsulates fallback semantics)
             final_searchable_source = _ensure_searchable_pdf_fallback(
                 cursor, conn,
@@ -2959,16 +2939,16 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
                             logging.debug(f"No archived source image matched for doc {doc_id} (stems tested: {candidate_stems})")
             except Exception as restore_e:
                 logging.warning(f"Source image restoration attempt failed for doc {doc_id}: {restore_e}")
-            
+
             logging.info(f"✅ Successfully exported document {doc_id} to {category_dir}")
             if original_source_image_export and os.path.exists(original_source_image_export):
                 logging.info(f"   (Included raw source image copy: {original_source_image_export})")
-            
+
         except Exception as e:
             logging.error(f"❌ Failed to export single document {doc_id} ({filename_base}): {e}")
             success = False
             continue
-    
+
     # Final progress update
     if success:
         # Update batch status to exported before cleanup so UI reflects it even if cleanup fails
@@ -2979,7 +2959,7 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
         except Exception as status_err:
             logging.error(f"Failed to set batch {batch_id} status to exported: {status_err}")
         update_progress(total_docs, total_docs, "Cleaning up batch files...", "Removing temporary batch directory")
-        
+
         # Clean up the batch directory in WIP after successful export
         try:
             cleanup_success = cleanup_batch_files(batch_id)
@@ -2994,7 +2974,7 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
             update_progress(total_docs, total_docs, "Export completed successfully!", f"All {total_docs} documents exported (cleanup failed)")
     else:
         update_progress(total_docs, total_docs, "Export completed with some errors", "Check logs for details")
-    
+
     conn.close()
     return success
 

@@ -1,8 +1,5 @@
-import os
 import importlib
-from pathlib import Path
 
-import pytest
 
 
 def test_allow_new_db_backup_creates_timestamped_backup(tmp_path, monkeypatch):

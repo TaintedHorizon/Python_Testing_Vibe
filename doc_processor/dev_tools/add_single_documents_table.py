@@ -6,7 +6,6 @@ This creates a new table to track single documents through the streamlined workf
 OCR → Reassemble searchable PDF → AI suggestions → Finalize/Export
 """
 
-import sqlite3
 import logging
 import sys
 import os
@@ -21,20 +20,20 @@ def add_single_documents_table():
     Add the single_documents table to the database.
     """
     logging.basicConfig(level=logging.INFO)
-    
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     try:
         # Check if table already exists
         result = cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='single_documents'"
         ).fetchone()
-        
+
         if result:
             print("single_documents table already exists. Skipping creation.")
             return
-        
+
         # Create the single_documents table
         cursor.execute("""
             CREATE TABLE single_documents (
@@ -60,16 +59,16 @@ def add_single_documents_table():
                 FOREIGN KEY (batch_id) REFERENCES batches(id)
             )
         """)
-        
+
         # Create indexes for better performance
         cursor.execute("CREATE INDEX idx_single_documents_batch_id ON single_documents(batch_id)")
         cursor.execute("CREATE INDEX idx_single_documents_status ON single_documents(status)")
-        
+
         conn.commit()
-        
+
         print("✓ Created single_documents table with indexes")
         print("✓ Database schema updated for improved single document workflow")
-        
+
     except Exception as e:
         print(f"Error adding single_documents table: {e}")
         conn.rollback()

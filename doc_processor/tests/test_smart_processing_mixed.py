@@ -1,9 +1,8 @@
-import os, fitz, json
+import fitz
 from pathlib import Path
 from typing import Any
 from doc_processor.processing import database_connection
 from doc_processor.routes.batch import _orchestrate_smart_processing
-from doc_processor.document_detector import DocumentAnalysis
 from doc_processor.config_manager import app_config
 
 
@@ -17,7 +16,6 @@ def _make_dummy_pdf(path: Path, pages: int = 1):
 
 
 def _make_dummy_image(path: Path):
-    from PIL import Image
     from PIL import Image as _Img
     white: Any = (255, 255, 255)
     _Img.new('RGB', (300, 200), white).save(path, 'PNG')

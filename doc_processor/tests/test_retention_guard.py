@@ -1,8 +1,6 @@
-import os
 import sqlite3
 from pathlib import Path
 
-import pytest
 
 from doc_processor import batch_guard
 

@@ -9,7 +9,6 @@ so pytest will not automatically collect it.
 Usage: run manually from repo root with the venv active.
 """
 import os
-from pathlib import Path
 
 from doc_processor.document_detector import get_detector
 from doc_processor.config_manager import app_config

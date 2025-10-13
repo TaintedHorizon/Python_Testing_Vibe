@@ -41,17 +41,17 @@ def sanitize_filename(filename: str) -> str:
     # <>:"/\|?* are common illegal characters.
     # \x00-\x1f are control characters.
     invalid_chars_pattern = r'[<>:"/\\|?*\x00-\x1f]'
-    
+
     # Replace invalid characters with an underscore.
     sanitized = re.sub(invalid_chars_pattern, '_', filename)
-    
+
     # Also, remove leading/trailing spaces and periods, which can be problematic on Windows.
     sanitized = sanitized.strip().strip('.')
-    
+
     # Ensure the filename is not empty after sanitization.
     if not sanitized:
         sanitized = "unnamed_file" # Provide a fallback name if sanitization results in an empty string.
-    
+
     return sanitized
 
 def get_file_list_with_sizes(url: str, status_callback=None) -> list:
@@ -117,7 +117,7 @@ def get_file_list_with_sizes(url: str, status_callback=None) -> list:
         file_url = urljoin(url, href)
         # Extract the base filename from the URL path, URL-decode it, and then sanitize it.
         file_name = sanitize_filename(unquote(os.path.basename(urlparse(file_url).path)))
-        
+
         # --- Robust check for problematic file names (retained and enhanced) ---
         # Ensure file_name is not empty or a problematic path component (like '.' or '..')
         # or contains path separators (which would indicate it's a directory or malformed).
@@ -219,7 +219,7 @@ def download_files_from_url(url: str, download_dir: str, max_retries: int = MAX_
 
     total_files_count = len(files_to_download) # Total number of files identified for processing.
     files_processed_count = 0 # Counter for files that are either skipped (already complete) or successfully downloaded.
-    
+
     # Adjust `files_processed_count` based on files that already exist and are non-empty.
     # This ensures accurate total progress display from the start if resuming a previous session.
     for file_info in files_to_download:
@@ -311,10 +311,10 @@ def download_files_from_url(url: str, download_dir: str, max_retries: int = MAX_
                             # Overwrite the file if the server didn't resume (truncate it).
                             with open(file_path, 'wb') as f:
                                 pass # This effectively clears the file.
-                    
+
                     # Open the local file: 'ab' for append (if resuming), 'wb' for write (if new download/restart).
                     mode = 'ab' if downloaded_bytes_current_file > 0 and r.status_code == 206 else 'wb'
-                    
+
                     # DEBUG: Print the final file_path before attempting to open
                     update_status(f"DEBUG: Attempting to open file_path: '{file_path}' in mode '{mode}'")
 
@@ -358,7 +358,7 @@ def download_files_from_url(url: str, download_dir: str, max_retries: int = MAX_
                     time.sleep(retry_delay) # Wait before retrying.
                 else:
                     update_status(f"Failed to save {file_name} after {max_retries} attempts.")
-        
+
         # If the outer loop (over files) was broken due to a cancellation signal.
         if cancel_flag.is_set():
             break
@@ -514,7 +514,7 @@ class DownloaderApp:
             # Handle cases where no files are found or total count is 0.
             self.total_progress_label.config(text="Total Progress: 0/0 files (0%)")
             self.total_progressbar['value'] = 0 # Reset progress bar.
-            
+
         self.master.update_idletasks() # Force GUI update.
 
     def start_download_thread(self):
@@ -589,7 +589,7 @@ class DownloaderApp:
             subdirectory_name = "downloaded_content" # Default subdirectory name.
             if path_segments:
                 subdirectory_name = path_segments[-1] # Use the last segment as the subdirectory name.
-            
+
             # --- Security Enhancement: Sanitize Subdirectory Name ---
             # URL-decode the subdirectory name and then sanitize it to remove problematic characters.
             subdirectory_name = sanitize_filename(unquote(subdirectory_name))

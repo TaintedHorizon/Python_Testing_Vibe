@@ -1,4 +1,9 @@
-import os, sqlite3, tempfile, shutil, json, pytest
+import os
+import sqlite3
+import tempfile
+import shutil
+import json
+import pytest
 from importlib import reload
 
 def make_min_db(db_path, pdf_path):
@@ -73,7 +78,7 @@ def j(resp):
 
 @pytest.mark.parametrize('mode', ['llm_only','ocr','ocr_and_llm'])
 def test_rescan_basic_modes(client, mode):
-    r = client.post(f'/api/rescan_document/1', json={'rescan_type': mode})
+    r = client.post('/api/rescan_document/1', json={'rescan_type': mode})
     assert r.status_code == 200
     data = j(r)
     assert data['success']

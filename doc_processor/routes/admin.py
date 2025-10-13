@@ -12,8 +12,6 @@ Extracted from the monolithic app.py to improve maintainability.
 
 from flask import Blueprint, request, jsonify, render_template, redirect, url_for, flash
 import logging
-from typing import Dict, Any, List, Optional
-import json
 import os
 import hashlib
 import sqlite3
@@ -21,7 +19,7 @@ import sqlite3
 # Import existing modules (these imports will need to be adjusted)
 # Import actual database and processing functions
 from ..database import (
-    get_all_categories, get_db_connection
+    get_db_connection
 )
 # from ..config_manager import app_config
 # from ..security import require_admin  # If admin authentication is implemented
@@ -167,17 +165,17 @@ def categories():
         # Get all categories from database
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Get all categories including inactive ones
         cursor.execute("""
-            SELECT id, name, is_active, previous_name, notes 
-            FROM categories 
+            SELECT id, name, is_active, previous_name, notes
+            FROM categories
             ORDER BY name ASC
         """)
-        
+
         categories_data = cursor.fetchall()
         conn.close()
-        
+
         # Convert to list of dictionaries for template use
         categories = []
         for row in categories_data:
@@ -188,9 +186,9 @@ def categories():
                 'previous_name': row['previous_name'],
                 'notes': row['notes']
             })
-        
+
         return render_template('categories.html', categories=categories)
-        
+
     except Exception as e:
         logger.error(f"Error loading categories page: {e}")
         flash(f"Error loading categories: {str(e)}", "error")
@@ -202,10 +200,10 @@ def add_category():
     try:
         category_name = request.form.get('name')
         category_notes = request.form.get('notes', '')
-        
+
         if not category_name:
             return jsonify(create_error_response("Category name is required"))
-        
+
         # Add category to database
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -216,13 +214,13 @@ def add_category():
         category_id = cursor.lastrowid
         conn.commit()
         conn.close()
-        
+
         return jsonify(create_success_response({
             'message': f'Category "{category_name}" added successfully',
             'category_id': category_id,
             'category_name': category_name
         }))
-        
+
     except Exception as e:
         logger.error(f"Error adding category: {e}")
         return jsonify(create_error_response(f"Failed to add category: {str(e)}"))
@@ -234,36 +232,36 @@ def rename_category(cat_id: int):
         new_name = request.form.get('name')
         if not new_name:
             return jsonify(create_error_response("New category name is required"))
-        
+
         # Update category in database
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Get current name for history
         cursor.execute("SELECT name FROM categories WHERE id = ?", (cat_id,))
         current_result = cursor.fetchone()
         if not current_result:
             conn.close()
             return jsonify(create_error_response("Category not found"))
-        
+
         current_name = current_result['name']
-        
+
         # Update with new name and store previous name
         cursor.execute("""
-            UPDATE categories 
+            UPDATE categories
             SET name = ?, previous_name = ?
             WHERE id = ?
         """, (new_name, current_name, cat_id))
-        
+
         conn.commit()
         conn.close()
-        
+
         return jsonify(create_success_response({
             'message': f'Category renamed to "{new_name}" successfully',
             'category_id': cat_id,
             'new_name': new_name
         }))
-        
+
     except Exception as e:
         logger.error(f"Error renaming category {cat_id}: {e}")
         return jsonify(create_error_response(f"Failed to rename category: {str(e)}"))
@@ -276,19 +274,19 @@ def delete_category(cat_id: int):
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            UPDATE categories 
+            UPDATE categories
             SET is_active = 0
             WHERE id = ?
         """, (cat_id,))
-        
+
         conn.commit()
         conn.close()
-        
+
         return jsonify(create_success_response({
             'message': 'Category deleted successfully',
             'category_id': cat_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error deleting category {cat_id}: {e}")
         return jsonify(create_error_response(f"Failed to delete category: {str(e)}"))
@@ -301,19 +299,19 @@ def restore_category(cat_id: int):
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            UPDATE categories 
+            UPDATE categories
             SET is_active = 1
             WHERE id = ?
         """, (cat_id,))
-        
+
         conn.commit()
         conn.close()
-        
+
         return jsonify(create_success_response({
             'message': 'Category restored successfully',
             'category_id': cat_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error restoring category {cat_id}: {e}")
         return jsonify(create_error_response(f"Failed to restore category: {str(e)}"))
@@ -328,17 +326,17 @@ def clear_analysis_cache():
         if os.path.exists(cache_file):
             os.remove(cache_file)
             logger.info("Cleared analysis cache")
-        
+
         # Also clear any other cache directories that might exist
         cache_dir = '/tmp/analysis_cache'
         if os.path.exists(cache_dir):
             import shutil
             shutil.rmtree(cache_dir)
             os.makedirs(cache_dir)
-        
+
         # Redirect back to the intake analysis page like the original
         return redirect(url_for('intake.analyze_intake_page'))
-        
+
     except Exception as e:
         logger.error(f"Failed to clear analysis cache: {e}")
         # On error, still redirect back to intake page
@@ -357,10 +355,10 @@ def configuration():
         #     'ollama_model': app_config.get('OLLAMA_MODEL'),
         #     'debug_skip_ocr': app_config.get('DEBUG_SKIP_OCR'),
         # }
-        
+
         config_data = {}  # Placeholder
         return render_template('configuration.html', config=config_data)
-        
+
     except Exception as e:
         logger.error(f"Error loading configuration page: {e}")
         flash(f"Error loading configuration: {str(e)}", "error")
@@ -376,26 +374,26 @@ def update_configuration():
             value = request.form.get(key)
             if value:
                 config_updates[key.upper()] = value
-        
+
         # Update boolean settings
         config_updates['DEBUG_SKIP_OCR'] = request.form.get('debug_skip_ocr') == 'on'
-        
+
         # Validate directories exist
         for dir_key in ['intake_dir', 'processed_dir', 'export_dir']:
             if dir_key in config_updates:
                 dir_path = config_updates[dir_key]
                 if not os.path.exists(dir_path):
                     return jsonify(create_error_response(f"Directory does not exist: {dir_path}"))
-        
+
         # Update configuration
         # app_config.update(config_updates)
         # app_config.save()
-        
+
         return jsonify(create_success_response({
             'message': 'Configuration updated successfully',
             'updated_settings': len(config_updates)
         }))
-        
+
     except Exception as e:
         logger.error(f"Error updating configuration: {e}")
         return jsonify(create_error_response(f"Failed to update configuration: {str(e)}"))
@@ -414,15 +412,15 @@ def system_status():
                 'export': True
             }
         }
-        
+
         # Perform actual health checks
         # status_data['database'] = check_database_connection()
         # status_data['ollama'] = check_ollama_connection()
         # status_data['disk_space'] = check_disk_space()
         # status_data['directories'] = check_directory_permissions()
-        
+
         return render_template('system_status.html', status=status_data)
-        
+
     except Exception as e:
         logger.error(f"Error checking system status: {e}")
         flash(f"Error checking system status: {str(e)}", "error")
@@ -441,9 +439,9 @@ def api_system_health():
                 'filesystem': {'status': 'up', 'free_space': '10GB'}
             }
         }
-        
+
         return jsonify(create_success_response(health_data))
-        
+
     except Exception as e:
         logger.error(f"Error getting system health: {e}")
         return jsonify(create_error_response(f"Failed to get system health: {str(e)}"))
@@ -455,15 +453,15 @@ def view_logs():
         # Get recent log entries
         log_file = '/path/to/app.log'  # This should come from config
         logs = []
-        
+
         if os.path.exists(log_file):
             with open(log_file, 'r') as f:
                 # Get last 100 lines
                 lines = f.readlines()
                 logs = lines[-100:] if len(lines) > 100 else lines
-        
+
         return render_template('logs.html', logs=logs)
-        
+
     except Exception as e:
         logger.error(f"Error loading logs: {e}")
         flash(f"Error loading logs: {str(e)}", "error")
@@ -476,12 +474,12 @@ def api_logs():
         # Return recent logs in JSON format
         log_entries = []
         # Parse log file and return structured data
-        
+
         return jsonify(create_success_response({
             'logs': log_entries,
             'total_entries': len(log_entries)
         }))
-        
+
     except Exception as e:
         logger.error(f"Error getting logs via API: {e}")
         return jsonify(create_error_response(f"Failed to get logs: {str(e)}"))
@@ -494,7 +492,7 @@ def database_maintenance():
         # with database_connection() as conn:
         #     cursor = conn.cursor()
         #     stats = get_database_statistics()
-        
+
         stats = {
             'total_batches': 0,
             'total_documents': 0,
@@ -502,9 +500,9 @@ def database_maintenance():
             'oldest_batch': 'N/A',
             'newest_batch': 'N/A'
         }
-        
+
         return render_template('database_maintenance.html', stats=stats)
-        
+
     except Exception as e:
         logger.error(f"Error loading database maintenance page: {e}")
         flash(f"Error loading maintenance page: {str(e)}", "error")
@@ -518,11 +516,11 @@ def vacuum_database():
         # with database_connection() as conn:
         #     cursor = conn.cursor()
         #     cursor.execute("VACUUM")
-        
+
         return jsonify(create_success_response({
             'message': 'Database vacuum completed successfully'
         }))
-        
+
     except Exception as e:
         logger.error(f"Error vacuuming database: {e}")
         return jsonify(create_error_response(f"Failed to vacuum database: {str(e)}"))
@@ -532,7 +530,7 @@ def cleanup_database():
     """Clean up old or orphaned records."""
     try:
         days_old = int(request.form.get('days_old', 30))
-        
+
         # Clean up old records
         # with database_connection() as conn:
         #     cursor = conn.cursor()
@@ -540,16 +538,16 @@ def cleanup_database():
         #     deleted_batches = cleanup_old_batches(days_old)
         #     # Delete orphaned documents
         #     deleted_docs = cleanup_orphaned_documents()
-        
+
         deleted_batches = 0  # Placeholder
         deleted_docs = 0     # Placeholder
-        
+
         return jsonify(create_success_response({
-            'message': f'Database cleanup completed',
+            'message': 'Database cleanup completed',
             'deleted_batches': deleted_batches,
             'deleted_documents': deleted_docs
         }))
-        
+
     except Exception as e:
         logger.error(f"Error cleaning up database: {e}")
         return jsonify(create_error_response(f"Failed to clean up database: {str(e)}"))
@@ -561,20 +559,20 @@ def file_safety_check():
     try:
         # Check for file locks or open handles
         # This is useful before starting batch operations
-        
+
         safety_status = {
             'safe_to_process': True,
             'warnings': [],
             'errors': []
         }
-        
+
         # Perform actual safety checks
         # Check if any files are being written to
         # Check disk space
         # Check process locks
-        
+
         return jsonify(create_success_response(safety_status))
-        
+
     except Exception as e:
         logger.error(f"Error checking file safety: {e}")
         return jsonify(create_error_response(f"Failed to check file safety: {str(e)}"))

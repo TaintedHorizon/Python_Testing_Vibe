@@ -8,7 +8,6 @@ See .github/copilot-instructions.md - NEVER import from old 'config.py'
 import os
 from dataclasses import dataclass
 from typing import Optional
-from pathlib import Path
 from dotenv import load_dotenv
 import logging
 
@@ -38,7 +37,7 @@ class AppConfig:
     OLLAMA_CONTEXT_WINDOW: Optional[int] = 8192
     OLLAMA_NUM_GPU: Optional[int] = None
     OLLAMA_TIMEOUT: int = 45
-    
+
     # --- Task-Specific Context Windows ---
     OLLAMA_CTX_CLASSIFICATION: int = 2048
     OLLAMA_CTX_DETECTION: int = 2048
@@ -89,15 +88,14 @@ class AppConfig:
         """
         Creates a configuration instance from environment variables.
         Validates required paths and settings.
-        
+
         Returns:
             AppConfig: Validated configuration instance
-        
+
         Raises:
             ValueError: If required configuration is missing or invalid
         """
         # Try to load .env from workspace root, then from doc_processor/
-        from dotenv import load_dotenv
         import pathlib
         env_loaded = load_dotenv()
         if not env_loaded:
@@ -160,14 +158,14 @@ class AppConfig:
                 NORMALIZED_DIR=validate_directory(get_env("NORMALIZED_DIR", cls.NORMALIZED_DIR), "NORMALIZED"),
                 NORMALIZED_CACHE_MAX_AGE_DAYS=int(get_env("NORMALIZED_CACHE_MAX_AGE_DAYS", str(cls.NORMALIZED_CACHE_MAX_AGE_DAYS))),
                 ARCHIVE_RETENTION_DAYS=archive_retention_days,
-                
+
                 # AI Service Configuration
                 OLLAMA_HOST=get_optional_env("OLLAMA_HOST"),
                 OLLAMA_MODEL=get_optional_env("OLLAMA_MODEL"),
                 OLLAMA_CONTEXT_WINDOW=int(get_env("OLLAMA_CONTEXT_WINDOW", str(cls.OLLAMA_CONTEXT_WINDOW))),
                 OLLAMA_NUM_GPU=ollama_num_gpu,
                 OLLAMA_TIMEOUT=ollama_timeout,
-                
+
                 # Task-Specific Context Windows
                 OLLAMA_CTX_CLASSIFICATION=int(get_env("OLLAMA_CTX_CLASSIFICATION", str(cls.OLLAMA_CTX_CLASSIFICATION))),
                 OLLAMA_CTX_DETECTION=int(get_env("OLLAMA_CTX_DETECTION", str(cls.OLLAMA_CTX_DETECTION))),
@@ -175,7 +173,7 @@ class AppConfig:
                 OLLAMA_CTX_ORDERING=int(get_env("OLLAMA_CTX_ORDERING", str(cls.OLLAMA_CTX_ORDERING))),
                 OLLAMA_CTX_TITLE_GENERATION=int(get_env("OLLAMA_CTX_TITLE_GENERATION", str(cls.OLLAMA_CTX_TITLE_GENERATION))),
                 OLLAMA_CTX_TAGGING=int(get_env("OLLAMA_CTX_TAGGING", str(cls.OLLAMA_CTX_TAGGING))),
-                
+
                 # Logging Configuration
                 LOG_FILE_PATH=get_env("LOG_FILE_PATH", cls.LOG_FILE_PATH),
                 LOG_MAX_BYTES=int(get_env("LOG_MAX_BYTES", str(cls.LOG_MAX_BYTES))),
@@ -192,7 +190,7 @@ class AppConfig:
                 OCR_OVERLAY_TEXT_LIMIT=int(get_env("OCR_OVERLAY_TEXT_LIMIT", str(cls.OCR_OVERLAY_TEXT_LIMIT))),
                 # Backup dir can be optionally provided by env
                 DB_BACKUP_DIR=get_optional_env("DB_BACKUP_DIR"),
-                
+
                 # Status Constants (these are not loaded from environment)
                 STATUS_PENDING_VERIFICATION=cls.STATUS_PENDING_VERIFICATION,
                 STATUS_VERIFICATION_COMPLETE=cls.STATUS_VERIFICATION_COMPLETE,
@@ -202,7 +200,7 @@ class AppConfig:
                 STATUS_FAILED=cls.STATUS_FAILED,
                 STATUS_READY_FOR_MANIPULATION=cls.STATUS_READY_FOR_MANIPULATION
             )
-            
+
             # Validate database path
             db_dir = os.path.dirname(config.DATABASE_PATH)
             if db_dir:
@@ -219,7 +217,7 @@ class AppConfig:
                 os.makedirs(config.DB_BACKUP_DIR, exist_ok=True)
             except Exception as e:
                 logging.warning(f"Could not create DB_BACKUP_DIR '{config.DB_BACKUP_DIR}': {e}")
-            
+
             return config
 
         except Exception as e:

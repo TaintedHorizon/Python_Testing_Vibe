@@ -5,7 +5,9 @@ Removes all files in the configured NORMALIZED_DIR (image->PDF normalization cac
 Safe to run anytime; rebuilt lazily. Honors configuration via config_manager.
 """
 from __future__ import annotations
-import os, sys, shutil, argparse
+import os
+import sys
+import argparse
 from pathlib import Path
 
 parser = argparse.ArgumentParser(description='Purge normalized PDF cache')

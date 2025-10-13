@@ -6,7 +6,6 @@ Prevents duplicate batch creation and provides safe batch management.
 
 import logging
 from typing import Optional, List, Dict, Any
-import sys
 import os
 import shutil
 import threading
@@ -72,7 +71,7 @@ def database_connection():
 def find_existing_processing_batch() -> Optional[int]:
     """
     Find any existing batch in 'processing' status.
-    
+
     Returns:
         int: Batch ID if found, None otherwise
     """
@@ -80,14 +79,14 @@ def find_existing_processing_batch() -> Optional[int]:
         with database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id FROM batches 
-                WHERE status = 'processing' 
-                ORDER BY id DESC 
+                SELECT id FROM batches
+                WHERE status = 'processing'
+                ORDER BY id DESC
                 LIMIT 1
             """)
             result = cursor.fetchone()
             return result[0] if result else None
-            
+
     except Exception as e:
         logging.error(f"Error finding existing processing batch: {e}")
         return None
@@ -176,10 +175,10 @@ def backup_originals_for_batch(batch_id: int) -> int:
 def check_batch_has_documents(batch_id: int) -> bool:
     """
     Check if a batch has any documents.
-    
+
     Args:
         batch_id: ID of the batch to check
-        
+
     Returns:
         bool: True if batch has documents
     """
@@ -191,7 +190,7 @@ def check_batch_has_documents(batch_id: int) -> bool:
             """, (batch_id,))
             count = cursor.fetchone()[0]
             return count > 0
-            
+
     except Exception as e:
         logging.error(f"Error checking batch {batch_id} documents: {e}")
         return False
@@ -201,18 +200,18 @@ def get_or_create_processing_batch() -> int:
     """
     Get existing processing batch or create new one if none exists.
     This prevents duplicate batch creation.
-    
+
     Returns:
         int: Batch ID to use for processing
     """
     try:
         # First, check for existing processing batch
         existing_batch_id = find_existing_processing_batch()
-        
+
         if existing_batch_id:
             # Check if it has documents
             has_docs = check_batch_has_documents(existing_batch_id)
-            
+
             if has_docs:
                 logging.info(f"🔄 Found existing processing batch {existing_batch_id} with documents - resuming")
                 return existing_batch_id
@@ -220,7 +219,7 @@ def get_or_create_processing_batch() -> int:
                 # Empty processing batch - can reuse it
                 logging.info(f"♻️  Found empty processing batch {existing_batch_id} - reusing")
                 return existing_batch_id
-        
+
         # No existing processing batch, create new one
         with database_connection() as conn:
             cursor = conn.cursor()
@@ -229,10 +228,10 @@ def get_or_create_processing_batch() -> int:
             """, ("processing",))
             new_batch_id = _ensure_lastrowid(cursor)
             conn.commit()
-            
+
             logging.info(f"✨ Created new processing batch {new_batch_id}")
             return new_batch_id
-            
+
     except Exception as e:
         logging.error(f"Error in get_or_create_processing_batch: {e}")
         # Fallback - create new batch
@@ -458,12 +457,12 @@ def create_new_batch(status: str) -> int:
 def cleanup_empty_processing_batches() -> List[int]:
     """
     Clean up any processing batches that have no documents.
-    
+
     Returns:
         list: IDs of batches that were cleaned up
     """
     cleaned_batches = []
-    
+
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
@@ -497,7 +496,7 @@ def cleanup_empty_processing_batches() -> List[int]:
                     cnt = 0
                 if cnt == 0:
                     empty_batches.append(bid)
-            
+
             # Delete empty processing batches
             for batch_id in empty_batches:
                 # If retention guard enabled, ensure retention copy exists before deleting
@@ -523,12 +522,12 @@ def cleanup_empty_processing_batches() -> List[int]:
                 cursor.execute("DELETE FROM batches WHERE id = ?", (batch_id,))
                 cleaned_batches.append(batch_id)
                 logging.info(f"🧹 Cleaned up empty processing batch {batch_id}")
-            
+
             conn.commit()
-            
+
     except Exception as e:
         logging.error(f"Error cleaning up empty batches: {e}")
-    
+
     return cleaned_batches
 
 
@@ -663,14 +662,14 @@ def cleanup_empty_batches_policy(age_minutes: int = 60, statuses: Optional[List[
 def get_batch_guard_info() -> Dict[str, Any]:
     """
     Get information about batch guard status for debugging.
-    
+
     Returns:
         dict: Guard status information
     """
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Get processing batches
             cursor.execute("""
                 SELECT b.id, COUNT(sd.id) as doc_count
@@ -681,18 +680,18 @@ def get_batch_guard_info() -> Dict[str, Any]:
                 ORDER BY b.id
             """)
             processing_batches = [{"batch_id": row[0], "document_count": row[1]} for row in cursor.fetchall()]
-            
+
             # Get total batches
             cursor.execute("SELECT COUNT(*) FROM batches")
             total_batches = cursor.fetchone()[0]
-            
+
             return {
                 "total_batches": total_batches,
                 "processing_batches": processing_batches,
                 "processing_count": len(processing_batches),
                 "has_guard_issues": len(processing_batches) > 1
             }
-            
+
     except Exception as e:
         logging.error(f"Error getting batch guard info: {e}")
         return {"error": str(e)}
@@ -702,16 +701,16 @@ if __name__ == "__main__":
     # Demo the batch guard
     print("🛡️  Batch Guard Status")
     print("=" * 30)
-    
+
     info = get_batch_guard_info()
     print(f"Total Batches: {info.get('total_batches', 'unknown')}")
     print(f"Processing Batches: {info.get('processing_count', 'unknown')}")
-    
+
     if info.get('has_guard_issues'):
         print("⚠️  WARNING: Multiple processing batches detected!")
         for batch in info.get('processing_batches', []):
             print(f"  Batch {batch['batch_id']}: {batch['document_count']} documents")
-        
+
         print("\n🧹 Cleaning up empty batches...")
         cleaned = cleanup_empty_processing_batches()
         if cleaned:

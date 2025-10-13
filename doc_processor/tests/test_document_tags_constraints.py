@@ -1,8 +1,5 @@
-import os
-import sqlite3
 from pathlib import Path
 
-import pytest
 
 
 def _get_temp_db_path(tmp_path: Path) -> str:

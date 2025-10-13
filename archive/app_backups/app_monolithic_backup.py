@@ -11,8 +11,6 @@ code archaeology and diffing during cleanup cycles.
 
 # ==== BEGIN ORIGINAL CONTENT ====
 # --- ARCHIVE CLEANUP ON NEW BATCH ---
-import time
-from pathlib import Path
 
 def cleanup_old_archives():  # pragma: no cover - inert in archive
 	"""Stub preserved for historical context (logic removed to avoid unresolved references)."""
@@ -36,14 +34,14 @@ one or more routes in this file:
 2    page_id = request.form.get("page_id", type=int)
 	batch_id = request.form.get("batch_id", type=int)
 	rotation = request.form.get("rotation", 0, type=int)
-    
+
 	if page_id is None or batch_id is None:
 		abort(400, "Page ID and Batch ID are required")
-    
+
 	# Validate rotation angle
 	if rotation not in {0, 90, 180, 270}:
 		abort(400, "Invalid rotation angle")
-    
+
 	# The `rerun_ocr_on_page` function in `processing.py` handles the image
 	# manipulation and the call to the OCR engine.
 	try:
@@ -78,7 +76,6 @@ experience.
 # Standard library imports
 import os
 import logging
-import json
 from logging.handlers import RotatingFileHandler
 # --- LOGGING CONFIGURATION ---
 LOG_DIR = os.getenv("LOG_DIR", os.path.join(os.path.dirname(__file__), "logs"))
@@ -111,19 +108,6 @@ sys.excepthook = log_uncaught_exceptions
 import logging
 
 # Third-party imports
-from flask import ( # noqa: E402
-	Flask,
-	render_template,
-	request,
-	redirect,
-	url_for,
-	send_from_directory,
-	jsonify,
-	abort,
-	flash,
-	session,
-	Response
-)
 
 # ...remaining original monolithic content unchanged...
 # ==== END ORIGINAL CONTENT ====

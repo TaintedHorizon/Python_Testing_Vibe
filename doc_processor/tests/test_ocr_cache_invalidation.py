@@ -1,11 +1,12 @@
-import os, sqlite3, time, pytest
-from pathlib import Path
+import os
+import sqlite3
+import time
+import pytest
 
 # We explicitly disable FAST_TEST_MODE to exercise real OCR path, but we'll mock pytesseract
 os.environ['FAST_TEST_MODE'] = '0'
 
 from doc_processor.config_manager import AppConfig
-import importlib
 import doc_processor.config_manager as _cfg_mod
 import doc_processor.processing as _proc_mod
 # Reload config & rebind to ensure FAST_TEST_MODE false takes effect even if prior tests set it true

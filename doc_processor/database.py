@@ -247,7 +247,8 @@ def get_db_connection():
                     xdg_data = os.getenv('XDG_DATA_HOME') or _os.path.join(_os.path.expanduser('~'), '.local', 'share')
                     backup_root = _os.path.join(xdg_data, 'doc_processor', 'db_backups')
                 os.makedirs(backup_root, exist_ok=True)
-                import shutil, datetime
+                import shutil
+                import datetime
                 # Use timezone-aware UTC timestamp to avoid naive datetime deprecation
                 # Use timezone-aware UTC timestamp
                 timestamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
@@ -311,13 +312,13 @@ def get_db_connection():
     # Ensure conn is non-None for static analyzers and downstream code
     if conn is None:
         raise RuntimeError(f"Failed to open SQLite connection to {db_path}")
-    
+
     # Enable WAL mode for better concurrent access
     conn.execute("PRAGMA journal_mode=WAL")
-    
+
     # Set busy timeout for additional safety
     conn.execute("PRAGMA busy_timeout=30000")  # 30 seconds in milliseconds
-    
+
     # Lightweight on-demand schema ensures for legacy grouped workflow restoration.
     # We gate this behind a quick PRAGMA table_info check to avoid overhead on hot paths.
     try:
@@ -518,7 +519,7 @@ def get_db_connection():
             pass
     except Exception:
         pass
-    
+
     return conn
 
 
@@ -1197,10 +1198,10 @@ def log_detection_ground_truth(filename, predicted_strategy, actual_strategy, co
     """
     Log ground truth data when user corrects or validates detection decisions.
     This creates training data for improving LLM detection accuracy.
-    
+
     Args:
         filename (str): Name of the file that was classified
-        predicted_strategy (str): What the system predicted ('single_document' or 'batch_scan') 
+        predicted_strategy (str): What the system predicted ('single_document' or 'batch_scan')
         actual_strategy (str): What it actually was according to user
         confidence (float): System's confidence in the prediction (0.0 to 1.0)
         user_feedback (str, optional): User's comments about the decision
@@ -1214,13 +1215,13 @@ def log_detection_ground_truth(filename, predicted_strategy, actual_strategy, co
             "correct_prediction": predicted_strategy == actual_strategy,
             "user_feedback": user_feedback
         }
-        
+
         log_interaction(
             batch_id=None,
             document_id=None,
             user_id="system",  # Use system since get_current_user_id not available here
             event_type="detection_ground_truth",
-            step="user_validation", 
+            step="user_validation",
             content=str(ground_truth_data),
             notes=f"Ground truth: {actual_strategy} (predicted: {predicted_strategy}, correct: {predicted_strategy == actual_strategy})"
         )
@@ -1230,10 +1231,10 @@ def log_detection_ground_truth(filename, predicted_strategy, actual_strategy, co
 def get_detection_training_data(limit=100):
     """
     Retrieve recent detection decisions and ground truth data for LLM training.
-    
+
     Args:
         limit (int): Maximum number of records to return
-        
+
     Returns:
         dict: Training data with detection decisions and ground truth validations
     """
@@ -1242,32 +1243,32 @@ def get_detection_training_data(limit=100):
         # Get recent detection decisions
         detection_decisions = conn.execute(
             """
-            SELECT * FROM interaction_log 
-            WHERE event_type IN ('document_detection_decision', 'llm_detection_analysis') 
-            ORDER BY timestamp DESC 
+            SELECT * FROM interaction_log
+            WHERE event_type IN ('document_detection_decision', 'llm_detection_analysis')
+            ORDER BY timestamp DESC
             LIMIT ?
             """,
             (limit,)
         ).fetchall()
-        
+
         # Get ground truth validations
         ground_truth = conn.execute(
             """
-            SELECT * FROM interaction_log 
-            WHERE event_type = 'detection_ground_truth' 
-            ORDER BY timestamp DESC 
+            SELECT * FROM interaction_log
+            WHERE event_type = 'detection_ground_truth'
+            ORDER BY timestamp DESC
             LIMIT ?
             """,
             (limit,)
         ).fetchall()
-        
+
         return {
             "detection_decisions": [dict(row) for row in detection_decisions],
             "ground_truth": [dict(row) for row in ground_truth],
             "total_decisions": len(detection_decisions),
             "total_validations": len(ground_truth)
         }
-        
+
     except sqlite3.Error as e:
         print(f"Database error while fetching training data: {e}")
         return {"detection_decisions": [], "ground_truth": [], "total_decisions": 0, "total_validations": 0}
@@ -1278,7 +1279,7 @@ def get_detection_training_data(limit=100):
 def get_detection_performance_analytics():
     """
     Get analytics on detection system performance for monitoring and improvement.
-    
+
     Returns:
         dict: Performance metrics including accuracy, LLM usage, confidence analysis
     """
@@ -1286,33 +1287,33 @@ def get_detection_performance_analytics():
     try:
         # Get accuracy metrics from ground truth data
         accuracy_data = conn.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_validations,
                 SUM(CASE WHEN content LIKE '%correct_prediction": True%' THEN 1 ELSE 0 END) as correct_predictions,
-                AVG(CASE WHEN content LIKE '%confidence%' THEN 
-                    CAST(SUBSTR(content, INSTR(content, 'confidence": ') + 13, 4) AS FLOAT) 
+                AVG(CASE WHEN content LIKE '%confidence%' THEN
+                    CAST(SUBSTR(content, INSTR(content, 'confidence": ') + 13, 4) AS FLOAT)
                     ELSE NULL END) as avg_confidence
-            FROM interaction_log 
+            FROM interaction_log
             WHERE event_type = 'detection_ground_truth'
         """).fetchone()
-        
+
         # Get LLM usage statistics
         llm_usage = conn.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_decisions,
                 SUM(CASE WHEN content LIKE '%llm_used": true%' OR content LIKE '%llm_used": True%' THEN 1 ELSE 0 END) as llm_used_count,
                 COUNT(*) - SUM(CASE WHEN content LIKE '%llm_used": true%' OR content LIKE '%llm_used": True%' THEN 1 ELSE 0 END) as heuristic_only_count
-            FROM interaction_log 
+            FROM interaction_log
             WHERE event_type = 'document_detection_decision'
         """).fetchone()
-        
+
         # Get recent detection decisions for trend analysis
         recent_decisions = conn.execute("""
-            SELECT timestamp, content FROM interaction_log 
+            SELECT timestamp, content FROM interaction_log
             WHERE event_type = 'document_detection_decision'
             ORDER BY timestamp DESC LIMIT 50
         """).fetchall()
-        
+
         return {
             "accuracy": {
                 "total_validations": accuracy_data[0] if accuracy_data[0] else 0,
@@ -1328,7 +1329,7 @@ def get_detection_performance_analytics():
             },
             "recent_decisions": [dict(row) for row in recent_decisions]
         }
-        
+
     except sqlite3.Error as e:
         print(f"Database error while fetching performance analytics: {e}")
         return {"accuracy": {}, "llm_usage": {}, "recent_decisions": []}
@@ -1341,38 +1342,38 @@ def get_detection_performance_analytics():
 def store_document_tags(document_id, extracted_tags, llm_source='ollama'):
     """
     Store extracted tags for a document in the database.
-    
+
     Args:
         document_id (int): The ID of the document in single_documents table
         extracted_tags (dict): Dictionary with tag categories as keys and lists of tag values
         llm_source (str): The LLM source that extracted the tags (default: 'ollama')
-    
+
     Returns:
         int: Number of tags successfully stored
     """
     if not extracted_tags:
         return 0
-    
+
     conn = get_db_connection()
     tags_stored = 0
-    
+
     try:
         with conn:
             cursor = conn.cursor()
-            
+
             # Clear existing tags for this document to avoid duplicates
             cursor.execute("DELETE FROM document_tags WHERE document_id = ?", (document_id,))
-            
+
             # Insert new tags
             for category, tag_values in extracted_tags.items():
                 if not tag_values:
                     continue
-                    
+
                 for tag_value in tag_values:
                     if tag_value and str(tag_value).strip():
                         try:
                             cursor.execute("""
-                                INSERT INTO document_tags 
+                                INSERT INTO document_tags
                                 (document_id, tag_category, tag_value, llm_source)
                                 VALUES (?, ?, ?, ?)
                             """, (document_id, category, str(tag_value).strip(), llm_source))
@@ -1380,24 +1381,24 @@ def store_document_tags(document_id, extracted_tags, llm_source='ollama'):
                         except sqlite3.IntegrityError:
                             # Skip duplicate tags (unique constraint violation)
                             pass
-            
+
     except sqlite3.Error as e:
         logging.error(f"💥 Database error storing tags for document {document_id}: {e}")
         tags_stored = 0
     finally:
         if conn:
             conn.close()
-    
+
     return tags_stored
 
 
 def get_document_tags(document_id):
     """
     Retrieve all tags for a specific document.
-    
+
     Args:
         document_id (int): The document ID to fetch tags for
-        
+
     Returns:
         dict: Dictionary with tag categories as keys and lists of tag values
     """
@@ -1453,35 +1454,35 @@ def get_document_tags(document_id):
 def find_similar_documents_by_tags(extracted_tags, limit=10, min_tag_matches=2):
     """
     Find documents with similar tag patterns for RAG context.
-    
+
     Args:
         extracted_tags (dict): Tags to search for similarity
         limit (int): Maximum number of similar documents to return
         min_tag_matches (int): Minimum number of matching tags required
-        
+
     Returns:
         list: List of similar documents with metadata
     """
     if not extracted_tags:
         return []
-    
+
     conn = get_db_connection()
-    
+
     try:
         cursor = conn.cursor()
         similar_docs = []
-        
+
         # Build query to find documents with matching tags
         for category, values in extracted_tags.items():
             if not values:
                 continue
-                
+
             # Create placeholders for the IN clause
             placeholders = ','.join(['?' for _ in values])
-            
+
             # Find documents with matching tags in this category
             query = f"""
-                SELECT DISTINCT 
+                SELECT DISTINCT
                     d.id, d.final_category, d.final_filename, d.ai_suggested_category,
                     d.created_at, COUNT(t.tag_value) as tag_matches,
                     GROUP_CONCAT(t.tag_value, ', ') as matching_tags
@@ -1493,9 +1494,9 @@ def find_similar_documents_by_tags(extracted_tags, limit=10, min_tag_matches=2):
                 ORDER BY tag_matches DESC, d.created_at DESC
                 LIMIT ?
             """
-            
+
             results = cursor.execute(query, [category] + values + [min_tag_matches, limit]).fetchall()
-            
+
             for row in results:
                 doc_id, final_category, final_filename, ai_suggested_category, created_at, tag_matches, matching_tags = row
                 similar_docs.append({
@@ -1508,17 +1509,17 @@ def find_similar_documents_by_tags(extracted_tags, limit=10, min_tag_matches=2):
                     'matching_tags': matching_tags.split(', ') if matching_tags else [],
                     'created_at': created_at
                 })
-        
+
         # Deduplicate and sort by relevance
         unique_docs = {}
         for doc in similar_docs:
             doc_id = doc['document_id']
             if doc_id not in unique_docs or doc['tag_matches'] > unique_docs[doc_id]['tag_matches']:
                 unique_docs[doc_id] = doc
-        
+
         # Return top results sorted by tag matches
         return sorted(unique_docs.values(), key=lambda x: x['tag_matches'], reverse=True)[:limit]
-        
+
     except sqlite3.Error as e:
         logging.error(f"💥 Database error finding similar documents by tags: {e}")
         return []
@@ -1530,35 +1531,35 @@ def find_similar_documents_by_tags(extracted_tags, limit=10, min_tag_matches=2):
 def get_tag_usage_stats(category=None, limit=50):
     """
     Get statistics about tag usage patterns.
-    
+
     Args:
         category (str, optional): Specific tag category to analyze
         limit (int): Maximum number of results to return
-        
+
     Returns:
         list: Tag usage statistics
     """
     conn = get_db_connection()
-    
+
     try:
         cursor = conn.cursor()
-        
+
         if category:
             results = cursor.execute("""
-                SELECT * FROM tag_usage_stats 
+                SELECT * FROM tag_usage_stats
                 WHERE tag_category = ?
                 ORDER BY usage_count DESC
                 LIMIT ?
             """, (category, limit)).fetchall()
         else:
             results = cursor.execute("""
-                SELECT * FROM tag_usage_stats 
+                SELECT * FROM tag_usage_stats
                 ORDER BY usage_count DESC
                 LIMIT ?
             """, (limit,)).fetchall()
-        
+
         return [dict(row) for row in results]
-        
+
     except sqlite3.Error as e:
         logging.error(f"💥 Database error fetching tag usage stats: {e}")
         return []
@@ -1570,18 +1571,18 @@ def get_tag_usage_stats(category=None, limit=50):
 def analyze_tag_classification_patterns():
     """
     Analyze which tag patterns correlate with successful classifications.
-    
+
     Returns:
         dict: Analysis of tag patterns and their classification accuracy
     """
     conn = get_db_connection()
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Find strong tag-to-category correlations
         patterns = cursor.execute("""
-            SELECT 
+            SELECT
                 d.final_category,
                 t.tag_category,
                 t.tag_value,
@@ -1591,18 +1592,18 @@ def analyze_tag_classification_patterns():
                 AVG(d.ai_confidence) as avg_ai_confidence
             FROM single_documents d
             JOIN document_tags t ON d.id = t.document_id
-            WHERE d.final_category IS NOT NULL 
+            WHERE d.final_category IS NOT NULL
             AND d.ai_suggested_category IS NOT NULL
             GROUP BY d.final_category, t.tag_category, t.tag_value
             HAVING frequency >= 3
             ORDER BY frequency DESC
         """).fetchall()
-        
+
         strong_patterns = []
         for row in patterns:
             final_cat, tag_cat, tag_val, freq, correct, incorrect, avg_conf = row
             total_predictions = correct + incorrect
-            
+
             if total_predictions > 0:
                 accuracy = correct / total_predictions
                 if accuracy >= 0.8 and freq >= 5:  # High accuracy with sufficient sample size
@@ -1614,10 +1615,10 @@ def analyze_tag_classification_patterns():
                         'sample_size': freq,
                         'avg_confidence': avg_conf
                     })
-        
+
         # Category-level tag analysis
         category_patterns = cursor.execute("""
-            SELECT 
+            SELECT
                 d.final_category,
                 COUNT(DISTINCT d.id) as document_count,
                 COUNT(t.id) as total_tags,
@@ -1629,13 +1630,13 @@ def analyze_tag_classification_patterns():
             GROUP BY d.final_category
             ORDER BY document_count DESC
         """).fetchall()
-        
+
         return {
             'strong_tag_patterns': strong_patterns,
             'category_analysis': [dict(row) for row in category_patterns],
             'pattern_count': len(strong_patterns)
         }
-        
+
     except sqlite3.Error as e:
         logging.error(f"💥 Database error analyzing tag classification patterns: {e}")
         return {'strong_tag_patterns': [], 'category_analysis': [], 'pattern_count': 0}

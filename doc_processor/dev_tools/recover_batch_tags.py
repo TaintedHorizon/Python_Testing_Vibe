@@ -29,7 +29,11 @@ Options:
 Exit Codes:
   0 success, 1 error, 2 partial (some docs failed)
 """
-import os, sys, sqlite3, argparse, logging
+import os
+import sys
+import sqlite3
+import argparse
+import logging
 from typing import Optional
 
 # Ensure local imports work when script run directly
@@ -58,7 +62,8 @@ TAG_TABLE = "document_tags"  # assumed existing via store_document_tags
 
 # Lightweight OCR (optional) import guard
 try:
-    import fitz, pytesseract
+    import fitz
+    import pytesseract
     from PIL import Image
 except Exception:
     fitz = None

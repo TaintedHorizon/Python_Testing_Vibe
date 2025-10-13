@@ -7,10 +7,11 @@ Moved from doc_processor/dev_tools/test_image_support.py and adapted to package 
 import os
 import tempfile
 from PIL import Image
+from doc_processor.processing import is_image_file
 
 def test_image_to_pdf_conversion():
     """Test the basic image-to-PDF conversion functionality."""
-    from doc_processor.processing import convert_image_to_pdf, is_image_file
+    from doc_processor.processing import convert_image_to_pdf
 
     # Create a simple test image
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_img:
@@ -114,26 +115,5 @@ def test_supported_file_detection():
         expected_files = {'test.pdf', 'image.png', 'photo.jpg', 'picture.jpeg'}
         actual_files = set(supported_files)
         assert actual_files == expected_files, f"Expected {expected_files}, got {actual_files}"
-import os
-import tempfile
-from PIL import Image
-import pytest
 
-from doc_processor.processing import convert_image_to_pdf, is_image_file
-from doc_processor.document_detector import get_detector
-
-def test_image_to_pdf_conversion():
-    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
-        img = Image.new('RGB', (100,100), (255,0,0))
-        img.save(f.name, 'PNG')
-        png = f.name
-    pdfpath = png.replace('.png', '.pdf')
-    convert_image_to_pdf(png, pdfpath)
-    assert os.path.exists(pdfpath)
-    os.unlink(png)
-    os.unlink(pdfpath)
-
-def test_supported_file_detection(tmp_path):
-    detector = get_detector(use_llm_for_ambiguous=False)
-    # basic smoke test: detector is instantiable
-    assert detector is not None
+# Note: earlier duplicate test functions were removed to avoid redefinition errors

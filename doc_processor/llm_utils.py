@@ -13,11 +13,11 @@ def extract_document_tags(ocr_text: str, document_name: str = "") -> Optional[Di
     """
     Extracts structured tags from document text using LLM analysis.
     Returns categorized tags for enhanced searchability and RAG enrichment.
-    
+
     Args:
         ocr_text: Full OCR text from the document
         document_name: Optional document name for context
-        
+
     Returns:
         Dictionary with categorized tags or None if extraction fails
         Format: {
@@ -32,11 +32,11 @@ def extract_document_tags(ocr_text: str, document_name: str = "") -> Optional[Di
         }
     """
     logging.info(f"🏷️  Extracting tags for document: {document_name or 'unnamed'}")
-    
+
     if not ocr_text or len(ocr_text.strip()) < 50:
         logging.warning(f"🏷️  Insufficient text for tag extraction: {len(ocr_text)} characters")
         return None
-    
+
     try:
         prompt = f"""Analyze this document text and extract relevant tags for search and categorization.
 
@@ -76,7 +76,7 @@ AMOUNTS: [amount1, amount2, ...]
 REFERENCE_NUMBERS: [ref1, ref2, ...]
 
 Extract tags now:"""
-        
+
         logging.debug(f"🏷️  Sending tag extraction request for {document_name}")
         response = _query_ollama(
             prompt,
@@ -84,11 +84,11 @@ Extract tags now:"""
             context_window=getattr(app_config, 'OLLAMA_CTX_TAGGING', getattr(app_config, 'OLLAMA_CTX_TITLE_GENERATION', 4096)),
             task_name="tag_extraction"
         )
-        
+
         if not response:
             logging.warning(f"🏷️  No response from LLM for tag extraction: {document_name}")
             return None
-            
+
         # Parse the response into structured tags
         tags = {
             'people': [],
@@ -100,15 +100,15 @@ Extract tags now:"""
             'amounts': [],
             'reference_numbers': []
         }
-        
+
         lines = response.strip().split('\n')
         current_category = None
-        
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-                
+
             # Check for category headers
             for category in tags.keys():
                 category_upper = category.upper().replace('_', '_')
@@ -131,7 +131,7 @@ Extract tags now:"""
                         items = line.strip('[]- •').split(',')
                         items = [item.strip().strip('"\'') for item in items if item.strip()]
                         tags[current_category].extend([item for item in items if item and len(item) > 1])
-        
+
         # Clean up and limit tags
         for category in tags:
             # Remove duplicates while preserving order
@@ -139,10 +139,10 @@ Extract tags now:"""
             tags[category] = [item for item in tags[category] if item not in seen and not seen.add(item)]
             # Limit to 8 items per category
             tags[category] = tags[category][:8]
-        
+
         # Count total tags extracted
         total_tags = sum(len(tag_list) for tag_list in tags.values())
-        
+
         if total_tags > 0:
             logging.info(f"✅ Tag extraction SUCCESS for {document_name}: {total_tags} total tags")
             logging.debug(f"✅ Extracted tags: {tags}")
@@ -151,7 +151,7 @@ Extract tags now:"""
             logging.warning(f"⚠️  No tags extracted from document: {document_name}")
             logging.debug(f"⚠️  LLM response was: {response[:300]}...")
             return None
-            
+
     except Exception as e:
         logging.error(f"💥 Error extracting tags for {document_name}: {e}")
         import traceback
@@ -164,7 +164,7 @@ def get_ai_document_type_analysis(file_path: str, content_sample: str, filename:
     """
     logging.info(f"🤖 get_ai_document_type_analysis called for {filename}")
     logging.debug(f"🤖 Parameters: pages={page_count}, size={file_size_mb}MB, content_len={len(content_sample)}")
-    
+
     try:
         prompt = (
             f"""You are a document analysis expert. Analyze this document and determine if it should be processed as a SINGLE_DOCUMENT or BATCH_SCAN.
@@ -207,14 +207,14 @@ REASONING: [Detailed explanation focusing on consistency/discontinuity between p
 
 Provide your analysis now:"""
         )
-        
+
         logging.info(f"🤖 Sending request to Ollama for {filename}")
         response = _query_ollama(prompt, timeout=app_config.OLLAMA_TIMEOUT, context_window=app_config.OLLAMA_CTX_CATEGORY, task_name="document_type_analysis")
-        
+
         if not response:
             logging.warning(f"🤖 No response from Ollama for {filename}")
             return None
-            
+
         logging.info(f"🤖 Received response from Ollama for {filename}: {len(response)} characters")
         classification = None
         confidence = 0
@@ -268,11 +268,11 @@ def _query_ollama(prompt: str, timeout: int = 45, context_window: int = 4096, ta
     """
     logging.info(f"🌐 _query_ollama called for task: {task_name}")
     logging.debug(f"🌐 Ollama config: host={app_config.OLLAMA_HOST}, model={app_config.OLLAMA_MODEL}")
-    
+
     if not app_config.OLLAMA_HOST or not app_config.OLLAMA_MODEL:
         logging.error(f"❌ Ollama not configured - OLLAMA_HOST={app_config.OLLAMA_HOST}, OLLAMA_MODEL={app_config.OLLAMA_MODEL}")
         return None
-        
+
     try:
         import ollama
         import requests
@@ -344,7 +344,7 @@ def _query_ollama(prompt: str, timeout: int = 45, context_window: int = 4096, ta
             logging.error(f"💥 Ollama HTTP fallback failed for {task_name}: {http_ex}")
             logging.debug("💥 HTTP fallback traceback:", exc_info=True)
             return None
-        
+
     except ImportError as ie:
         logging.error(f"❌ ollama package not installed - run: pip install ollama. Error: {ie}")
         return None

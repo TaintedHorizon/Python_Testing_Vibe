@@ -165,9 +165,6 @@ def test_database_constraints():
         conn.close()
 
 import pytest
-from doc_processor.database import (
-    store_document_tags, get_document_tags, get_db_connection
-)
 
 @pytest.mark.usefixtures('temp_db_path')
 def test_tag_storage_and_retrieval():

@@ -11,7 +11,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from batch_resume import get_batch_completion_status, get_incomplete_documents, log_batch_resume_info
+from batch_resume import get_batch_completion_status, get_incomplete_documents
 import sqlite3
 from contextlib import contextmanager
 import os
@@ -33,6 +33,7 @@ def _resolve_db_path():
 @contextmanager
 def database_connection():
     db_path = _resolve_db_path()
+    conn = None
     try:
         try:
             from ..database import get_db_connection
@@ -48,11 +49,13 @@ def database_connection():
                 except Exception:
                     from sqlite3 import connect as sqlite_connect
                     conn = sqlite_connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
+
+        # Configure row factory and yield the connection
+        conn.row_factory = sqlite3.Row
         yield conn
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 
 def analyze_all_batches():
@@ -91,15 +94,15 @@ def analyze_all_batches():
                         print(f"  🔄 Can Resume: Yes ({len(incomplete)} docs remaining)")
                         print(f"  📍 Resume Point: {status.get('resume_point')}")
                     else:
-                        print(f"  🔄 Can Resume: No (complete)")
-            print(f"\n🎯 TOTAL COMPUTE SAVINGS AVAILABLE")
+                        print("  🔄 Can Resume: No (complete)")
+            print("\n🎯 TOTAL COMPUTE SAVINGS AVAILABLE")
             print(f"⚡ {total_compute_saved}s saved ({total_compute_saved//60}m {total_compute_saved%60}s)")
     except Exception as e:
         print(f"Error analyzing batches: {e}")
 
 
 def demo_cache_hit_simulation():
-    print(f"\n📚 Cache Hit Simulation")
+    print("\n📚 Cache Hit Simulation")
     print("=" * 30)
     print("Scenario: Batch interrupted at 60% completion")
     print("Before Resilience: 100% compute waste (restart from 0%)")

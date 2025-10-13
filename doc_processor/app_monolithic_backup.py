@@ -1,6 +1,5 @@
 # --- ARCHIVE CLEANUP ON NEW BATCH ---
 import time
-from pathlib import Path
 
 def cleanup_old_archives():
     days = getattr(app_config, "ARCHIVE_RETENTION_DAYS", 30)
@@ -40,14 +39,14 @@ one or more routes in this file:
 2    page_id = request.form.get("page_id", type=int)
     batch_id = request.form.get("batch_id", type=int)
     rotation = request.form.get("rotation", 0, type=int)
-    
+
     if page_id is None or batch_id is None:
         abort(400, "Page ID and Batch ID are required")
-    
+
     # Validate rotation angle
     if rotation not in {0, 90, 180, 270}:
         abort(400, "Invalid rotation angle")
-    
+
     # The `rerun_ocr_on_page` function in `processing.py` handles the image
     # manipulation and the call to the OCR engine.
     try:
@@ -130,14 +129,12 @@ from flask import (
 )
 
 # Local application imports
-from .security import validate_path, sanitize_input, validate_file_upload, require_safe_path
+from .security import validate_path, sanitize_input
 from .exceptions import DocProcessorError, FileProcessingError, OCRError
-from .config_manager import app_config, DEFAULT_CATEGORIES
+from .config_manager import app_config
 
 # Core business logic and database functions
 from processing import (
-    process_batch,
-    _process_batch_traditional,
     rerun_ocr_on_page,
     get_ai_suggested_order,
     get_ai_suggested_filename,
@@ -150,7 +147,6 @@ from .database import (
     update_page_data,
     get_flagged_pages_for_batch,
     delete_page_by_id,
-    get_all_unique_categories,
     get_verified_pages_for_grouping,
     create_document_and_link_pages,
     get_created_documents_for_batch,
@@ -165,7 +161,6 @@ from .database import (
     update_document_status,
     reset_batch_to_start,
     update_document_final_filename,
-    get_all_categories,
     insert_category_if_not_exists,
     log_interaction,
     get_active_categories,
@@ -198,7 +193,7 @@ def fetch_all_categories(include_inactive=True, sort="name"):
 def add_category(name, notes=None):
     if not name:
         return False, "Name required"
-    
+
     conn = get_db_connection()
     try:
         conn.execute("INSERT INTO categories (name, is_active, notes) VALUES (?, 1, ?)", (name.strip(), notes))
@@ -350,11 +345,11 @@ def apply_name_api(document_id):
     filename = data.get("filename", "").strip()
     if not filename:
         return jsonify({"success": False, "error": "Filename cannot be empty."}), 400
-    
+
     # Sanitize filename for consistency and safety
     from doc_processor.security import sanitize_filename
     sanitized_filename = sanitize_filename(filename)
-    
+
     update_document_final_filename(document_id, sanitized_filename)
     return jsonify({"success": True})
 
@@ -449,13 +444,13 @@ def clear_analysis_cache():
             logging.info("Cleared analysis cache")
     except Exception as e:
         logging.error(f"Failed to clear analysis cache: {e}")
-    
+
     return redirect(url_for("analyze_intake_page"))
 
 @app.route("/analyze_intake")
 def analyze_intake_page():
     """
-    Show intake analysis page. Analysis results are loaded via AJAX 
+    Show intake analysis page. Analysis results are loaded via AJAX
     to provide loading feedback to the user.
     """
     # Check if we have cached analysis results to avoid re-analyzing
@@ -471,8 +466,8 @@ def analyze_intake_page():
     except Exception as e:
         logging.warning(f"Failed to load cached analysis results: {e}")
         cached_analyses = None
-    
-    return render_template('intake_analysis.html', 
+
+    return render_template('intake_analysis.html',
                          analyses=cached_analyses,  # Use cached if available
                          intake_dir=app_config.INTAKE_DIR)
 
@@ -483,53 +478,53 @@ def analyze_intake_progress():
     Streams progress updates as each PDF is analyzed.
     """
     import json
-    
+
     def generate_progress():
         try:
             from document_detector import get_detector
             import os
-            
+
             detector = get_detector(use_llm_for_ambiguous=True)
             intake_dir = app_config.INTAKE_DIR
-            
+
             # Get list of PDF files
             if not os.path.exists(intake_dir):
                 yield f"data: {json.dumps({'error': f'Intake directory does not exist: {intake_dir}'})}\n\n"
                 return
-                
+
             # Check for supported files (PDFs and images)
             supported_files = []
             for f in os.listdir(intake_dir):
                 file_ext = os.path.splitext(f)[1].lower()
                 if file_ext in ['.pdf', '.png', '.jpg', '.jpeg']:
                     supported_files.append(os.path.join(intake_dir, f))
-            
+
             total_files = len(supported_files)
-            
+
             if total_files == 0:
                 yield f"data: {json.dumps({'complete': True, 'analyses': [], 'total': 0, 'single_count': 0, 'batch_count': 0, 'success': True})}\n\n"
                 return
-            
+
             # Send initial progress
             logging.info(f"Starting SSE analysis for {total_files} files (PDFs and images)")
             yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'current_file': None, 'message': f'Found {total_files} files to analyze...'})}\n\n"
-            
+
             analyses = []
             single_count = 0
             batch_count = 0
-            
+
             for i, file_path in enumerate(supported_files):
                 filename = os.path.basename(file_path)
-                
+
                 # Send progress update for current file
                 yield f"data: {json.dumps({'progress': i, 'total': total_files, 'current_file': filename, 'message': f'Analyzing {filename}...'})}\n\n"
-                
+
                 # Analyze the file (PDF or image)
                 if file_path.lower().endswith('.pdf'):
                     analysis = detector.analyze_pdf(file_path)
                 else:
                     analysis = detector.analyze_image_file(file_path)
-                
+
                 # Prepare analysis data
                 analysis_data = {
                     'filename': filename,
@@ -541,25 +536,25 @@ def analyze_intake_progress():
                     'filename_hints': analysis.filename_hints,
                     'content_sample': analysis.content_sample
                 }
-                
+
                 # Add LLM analysis data if available
                 if hasattr(analysis, 'llm_analysis') and analysis.llm_analysis:
                     analysis_data['llm_analysis'] = analysis.llm_analysis
-                    
+
                 analyses.append(analysis_data)
-                
+
                 if analysis.processing_strategy == "single_document":
                     single_count += 1
                 else:
                     batch_count += 1
-                
+
                 # Send progress update after analysis
                 progress_msg = f'Completed {filename}'
                 if hasattr(analysis, 'llm_analysis') and analysis.llm_analysis:
                     progress_msg += ' (AI analyzed)'
-                    
+
                 yield f"data: {json.dumps({'progress': i + 1, 'total': total_files, 'current_file': None, 'message': progress_msg})}\n\n"
-            
+
             # Cache the results for future use to avoid re-analysis
             import tempfile
             import pickle
@@ -570,14 +565,14 @@ def analyze_intake_progress():
                 logging.info(f"Cached analysis results to {cache_file}")
             except Exception as cache_err:
                 logging.warning(f"Failed to cache analysis results: {cache_err}")
-            
+
             # Send final results
             yield f"data: {json.dumps({'complete': True, 'analyses': analyses, 'total': total_files, 'single_count': single_count, 'batch_count': batch_count, 'success': True})}\n\n"
-            
+
         except Exception as e:
             logging.error(f"Error in progress analysis: {e}")
             yield f"data: {json.dumps({'error': f'Analysis error: {str(e)}'})}\n\n"
-    
+
     response = app.response_class(generate_progress(), mimetype='text/event-stream')
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['Connection'] = 'keep-alive'
@@ -593,7 +588,7 @@ def analyze_intake_api():
     try:
         detector = get_detector(use_llm_for_ambiguous=True)
         analyses = detector.analyze_intake_directory(app_config.INTAKE_DIR)
-        
+
         if not analyses:
             return jsonify({
                 'success': True,
@@ -602,12 +597,12 @@ def analyze_intake_api():
                 'batch_count': 0,
                 'total_count': 0
             })
-        
+
         # Prepare data for template
         template_analyses = []
         single_count = 0
         batch_count = 0
-        
+
         for analysis in analyses:
             analysis_data = {
                 'filename': os.path.basename(analysis.file_path),
@@ -619,21 +614,21 @@ def analyze_intake_api():
                 'filename_hints': analysis.filename_hints,
                 'content_sample': analysis.content_sample
             }
-            
+
             # Add LLM analysis data if available
             if hasattr(analysis, 'llm_analysis') and analysis.llm_analysis:
                 analysis_data['llm_analysis'] = analysis.llm_analysis
                 logging.info(f"Including LLM analysis for {analysis_data['filename']}: {analysis.llm_analysis}")
             else:
                 logging.info(f"No LLM analysis for {analysis_data['filename']} (hasattr: {hasattr(analysis, 'llm_analysis')}, value: {getattr(analysis, 'llm_analysis', 'N/A')})")
-                
+
             template_analyses.append(analysis_data)
-            
+
             if analysis.processing_strategy == "single_document":
                 single_count += 1
             else:
                 batch_count += 1
-        
+
         return jsonify({
             'success': True,
             'analyses': template_analyses,
@@ -641,7 +636,7 @@ def analyze_intake_api():
             'batch_count': batch_count,
             'total_count': len(analyses)
         })
-                             
+
     except Exception as e:
         logging.error(f"Error analyzing intake: {e}")
         return jsonify({
@@ -696,11 +691,11 @@ def process_batch_smart():
     Handles strategy overrides from the user interface.
     """
     import json
-    
+
     # Get strategy overrides from the request
     strategy_overrides_json = request.form.get('strategy_overrides')
     strategy_overrides = {}
-    
+
     if strategy_overrides_json:
         try:
             strategy_overrides = json.loads(strategy_overrides_json)
@@ -710,10 +705,10 @@ def process_batch_smart():
         except (json.JSONDecodeError, TypeError) as e:
             logging.warning(f"[SMART] Failed to parse strategy overrides: {e}")
             strategy_overrides = {}
-    
+
     # Store overrides in session for the processing thread to access
     session['strategy_overrides'] = strategy_overrides
-    
+
     logging.info("[SMART] /process_batch_smart invoked; redirecting to /smart_processing_progress")
     # Use 303 See Other to force browser to use GET method for redirect
     return redirect(url_for("smart_processing_progress"), code=303)
@@ -740,26 +735,24 @@ def api_smart_processing_progress():
     Server-Sent Events endpoint for real-time smart processing progress.
     Uses strategy overrides from session if available.
     """
-    from flask import Response
     from document_detector import get_detector
-    from processing import process_single_document
-    
+
     # Get strategy overrides from session BEFORE entering generator
     strategy_overrides = session.get('strategy_overrides', {})
     if strategy_overrides:
         logging.info(f"[SMART SSE] Using strategy overrides for {len(strategy_overrides)} files")
-    
+
     # Clear strategy overrides from session now (before generator starts)
     session.pop('strategy_overrides', None)
-    
+
     logging.info("[SMART SSE] Client connected to /api/smart_processing_progress")
 
     def generate_progress():
         import time
-        
+
         # IMMEDIATE yield to test connection and prevent hanging
         yield f"data: {json.dumps({'message': 'Connection established, initializing...', 'progress': 0, 'total': 0})}\n\n"
-        
+
         try:
             logging.info("[SMART SSE] Starting smart processing progress generator.")
             cleanup_old_archives()
@@ -797,10 +790,10 @@ def api_smart_processing_progress():
                 return
 
             # Step 1: Load cached analysis results from intake analysis
-            logging.info(f"[SMART SSE] Loading cached analysis results...")
+            logging.info("[SMART SSE] Loading cached analysis results...")
             yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'message': f'Loading analysis results for {total_files} files...', 'current_file': None})}\n\n"
             last_progress_time = time.time()
-            
+
             analyses = []
             try:
                 # Try to load cached analysis results
@@ -826,7 +819,7 @@ def api_smart_processing_progress():
                     cached_analyses = {a.file_path: a for a in converted_analyses}
                 else:
                     cached_analyses = {}
-                
+
                 for path in supported_files:
                     analysis = cached_analyses.get(path)
                     if analysis:
@@ -835,7 +828,7 @@ def api_smart_processing_progress():
                         logging.info(f"[SMART SSE] Loaded cached analysis for: {fname} | Strategy: {analysis.processing_strategy} | Pages: {analysis.page_count} | Confidence: {analysis.confidence}")
                     else:
                         logging.warning(f"[SMART SSE] No cached analysis found for: {_os.path.basename(path)}")
-                
+
                 if analyses:
                     logging.info(f"[SMART SSE] Successfully loaded {len(analyses)} cached analysis results.")
                     yield f"data: {json.dumps({'progress': len(analyses), 'total': total_files, 'message': f'Loaded analysis for {len(analyses)} files', 'current_file': None})}\n\n"
@@ -847,7 +840,7 @@ def api_smart_processing_progress():
                 logging.warning(f"[SMART SSE] Could not load cached analysis ({e}), running fresh analysis...")
                 yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'message': f'Running fresh analysis for {total_files} files...', 'current_file': None})}\n\n"
                 last_progress_time = time.time()
-                
+
                 detector = get_detector(use_llm_for_ambiguous=True)
                 for i, path in enumerate(supported_files, start=1):
                     fname = _os.path.basename(path)
@@ -892,28 +885,28 @@ def api_smart_processing_progress():
                             analysis.reasoning.append(f"User override: {original_strategy} -> {override_strategy}")
                         else:
                             analysis.reasoning = [f"User override: {original_strategy} -> {override_strategy}"]
-            
+
             # Process analyzed files based on their (potentially overridden) strategies
             single_docs = [a for a in analyses if a.processing_strategy == "single_document"]
             batch_scans = [a for a in analyses if a.processing_strategy == "batch_scan"]
-            
+
             logging.info(f"[SMART SSE] After overrides: {len(single_docs)} single documents, {len(batch_scans)} batch scans")
-            
+
             # Simple progress tracking: total documents to process
             total_documents = len(single_docs) + len(batch_scans)
             total_progress = total_documents
             current_progress = 0
-            
-            # Send processing start update  
+
+            # Send processing start update
             yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'Analysis complete. Processing {len(single_docs)} single docs + {len(batch_scans)} batch scans...', 'current_file': None})}\n\n"
-            
+
             # Process all single documents as ONE batch with real-time progress
             if single_docs:
                 yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'Creating batch for {len(single_docs)} single documents... (OCR + AI processing)', 'current_file': None})}\n\n"
                 from processing import _process_single_documents_as_batch_with_progress
-                
+
                 logging.info(f"[SMART SSE] Starting batch processing for {len(single_docs)} single documents...")
-                
+
                 # Process documents with progress tracking
                 doc_processed = 0
                 batch_id = None
@@ -922,33 +915,33 @@ def api_smart_processing_progress():
                         batch_id = progress_update['batch_id']
                         logging.info(f"[SMART SSE] Created batch {batch_id}")
                         continue
-                    
+
                     if 'document_complete' in progress_update:
                         doc_processed += 1
                         current_progress = doc_processed  # Simple 1:1 document count
                         filename = progress_update.get('filename', 'Unknown')
                         category = progress_update.get('category', 'Unknown')
                         ai_name = progress_update.get('ai_name', 'Unknown')
-                        
+
                         yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'✓ Processed ({doc_processed}/{len(single_docs)}): {filename} - {category}', 'current_file': filename})}\n\n"
                         last_progress_time = time.time()
-                        
+
                         # Log detailed progress
                         logging.info(f"[SMART SSE] Document {doc_processed}/{len(single_docs)} complete: {filename} -> {category}: {ai_name}")
-                    
+
                     elif 'document_start' in progress_update:
                         filename = progress_update.get('filename', 'Unknown')
                         # Show progress as we start each document
                         yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'Processing ({doc_processed + 1}/{len(single_docs)}): {filename}...', 'current_file': filename})}\n\n"
                         last_progress_time = time.time()
-                        
+
                     elif 'error' in progress_update:
                         error_msg = progress_update['error']
                         filename = progress_update.get('filename', 'Unknown')
                         logging.error(f"[SMART SSE] Error processing {filename}: {error_msg}")
                         yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'⚠ Error processing {filename}: {error_msg}', 'current_file': filename})}\n\n"
                         last_progress_time = time.time()
-                
+
                 # Final update for single documents batch
                 if batch_id and doc_processed > 0:
                     _processing_state['message'] = f'✓ Completed single documents batch: {batch_id} with {doc_processed} documents'
@@ -956,13 +949,13 @@ def api_smart_processing_progress():
                 else:
                     _processing_state['message'] = '✗ Failed to create single documents batch'
                     yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': '✗ Failed to create single documents batch', 'current_file': None})}\n\n"
-            
+
             # Process batch scans using modern single document workflow with progress tracking
             if batch_scans:
                 yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'Creating batch for {len(batch_scans)} batch scan documents... (OCR + AI processing)', 'current_file': None})}\n\n"
                 logging.info(f"🔄 Processing {len(batch_scans)} batch scans as single documents using modern workflow")
                 from processing import _process_single_documents_as_batch_with_progress
-                
+
                 # Process batch scan documents with progress tracking
                 doc_processed_in_batch_scans = 0
                 batch_id = None
@@ -971,21 +964,21 @@ def api_smart_processing_progress():
                         batch_id = progress_update['batch_id']
                         logging.info(f"[SMART SSE] Created batch scan batch {batch_id}")
                         continue
-                    
+
                     if 'document_complete' in progress_update:
                         doc_processed_in_batch_scans += 1
                         current_progress = len(single_docs) + doc_processed_in_batch_scans  # Add to single docs count
                         filename = progress_update.get('filename', 'Unknown')
                         category = progress_update.get('category', 'Unknown')
-                        
+
                         yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'✓ Processed batch scan ({doc_processed_in_batch_scans}/{len(batch_scans)}): {filename} - {category}', 'current_file': filename})}\n\n"
                         last_progress_time = time.time()
-                        
+
                     elif 'document_start' in progress_update:
                         filename = progress_update.get('filename', 'Unknown')
                         yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'Processing batch scan ({doc_processed_in_batch_scans + 1}/{len(batch_scans)}): {filename}...', 'current_file': filename})}\n\n"
                         last_progress_time = time.time()
-                
+
                 # Final update for batch scan documents
                 if batch_id and doc_processed_in_batch_scans > 0:
                     _processing_state['message'] = f'✓ Completed batch {batch_id} for {len(batch_scans)} batch scan documents'
@@ -993,11 +986,11 @@ def api_smart_processing_progress():
                 else:
                     _processing_state['message'] = f'✗ Failed to create batch for {len(batch_scans)} batch scan documents'
                     yield f"data: {json.dumps({'progress': current_progress, 'total': total_progress, 'message': f'✗ Failed to create batch for {len(batch_scans)} batch scan documents', 'current_file': None})}\n\n"
-            
+
             # Force a final progress update before completion (should be equal to total documents)
             final_progress = len(single_docs) + len(batch_scans)
             yield f"data: {json.dumps({'progress': final_progress, 'total': total_progress, 'message': 'Processing complete! Redirecting...', 'current_file': None})}\n\n"
-            
+
             # Send final completion message with explicit logging
             logging.info("[SMART SSE] Sending completion message to client")
             yield f"data: {json.dumps({'complete': True, 'success': True, 'message': 'Smart processing completed!', 'redirect': '/batch_control'})}\n\n"
@@ -1021,32 +1014,32 @@ def api_export_progress():
     Server-Sent Events endpoint for export progress updates.
     """
     from flask import Response
-    
+
     def generate_export_events():
         import json
         import time
-        
+
         logging.info("[EXPORT SSE] Client connected to /api/export_progress")
-        
+
         while True:
             try:
                 # Send current export state
                 yield f"data: {json.dumps(_export_state)}\\n\\n"
-                
+
                 # Break if export is complete
                 if _export_state.get('complete', False):
                     logging.info("[EXPORT SSE] Export complete, closing connection")
                     break
-                
+
                 time.sleep(1)  # Update every second
-                
+
             except GeneratorExit:
                 logging.info("[EXPORT SSE] Client disconnected from export progress")
                 break
             except Exception as e:
                 logging.error(f"[EXPORT SSE] Error in export progress stream: {e}")
                 break
-    
+
     response = Response(generate_export_events(), mimetype='text/plain')
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['Connection'] = 'keep-alive'
@@ -1086,7 +1079,7 @@ def api_smart_processing_start():
     Fallback endpoint to start smart processing for browsers with SSE issues.
     """
     global _processing_state
-    
+
     # Reset processing state
     _processing_state = {
         'active': True,
@@ -1098,40 +1091,38 @@ def api_smart_processing_start():
         'error': None,
         'redirect': None
     }
-    
+
     # Start processing in background thread
     import threading
     def run_processing():
         try:
             logging.info("[FALLBACK] Starting smart processing in background thread")
-            
+
             # Import processing functions
-            from document_detector import get_detector
-            from processing import process_single_document
             cleanup_old_archives()
             import os as _os
-            
+
             # Get files to process (PDFs and images)
             intake_dir = app_config.INTAKE_DIR
             supported_extensions = ['.pdf', '.png', '.jpg', '.jpeg']
-            
+
             supported_files = []
             for f in _os.listdir(intake_dir):
                 file_ext = _os.path.splitext(f)[1].lower()
                 if file_ext in supported_extensions:
                     supported_files.append(f)
             supported_files.sort()
-            
+
             _processing_state['total'] = len(supported_files)
             _processing_state['message'] = f'Found {len(supported_files)} files to process (PDFs and images)'
-            
+
             if len(supported_files) == 0:
                 _processing_state['complete'] = True
                 _processing_state['success'] = True
                 _processing_state['message'] = 'No files to process'
                 _processing_state['redirect'] = '/batch_control'
                 return
-            
+
             # Load cached analysis
             import pickle
             cache_file = "/tmp/intake_analysis_cache.pkl"
@@ -1155,18 +1146,18 @@ def api_smart_processing_start():
                 cached_analyses = {a.file_path: a for a in converted_analyses}
             else:
                 cached_analyses = {}
-            
+
             # Collect documents by strategy
             single_documents = []
             batch_scan_documents = []
-            
+
             for i, filename in enumerate(supported_files):
                 _processing_state['progress'] = i
                 _processing_state['message'] = f'Analyzing {filename}...'
-                
+
                 file_path = _os.path.join(intake_dir, filename)
                 analysis = cached_analyses.get(file_path)
-                
+
                 if analysis:
                     if analysis.processing_strategy == "single_document":
                         single_documents.append(analysis)
@@ -1174,10 +1165,10 @@ def api_smart_processing_start():
                         batch_scan_documents.append(analysis)
                 else:
                     _processing_state['message'] = f'⚠ Skipped {filename} (no analysis data)'
-            
+
             # Process collected documents
             batches_created = 0
-            
+
             # Process all single documents as ONE batch
             if single_documents:
                 _processing_state['message'] = f'Creating batch for {len(single_documents)} single documents...'
@@ -1188,9 +1179,9 @@ def api_smart_processing_start():
                     _processing_state['message'] = f'✓ Created single documents batch #{batch_id} with {len(single_documents)} files'
                     logging.info(f"✓ Created single documents batch #{batch_id} with {len(single_documents)} files")
                 else:
-                    _processing_state['message'] = f'✗ Failed to create single documents batch'
+                    _processing_state['message'] = '✗ Failed to create single documents batch'
                     logging.error(f"✗ Failed to create single documents batch with {len(single_documents)} files")
-            
+
             # Process each batch scan document separately
             for analysis in batch_scan_documents:
                 filename = _os.path.basename(analysis.file_path)
@@ -1208,7 +1199,7 @@ def api_smart_processing_start():
                 except Exception as e:
                     logging.error(f"Error processing {analysis.file_path}: {e}")
                     _processing_state['message'] = f'✗ Failed {filename}: {str(e)}'
-            
+
             # Complete
             _processing_state['progress'] = len(supported_files)
             _processing_state['complete'] = True
@@ -1220,18 +1211,18 @@ def api_smart_processing_start():
                 _processing_state['message'] = 'Processing complete, but no batches were created'
                 logging.warning(f"Smart processing complete but no batches created from {len(supported_files)} files")
             _processing_state['redirect'] = '/batch_control'
-            
+
         except Exception as e:
             logging.error(f"[FALLBACK] Error in background processing: {e}")
             _processing_state['complete'] = True
             _processing_state['success'] = False
             _processing_state['error'] = str(e)
-    
+
     # Start background thread
     thread = threading.Thread(target=run_processing)
     thread.daemon = True
     thread.start()
-    
+
     return jsonify({'status': 'started'})
 
 @app.route("/api/smart_processing_status")
@@ -1246,38 +1237,34 @@ def api_smart_processing_status():
 def api_smart_processing_progress_with_strategy(force_strategy=None):
     """
     Flexible SSE endpoint that can force all files to a specific processing strategy.
-    
+
     Args:
         force_strategy: If provided, all files will be processed with this strategy
                        ("single_document" or "batch_scan"). If None, uses cached analysis.
     """
     # Reuse the same logic as smart processing, but optionally override strategy
-    from flask import Response
-    from document_detector import get_detector
-    from processing import process_single_document
     import json
-    import time
     import os as _os
-    
+
     def generate_progress():
         # Determine strategy name first
         if force_strategy == "single_document":
             strategy_name = "single document"
         elif force_strategy == "batch_scan":
-            strategy_name = "batch scan"  
+            strategy_name = "batch scan"
         else:
             strategy_name = "smart"
-            
+
         # Same initial setup as smart processing
         yield f"data: {json.dumps({'message': 'Connection established, initializing...', 'progress': 0, 'total': 0})}\n\n"
-        
+
         try:
             cleanup_old_archives()
-            
+
             # Check intake directory
             intake_dir = app_config.INTAKE_DIR
             logging.info(f"[{strategy_name.upper()} SSE] Checking intake directory: {intake_dir}")
-                
+
             if not _os.path.exists(intake_dir):
                 logging.error(f"[SSE] Intake directory does not exist: {intake_dir}")
                 yield f"data: {json.dumps({'complete': True, 'success': False, 'error': f'Intake directory does not exist: {intake_dir}'})}\n\n"
@@ -1292,9 +1279,9 @@ def api_smart_processing_progress_with_strategy(force_strategy=None):
 
             total_files = len(supported_files)
             logging.info(f"[SSE] Found {total_files} PDF files for {strategy_name} processing.")
-            
+
             if total_files == 0:
-                logging.warning(f"[SSE] No files to process in intake directory.")
+                logging.warning("[SSE] No files to process in intake directory.")
                 yield f"data: {json.dumps({'complete': True, 'success': True, 'message': 'No files to process', 'redirect': '/batch_control'})}\n\n"
                 return
 
@@ -1308,13 +1295,13 @@ def api_smart_processing_progress_with_strategy(force_strategy=None):
                     analyses.append(DocumentAnalysis(
                         file_path=path,
                         file_size_mb=0.0,  # Not critical for forced processing
-                        page_count=1,      # Will be determined during processing  
+                        page_count=1,      # Will be determined during processing
                         processing_strategy=force_strategy,
                         confidence=1.0,    # Forced, so 100% confident
                         reasoning=[f'Forced {strategy_name} processing mode']
                     ))
                     logging.info(f"[SSE] Forced {filename} to use {force_strategy} strategy")
-                
+
                 yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'message': f'Set {total_files} files to {strategy_name} mode', 'current_file': None})}\n\n"
             else:
                 # Smart mode - load cached analysis results
@@ -1343,7 +1330,7 @@ def api_smart_processing_progress_with_strategy(force_strategy=None):
                 except Exception as e:
                     yield f"data: {json.dumps({'error': f'Failed to load analysis: {e}'})}\n\n"
                     return
-            
+
             # Process files based on strategy - reuse existing logic but with forced classifications
             if force_strategy == "single_document":
                 # All files are single documents
@@ -1360,7 +1347,7 @@ def api_smart_processing_progress_with_strategy(force_strategy=None):
                 # All files are batch scans - use modern single document workflow
                 batch_scans = analyses
                 yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'message': f'Processing {len(batch_scans)} batch scans using modern workflow...', 'current_file': None})}\n\n"
-                
+
                 from processing import _process_single_documents_as_batch
                 batch_id = _process_single_documents_as_batch(batch_scans)
                 if batch_id:
@@ -1375,11 +1362,11 @@ def api_smart_processing_progress_with_strategy(force_strategy=None):
                 # Continue with existing processing logic...
                 processed = 0
                 yield f"data: {json.dumps({'progress': 0, 'total': total_files, 'message': f'Starting {strategy_name} processing: {len(single_docs)} single, {len(batch_scans)} batch', 'single_count': len(single_docs), 'batch_count': len(batch_scans)})}\n\n"
-            
+
             # [Rest of processing logic would go here - same as smart processing]
             # For now, just mark as complete
             yield f"data: {json.dumps({'complete': True, 'success': True, 'message': f'{strategy_name.title()} processing completed! Processed {total_files} files.', 'redirect': '/batch_control'})}\n\n"
-            
+
         except Exception as e:
             logging.error(f"[SSE] Error in {strategy_name} processing: {e}")
             yield f"data: {json.dumps({'complete': True, 'success': False, 'error': f'{strategy_name.title()} processing error: {e}'})}\n\n"
@@ -1455,7 +1442,7 @@ def batch_control_page():
     for batch in all_batches:
         batch["audit_url"] = url_for("batch_audit_view", batch_id=batch["id"])
         # has_been_manipulated is already set from the database query above
-    
+
     return render_template("batch_control.html", batches=all_batches)
 
 
@@ -1981,7 +1968,7 @@ def update_page():
         rotation = request.form.get("rotation", 0, type=int)
         if rotation not in {0, 90, 180, 270}:
             abort(400, "Invalid rotation angle")
-            
+
         current_page_num = request.form.get("current_page_num", type=int)
         total_pages = request.form.get("total_pages", type=int)
         if current_page_num is not None and total_pages is not None:
@@ -2107,14 +2094,14 @@ def rerun_ocr_action():
     page_id = request.form.get("page_id", type=int)
     batch_id = request.form.get("batch_id", type=int)
     rotation = request.form.get("rotation", 0, type=int)
-    
+
     if page_id is None or batch_id is None:
         abort(400, "Page ID and Batch ID are required")
-    
+
     # Validate rotation angle
     if rotation not in {0, 90, 180, 270}:
         abort(400, "Invalid rotation angle")
-    
+
     # The `rerun_ocr_on_page` function in `processing.py` handles the image
     # manipulation and the call to the OCR engine.
     try:
@@ -2128,7 +2115,7 @@ def rerun_ocr_action():
     except DocProcessorError as e:
         logging.error(f"Document processing error for page {page_id}: {e}")
         abort(500, "Processing failed")
-    
+
     # After re-running OCR, the user is returned to the review page to see
     # the updated OCR text and re-evaluate the page.
     return redirect(url_for("review_batch_page", batch_id=batch_id))
@@ -2175,11 +2162,11 @@ def serve_processed_file(filepath):
     processed_dir = app_config.PROCESSED_DIR
     if not processed_dir or not os.path.isdir(processed_dir):
         abort(500, "Processed directory not configured")
-    
+
     # Validate the requested filepath
     if not validate_path(filepath):
         abort(400, "Invalid file path")
-        
+
     return send_from_directory(processed_dir, filepath)
 
 
@@ -2192,54 +2179,54 @@ def serve_original_pdf(filename):
     intake_dir = app_config.INTAKE_DIR
     if not intake_dir or not os.path.isdir(intake_dir):
         abort(500, "Intake directory not configured")
-    
+
     # Validate the requested filename - must be a supported file type and no path traversal
     if not validate_path(filename):
         abort(400, "Invalid file path")
-    
+
     # Allow PDFs and images for preview
     file_ext = os.path.splitext(filename)[1].lower()
     if file_ext not in ['.pdf', '.png', '.jpg', '.jpeg']:
         abort(400, "Only PDF and image files are allowed")
-    
+
     # Check if file exists in intake directory
     full_path = os.path.join(intake_dir, filename)
     if not os.path.isfile(full_path):
         abort(404, "File not found")
-    
+
     # Handle PDF files directly
     if file_ext == '.pdf':
         return send_from_directory(
-            intake_dir, 
-            filename, 
+            intake_dir,
+            filename,
             mimetype='application/pdf',
             as_attachment=False  # Don't force download, allow inline viewing
         )
-    
+
     # Handle image files - convert to PDF for preview
     else:
         try:
             from processing import convert_image_to_pdf
             import tempfile
-            
+
             # Create temporary PDF for preview
             with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_pdf:
                 convert_image_to_pdf(full_path, temp_pdf.name)
-                
+
                 # Read the PDF data
                 with open(temp_pdf.name, 'rb') as pdf_file:
                     pdf_data = pdf_file.read()
-                
+
                 # Clean up the temporary file
                 os.unlink(temp_pdf.name)
-                
+
                 # Return the PDF data
                 return Response(
                     pdf_data,
                     mimetype='application/pdf',
                     headers={'Content-Disposition': f'inline; filename="{os.path.splitext(filename)[0]}.pdf"'}
                 )
-                
+
         except Exception as e:
             logging.error(f"Failed to convert image {filename} for preview: {e}")
             abort(500, "Failed to generate preview")
@@ -2268,7 +2255,7 @@ def finalize_batch_page(batch_id):
         # relevant and structured filename.
         doc_category = pages[0]["human_verified_category"]
         suggested_filename = get_ai_suggested_filename(full_doc_text, doc_category)
-        
+
         doc_dict = dict(doc)
         doc_dict["suggested_filename"] = suggested_filename
         documents_for_render.append(doc_dict)
@@ -2298,7 +2285,7 @@ def export_batch_action(batch_id):
         # Sanitize filename for consistency and safety
         from doc_processor.security import sanitize_filename
         final_name = sanitize_filename(final_name.strip())
-        
+
         pages = get_pages_for_document(doc_id)
         if not pages:
             logging.warning(f"Skipping export for document ID {doc_id}: No pages found")
@@ -2351,12 +2338,12 @@ def finalize_single_documents_batch_action(batch_id):
     The actual export runs in a background thread.
     """
     global _export_state
-    
+
     # Check if export is already in progress
     if _export_state['in_progress']:
         flash('Export already in progress', 'warning')
         return redirect(url_for('export_progress'))
-    
+
     # Initialize export state
     _export_state.update({
         'in_progress': True,
@@ -2370,13 +2357,13 @@ def finalize_single_documents_batch_action(batch_id):
         'success': False,
         'redirect': None
     })
-    
+
     # Start export in background thread
     import threading
     export_thread = threading.Thread(target=run_export_process, args=(batch_id,))
     export_thread.daemon = True
     export_thread.start()
-    
+
     # Redirect to progress page
     return redirect(url_for('export_progress'))
 
@@ -2407,9 +2394,8 @@ def run_export_process(batch_id):
     """
     Run the actual export process in a background thread with progress updates.
     """
-    import time
     global _export_state
-    
+
     try:
         # Get document count
         conn = get_db_connection()
@@ -2417,16 +2403,16 @@ def run_export_process(batch_id):
         cursor.execute("SELECT COUNT(*) FROM single_documents WHERE batch_id = ?", (batch_id,))
         total_docs = cursor.fetchone()[0]
         conn.close()
-        
+
         _export_state.update({
             'total_documents': total_docs,
             'message': f'Exporting {total_docs} documents...',
             'details': 'Creating category folders and organizing files...'
         })
-        
+
         # Import and run the actual export function with progress tracking
         from processing import finalize_single_documents_batch_with_progress
-        
+
         def progress_callback(current, total, message, details=""):
             """Callback function to update progress"""
             _export_state.update({
@@ -2436,17 +2422,17 @@ def run_export_process(batch_id):
                 'message': message,
                 'details': details
             })
-        
+
         # Run export with real progress tracking
         success = finalize_single_documents_batch_with_progress(batch_id, progress_callback)
-        
+
         if success:
             # Update batch status to exported
             conn = get_db_connection()
             conn.execute("UPDATE batches SET status = ? WHERE id = ?", (app_config.STATUS_EXPORTED, batch_id))
             conn.commit()
             conn.close()
-            
+
             # Verify no files were lost during export
             from processing import verify_no_file_loss
             safety_report = verify_no_file_loss()
@@ -2454,11 +2440,11 @@ def run_export_process(batch_id):
                 logging.info("✅ File safety verification passed - no PDFs lost during single document export")
             else:
                 logging.error(f"⚠️ File safety verification failed: {safety_report}")
-            
+
             # Clean up empty batch directories after successful export
             from processing import cleanup_batch_on_completion
             cleanup_batch_on_completion(batch_id, "single_documents_export")
-            
+
             _export_state.update({
                 'complete': True,
                 'success': True,
@@ -2474,7 +2460,7 @@ def run_export_process(batch_id):
                 'message': 'Export failed - please check logs for details',
                 'details': 'An error occurred during the export process.'
             })
-            
+
     except Exception as e:
         logging.error(f"Error in export process for batch {batch_id}: {e}")
         _export_state.update({
@@ -2503,19 +2489,19 @@ def view_documents_page(batch_id):
     cursor = conn.cursor()
     cursor.execute("SELECT status FROM batches WHERE id = ?", (batch_id,))
     batch_result = cursor.fetchone()
-    
+
     if batch_result and batch_result[0] in ['ready_for_manipulation', 'ready_for_export']:
         # Single document batch - show PDFs
         cursor.execute("""
-            SELECT id, original_filename, ai_suggested_category, final_category, 
+            SELECT id, original_filename, ai_suggested_category, final_category,
                    ai_suggested_filename, final_filename, searchable_pdf_path, ai_summary
             FROM single_documents WHERE batch_id = ?
             ORDER BY original_filename
         """, (batch_id,))
-        
+
         single_docs = cursor.fetchall()
         conn.close()
-        
+
         docs_with_previews = []
         for doc in single_docs:
             doc_dict = {
@@ -2528,12 +2514,12 @@ def view_documents_page(batch_id):
                 'is_single_document': True
             }
             docs_with_previews.append(doc_dict)
-        
-        return render_template('view_documents.html', 
-                             batch_id=batch_id, 
+
+        return render_template('view_documents.html',
+                             batch_id=batch_id,
                              documents=docs_with_previews,
                              is_single_document_batch=True)
-    
+
     conn.close()
     # Traditional batch - show page thumbnails
     documents = get_documents_for_batch(batch_id)
@@ -2587,7 +2573,7 @@ def download_export_file(filepath):
         # If the environment variable is not set, the application cannot find
         # the files, so it aborts with a server error.
         abort(500, "FILING_CABINET_DIR is not configured.")
-    
+
     # --- Security Measure ---
     # This is a critical security check to prevent "path traversal" attacks.
     # It ensures that the requested file path is genuinely inside the intended
@@ -2603,7 +2589,7 @@ def download_export_file(filepath):
     # secure way to handle file downloads in Flask.
     directory = os.path.dirname(safe_filepath)
     filename = os.path.basename(safe_filepath)
-    
+
     # `as_attachment=True` tells the browser to prompt the user for a download
     # rather than trying to display the file in the browser window.
     return send_from_directory(directory, filename, as_attachment=True)
@@ -2616,15 +2602,15 @@ def manipulate_batch_page(batch_id, doc_num=1):
     Manipulate stage for single document workflow: edit AI category/filename suggestions.
     Single document per page with pagination, following verify.html design pattern.
     """
-    
+
     if request.method == 'POST':
         # Handle form submission for current document
         doc_id = request.form.get('doc_id')
         action = request.form.get('action', 'finish_batch')
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Handle category selection
         category_dropdown = request.form.get('category_dropdown')
         if category_dropdown == 'other_new':
@@ -2636,7 +2622,7 @@ def manipulate_batch_page(batch_id, doc_num=1):
             cursor.execute("SELECT ai_suggested_category FROM single_documents WHERE id=?", (doc_id,))
             result = cursor.fetchone()
             new_category = result[0] if result else None
-        
+
         # Handle filename selection
         filename_choice = request.form.get('filename_choice')
         if filename_choice == 'custom':
@@ -2654,7 +2640,7 @@ def manipulate_batch_page(batch_id, doc_num=1):
             cursor.execute("SELECT ai_suggested_filename FROM single_documents WHERE id=?", (doc_id,))
             result = cursor.fetchone()
             new_filename = result[0] if result else None
-        
+
         # Update the document
         cursor.execute("""
             UPDATE single_documents SET
@@ -2663,7 +2649,7 @@ def manipulate_batch_page(batch_id, doc_num=1):
             WHERE id=?
         """, (new_category, new_filename, doc_id))
         conn.commit()
-        
+
         # Handle finish_batch and auto_save actions
         if action == 'finish_batch':
             cursor.execute("UPDATE batches SET status = 'ready_for_export', has_been_manipulated = 1 WHERE id = ?", (batch_id,))
@@ -2676,35 +2662,35 @@ def manipulate_batch_page(batch_id, doc_num=1):
             conn.close()
             # Return a JSON response for AJAX call
             return {'success': True}
-        
+
         conn.close()
-    
+
     # GET: Show single document for manipulation
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     # Get all documents in batch
     cursor.execute("""
-        SELECT id, original_filename, ai_suggested_category, ai_suggested_filename, 
+        SELECT id, original_filename, ai_suggested_category, ai_suggested_filename,
                ai_confidence, ai_summary, ocr_text, ocr_confidence_avg, original_pdf_path
-        FROM single_documents 
-        WHERE batch_id=? 
+        FROM single_documents
+        WHERE batch_id=?
         ORDER BY id
     """, (batch_id,))
     all_docs = cursor.fetchall()
-    
+
     if not all_docs:
         conn.close()
         flash('No documents found in this batch.', 'error')
         return redirect(url_for('batch_control_page'))
-    
+
     total_docs = len(all_docs)
-    
+
     # Validate doc_num
     if doc_num < 1 or doc_num > total_docs:
         conn.close()
         return redirect(url_for('manipulate_batch_page', batch_id=batch_id, doc_num=1))
-    
+
     # Get current document (0-indexed)
     current_doc_data = all_docs[doc_num - 1]
     current_doc = {
@@ -2718,14 +2704,14 @@ def manipulate_batch_page(batch_id, doc_num=1):
         'ocr_confidence_avg': current_doc_data[7],
         'original_pdf_path': current_doc_data[8]
     }
-    
+
     conn.close()
-    
+
     # Get categories for dropdown
     from .database import get_active_categories
     categories = get_active_categories()
-    
-    return render_template('manipulate.html', 
+
+    return render_template('manipulate.html',
                          batch_id=batch_id,
                          current_doc=current_doc,
                          current_doc_num=doc_num,
@@ -2741,57 +2727,57 @@ def rotate_document_api(doc_id):
     try:
         data = request.get_json()
         rotation = data.get('rotation', 0)
-        
+
         if rotation not in [0, 90, 180, 270]:
             return jsonify({"success": False, "error": "Invalid rotation angle. Must be 0, 90, 180, or 270."})
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Get document details
         cursor.execute("""
-            SELECT original_pdf_path, searchable_pdf_path, original_filename 
-            FROM single_documents 
+            SELECT original_pdf_path, searchable_pdf_path, original_filename
+            FROM single_documents
             WHERE id = ?
         """, (doc_id,))
-        
+
         result = cursor.fetchone()
         if not result:
             return jsonify({"success": False, "error": "Document not found"})
-        
+
         original_path, searchable_path, filename = result
-        
+
         if rotation == 0:
             return jsonify({"success": True, "message": "No rotation needed"})
-        
+
         logging.info(f"Applying {rotation}° rotation to document {filename}")
-        
+
         # Recreate searchable PDF with rotation
         from processing import create_searchable_pdf
         new_ocr_text, new_confidence, status = create_searchable_pdf(original_path, searchable_path)
-        
+
         if status.startswith("Error"):
             return jsonify({"success": False, "error": f"Failed to reprocess with rotation: {status}"})
-        
+
         # Update database with new OCR text and confidence
         cursor.execute("""
-            UPDATE single_documents 
+            UPDATE single_documents
             SET ocr_text = ?, ocr_confidence_avg = ?
             WHERE id = ?
         """, (new_ocr_text, new_confidence, doc_id))
-        
+
         conn.commit()
         conn.close()
-        
+
         logging.info(f"✓ Applied {rotation}° rotation to {filename} - OCR confidence: {new_confidence:.1f}%")
-        
+
         return jsonify({
-            "success": True, 
+            "success": True,
             "message": f"Applied {rotation}° rotation and updated OCR",
             "new_confidence": new_confidence,
             "suggest_rescan": new_confidence > 70  # Suggest rescan if OCR improved significantly
         })
-        
+
     except Exception as e:
         logging.error(f"Error applying rotation to document {doc_id}: {e}")
         return jsonify({"success": False, "error": str(e)})
@@ -2807,40 +2793,40 @@ def rescan_document_api(doc_id):
         # Parse request data
         data = request.get_json() or {}
         rescan_type = data.get('rescan_type', 'llm_only')  # Default to LLM only for backward compatibility
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Get document details
         cursor.execute("""
-            SELECT original_filename, original_pdf_path, ocr_text, page_count, file_size_bytes 
-            FROM single_documents 
+            SELECT original_filename, original_pdf_path, ocr_text, page_count, file_size_bytes
+            FROM single_documents
             WHERE id = ?
         """, (doc_id,))
-        
+
         result = cursor.fetchone()
         if not result:
             return jsonify({"success": False, "error": "Document not found"})
-        
+
         filename, pdf_path, ocr_text, page_count, file_size_bytes = result
-        
+
         if rescan_type == 'ocr_and_llm':
             # Re-run OCR processing
             import logging
             logging.info(f"🔍 OCR Rescan requested for document {filename}")
-            
+
             if not pdf_path or not os.path.exists(pdf_path):
                 return jsonify({"success": False, "error": "Original PDF file not found"})
-            
+
             # Re-create searchable PDF with OCR
             from processing import create_searchable_pdf
             searchable_pdf_path = pdf_path.replace('.pdf', '_searchable.pdf')
-            
+
             try:
                 ocr_text, ocr_confidence, status = create_searchable_pdf(
                     pdf_path, searchable_pdf_path, doc_id
                 )
-                
+
                 if status != "success (cached)":  # Only update if actually re-processed
                     # Update OCR results in database
                     cursor.execute("""
@@ -2850,26 +2836,26 @@ def rescan_document_api(doc_id):
                             searchable_pdf_path = ?
                         WHERE id = ?
                     """, (ocr_text, ocr_confidence, searchable_pdf_path, doc_id))
-                    
+
                     logging.info(f"✅ OCR rescan completed for {filename} - Confidence: {ocr_confidence:.1f}%")
-                
+
             except Exception as ocr_error:
                 logging.error(f"OCR rescan failed for {filename}: {ocr_error}")
                 return jsonify({"success": False, "error": f"OCR processing failed: {str(ocr_error)}"})
-        
+
         # Get current OCR text (either existing or newly scanned)
         cursor.execute("SELECT ocr_text FROM single_documents WHERE id = ?", (doc_id,))
         current_ocr_text = cursor.fetchone()[0]
-        
+
         # Convert file size back to MB
         file_size_mb = file_size_bytes / (1024 * 1024) if file_size_bytes else 0
-        
+
         # Get new AI suggestions (always run this for both rescan types)
         from processing import _get_ai_suggestions_for_document
         ai_category, ai_filename, ai_confidence, ai_summary = _get_ai_suggestions_for_document(
             current_ocr_text or "", filename, page_count or 1, file_size_mb
         )
-        
+
         # Update the AI analysis in database
         cursor.execute("""
             UPDATE single_documents SET
@@ -2879,15 +2865,15 @@ def rescan_document_api(doc_id):
                 ai_summary = ?
             WHERE id = ?
         """, (ai_category, ai_filename, ai_confidence, ai_summary, doc_id))
-        
+
         conn.commit()
         conn.close()
-        
+
         # Log the rescan
         import logging
         rescan_desc = "OCR + LLM" if rescan_type == 'ocr_and_llm' else "LLM only"
         logging.info(f"📝 {rescan_desc} rescan completed for {filename} - Category: {ai_category}, Filename: {ai_filename}, Confidence: {ai_confidence:.2f}")
-        
+
         return jsonify({
             "success": True,
             "rescan_type": rescan_type,
@@ -2898,7 +2884,7 @@ def rescan_document_api(doc_id):
                 "summary": ai_summary
             }
         })
-        
+
     except Exception as e:
         import logging
         logging.error(f"Error rescanning document {doc_id}: {e}")
@@ -2912,7 +2898,7 @@ def file_safety_check_api():
     Returns JSON report of file locations and potential losses.
     """
     from processing import verify_no_file_loss
-    
+
     try:
         from datetime import datetime
         report = verify_no_file_loss()

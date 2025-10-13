@@ -91,7 +91,7 @@ def main():
             (DUMMY_BATCH_STATUS,)
         )
         existing_dummy_categories = {row[0] for row in cursor.fetchall()}
-        
+
         categories_to_add = [cat for cat in custom_categories if cat not in existing_dummy_categories]
 
         if not categories_to_add:
@@ -116,8 +116,8 @@ def main():
             else:
                 cursor.execute(
                     """
-                    INSERT INTO pages 
-                        (batch_id, source_filename, page_number, ocr_text, status, human_verified_category) 
+                    INSERT INTO pages
+                        (batch_id, source_filename, page_number, ocr_text, status, human_verified_category)
                     VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
@@ -130,7 +130,7 @@ def main():
                     )
                 )
                 print(f"  - Added dummy page for category: '{category}'")
-        
+
         # 7. Commit changes
         if dry_run:
             print("DRY-RUN: no changes were committed.")

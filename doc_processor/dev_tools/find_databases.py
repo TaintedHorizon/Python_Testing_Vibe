@@ -9,7 +9,9 @@ Outputs a table of discovered *.db files, size, mtime, and quick row counts for 
 Safety: Read-only; never mutates files.
 """
 from __future__ import annotations
-import os, sys, argparse, sqlite3, time
+import os
+import argparse
+import time
 from pathlib import Path
 
 KEY_TABLES = ["batches", "single_documents", "documents"]

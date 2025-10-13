@@ -4,7 +4,9 @@
 Formerly test_complete_workflow.py (moved from root of doc_processor).
 Use for ad-hoc inspection; not part of automated pytest suite.
 """
-import os, sys, tempfile, shutil
+import sys
+import tempfile
+import shutil
 from pathlib import Path
 from PIL import Image
 
