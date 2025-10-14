@@ -5,6 +5,7 @@ import tempfile
 import subprocess
 import requests
 import pytest
+from pathlib import Path
 
 
 def _wait_for_health(url, timeout=30.0):
@@ -26,7 +27,7 @@ def playwright_e2e_enabled():
 
 
 @pytest.fixture(scope='session')
-def app_process(tmp_path_factory, request):
+def app_process(tmp_path_factory, request, e2e_artifacts_dir):
     """
     Start the application using the repo's start script in a background process.
     Yields the base URL and environment mapping. Tests should skip if PLAYWRIGHT_E2E not set.
@@ -53,7 +54,10 @@ def app_process(tmp_path_factory, request):
 
     # Start the provided startup script from repo root
     cmd = ['./start_app.sh']
-    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    # Route application stdout/stderr to a rotating log file in the artifacts directory
+    log_path = os.path.join(e2e_artifacts_dir, 'app_process.log')
+    log_fh = open(log_path, 'ab')
+    proc = subprocess.Popen(cmd, env=env, stdout=log_fh, stderr=subprocess.STDOUT)
 
     base_url = 'http://127.0.0.1:5000'
     health = f"{base_url}/health"
@@ -88,7 +92,14 @@ def app_process(tmp_path_factory, request):
         proc.kill()
         pytest.skip(f'Could not start app for E2E tests; output:\n{out}')
 
-    yield {'base_url': base_url, 'env': env, 'intake_dir': str(intake_dir), 'filing_cabinet': str(filing_cabinet)}
+    yield {
+        'base_url': base_url,
+        'env': env,
+        'intake_dir': str(intake_dir),
+        'filing_cabinet': str(filing_cabinet),
+        'proc': proc,
+        'app_log_path': log_path,
+    }
 
     # Teardown
     try:
@@ -99,13 +110,24 @@ def app_process(tmp_path_factory, request):
             proc.kill()
         except Exception:
             pass
+    try:
+        log_fh.close()
+    except Exception:
+        pass
 
 
 @pytest.fixture(scope='session')
 def e2e_artifacts_dir(tmp_path_factory):
-    d = tmp_path_factory.mktemp('e2e_artifacts')
-    artifacts = d / 'artifacts'
-    artifacts.mkdir()
+    # Allow overriding via env var for CI
+    env_dir = os.getenv('E2E_ARTIFACTS_DIR')
+    if env_dir:
+        os.makedirs(env_dir, exist_ok=True)
+        return env_dir
+
+    # Default to a repo-local deterministic artifacts directory
+    repo_root = Path(__file__).resolve().parents[4]
+    artifacts = repo_root / 'doc_processor' / 'tests' / 'e2e' / 'artifacts'
+    artifacts.mkdir(parents=True, exist_ok=True)
     return str(artifacts)
 
 
@@ -126,18 +148,15 @@ def e2e_page(playwright, request):
     setattr(request.node, 'e2e_page', page)
     yield page
 
-    # On teardown, if the test failed, capture artifacts
+    # On teardown, if the test failed, capture artifacts and server logs
     failed = getattr(request.node, 'failed', False)
     artifacts_root = None
     # find an artifacts dir created by the session fixture if present
-    for fixture_name in ('e2e_artifacts_dir',):
-        if fixture_name in request.fixturenames:
-            artifacts_root = request.getfixturevalue(fixture_name)
-            break
-    try:
+    if 'e2e_artifacts_dir' in request.fixturenames:
+        artifacts_root = request.getfixturevalue('e2e_artifacts_dir')
         if failed and artifacts_root:
-            import time
-            ts = int(time.time())
+            import time as _time
+            ts = int(_time.time())
             # safe filenames
             base = f"{request.node.name}-{ts}"
             png = os.path.join(artifacts_root, base + '.png')
@@ -152,12 +171,29 @@ def e2e_page(playwright, request):
                     fh.write(content)
             except Exception:
                 pass
-    finally:
-        try:
-            page.close()
-        except Exception:
-            pass
-        try:
-            browser.close()
-        except Exception:
-            pass
+
+            # Attempt to capture the application log if available via the app_process fixture
+            try:
+                if 'app_process' in request.fixturenames:
+                    app_proc = request.getfixturevalue('app_process')
+                    app_log = app_proc.get('app_log_path')
+                    if app_log and os.path.exists(app_log):
+                        # copy to artifacts with timestamped name
+                        dest_log = os.path.join(artifacts_root, base + '-app.log')
+                        try:
+                            import shutil as _sh
+                            _sh.copyfile(app_log, dest_log)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+    # Always attempt to close Playwright objects
+    try:
+        page.close()
+    except Exception:
+        pass
+    try:
+        browser.close()
+    except Exception:
+        pass
