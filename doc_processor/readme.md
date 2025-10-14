@@ -177,7 +177,7 @@ doc_processor/
 
 Other top-level folders:
 - `tools/` — Utility scripts and GUIs (e.g., download manager, file copy, SD card imager)
-- `Document_Scanner_Ollama_outdated/`, `Document_Scanner_Gemini_outdated/` — Legacy/experimental code (not core)
+- `archive/legacy/Document_Scanner_Ollama_outdated/`, `archive/legacy/Document_Scanner_Gemini_outdated/` — Legacy/experimental code (not core)
 
 ---
 ## Project Hygiene Files

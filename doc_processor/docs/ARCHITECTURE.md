@@ -19,7 +19,7 @@ This document provides a definitive map of the repository structure, categorizes
 | Ops / Dev Tools | Maintenance, diagnostics, migration, batch recovery | `doc_processor/dev_tools/` |
 | Testing | Automated verification + manual scripts | `doc_processor/tests/`, `tests/`, `doc_processor/test_*` |
 | Documentation | Usage, change log, guidance | `README.md`, `doc_processor/readme.md`, `doc_processor/CHANGELOG.md`, `.github/copilot-instructions.md`, `ARCHITECTURE.md` |
-| Legacy Archives | Historical implementations (do not modify) | `Document_Scanner_Gemini_outdated/`, `Document_Scanner_Ollama_outdated/`, `doc_processor/app_monolithic_backup.py`, `doc_processor/app_original_backup.py` |
+| Legacy Archives | Historical implementations (do not modify) | `archive/legacy/Document_Scanner_Gemini_outdated/`, `archive/legacy/Document_Scanner_Ollama_outdated/`, `doc_processor/app_monolithic_backup.py`, `doc_processor/app_original_backup.py` |
 
 ## Component Responsibilities
 

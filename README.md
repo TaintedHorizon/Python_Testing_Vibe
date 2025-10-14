@@ -102,7 +102,7 @@ This map lists active, support, legacy, and runtime directories/files for fast o
 | `doc_processor/readme.md` | Docs | In-depth processor documentation |
 | `LICENSE` | Legal | MIT License (root) |
 | `doc_processor/requirements.txt` | Dependencies | Processor dependencies list |
-| `Document_Scanner_Gemini_outdated/` | Legacy | Deprecated Gemini-based scanner (archive only) |
+| `archive/legacy/Document_Scanner_Gemini_outdated/` | Legacy | Deprecated Gemini-based scanner (archive only) |
 | `Document_Scanner_Ollama_outdated/` | Legacy | Deprecated early Ollama implementation (archive only) |
 | `tools/` | Misc Tools | Independent utility sub-projects |
 
