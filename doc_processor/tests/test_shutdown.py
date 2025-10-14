@@ -4,6 +4,10 @@ from doc_processor.config_manager import SHUTDOWN_EVENT
 
 
 def test_shutdown_event_stops_thread():
+    # Ensure SHUTDOWN_EVENT is clear to avoid flakiness if other tests set it
+    if SHUTDOWN_EVENT is not None:
+        SHUTDOWN_EVENT.clear()
+
     # Start a background thread that runs until SHUTDOWN_EVENT is set
     stopped = threading.Event()
 
