@@ -735,7 +735,11 @@ def processing_status_events():
                     yield f"data: {json.dumps(current_status)}\n\n"
                     last_status = current_status.copy()
 
-                time.sleep(1)  # Check every second
+                    # Check every second but exit promptly if shutdown requested
+                    from ..config_manager import SHUTDOWN_EVENT
+                    if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
+                        break
+                    time.sleep(1)  # Check every second
 
             except Exception as e:
                 logger.error(f"Error in SSE generation: {e}")
@@ -759,7 +763,12 @@ def batch_status_events(batch_id: int):
                 batch_status = {'status': 'unknown', 'progress': 0}  # Placeholder
 
                 yield f"data: {json.dumps(batch_status)}\n\n"
-                time.sleep(2)  # Check every 2 seconds
+                # Check every 2 seconds but observe shutdown event
+                from ..config_manager import SHUTDOWN_EVENT
+                for _ in range(2):
+                    if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
+                        return
+                    time.sleep(1)
 
             except Exception as e:
                 logger.error(f"Error in batch SSE generation: {e}")

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Optional
 from dotenv import load_dotenv
 import logging
+import threading
 
 @dataclass
 class AppConfig:
@@ -250,6 +251,16 @@ try:
 except Exception as e:
     logging.critical(f"Failed to load configuration: {e}")
     raise
+
+# Global shutdown event that other modules (background threads, cleaners)
+# can watch to exit promptly during test teardown or process shutdown.
+# Placing this in config_manager makes it available early in the import
+# order for modules that start background threads at import time.
+try:
+    SHUTDOWN_EVENT = threading.Event()
+except Exception:
+    # Best-effort fallback
+    SHUTDOWN_EVENT = None
 
 # Enforce CPU-only early when OLLAMA_NUM_GPU is explicitly set to 0.
 # Doing this here ensures CUDA_VISIBLE_DEVICES is cleared before other

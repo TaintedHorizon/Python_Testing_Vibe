@@ -149,27 +149,30 @@ def create_app():
 
     # Register core routes (home page and basic functionality)
     register_core_routes(app)
-    # Expose a shutdown event used by background threads to stop cleanly during tests
+    # Use centralized shutdown event from config_manager so all modules
+    # (even those imported at module import time) can reference the same
+    # Event instance. Register an atexit handler to set it and flush logs.
     try:
-        import threading
         import atexit
-        shutdown_event = threading.Event()
-        app.shutdown_event = shutdown_event
+        from .config_manager import SHUTDOWN_EVENT
 
-        def _on_shutdown():
-            try:
-                logger.info("Application shutdown initiated: setting shutdown_event for background threads")
-                shutdown_event.set()
-            except Exception:
-                pass
-            try:
-                # Ensure logging handlers flush before process exit
-                logging.shutdown()
-            except Exception:
-                pass
+        if SHUTDOWN_EVENT is not None:
+            def _on_shutdown():
+                try:
+                    logger.info("Application shutdown initiated: setting SHUTDOWN_EVENT for background threads")
+                    SHUTDOWN_EVENT.set()
+                except Exception:
+                    pass
+                try:
+                    logging.shutdown()
+                except Exception:
+                    pass
 
-        # Register the atexit handler so tests and local runs attempt graceful stop
-        atexit.register(_on_shutdown)
+            atexit.register(_on_shutdown)
+            # Also attach to app for backward-compatible access
+            app.shutdown_event = SHUTDOWN_EVENT
+        else:
+            logger.debug("No SHUTDOWN_EVENT available from config_manager; background threads may not stop promptly on exit")
     except Exception as e:
         logger.warning(f"Could not setup graceful shutdown event: {e}")
     # Run a safe startup cleanup to remove any empty processing batches left over

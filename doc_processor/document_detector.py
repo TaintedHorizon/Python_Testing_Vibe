@@ -86,6 +86,10 @@ class DocumentTypeDetector:
             return
         DocumentTypeDetector._cleanup_started = True
         def _cleanup_loop():
+            # Use shorter sleep increments and observe global shutdown event so
+            # the thread can exit promptly when the application is shutting down
+            from .config_manager import SHUTDOWN_EVENT
+            sleep_interval = 60 * 5  # 5 minutes between checks when idle
             while True:
                 try:
                     try:
@@ -95,7 +99,13 @@ class DocumentTypeDetector:
                     root = app_config.NORMALIZED_DIR
                     max_age_days = app_config.NORMALIZED_CACHE_MAX_AGE_DAYS
                     if not root or not os.path.isdir(root):
-                        time.sleep(3600)
+                        # Wait in smaller increments and bail out if shutdown requested
+                        waited = 0
+                        while waited < 3600:
+                            if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
+                                return
+                            time.sleep(sleep_interval)
+                            waited += sleep_interval
                         continue
                     cutoff = time.time() - (max_age_days * 86400)
                     removed = 0
@@ -117,7 +127,14 @@ class DocumentTypeDetector:
                         self.logger.warning(f"Normalized cache cleanup error: {e}")
                     except Exception:
                         pass
-                time.sleep(43200)  # 12 hours
+                # Sleep up to 12 hours but check for shutdown periodically
+                total_sleep = 43200
+                slept = 0
+                while slept < total_sleep:
+                    if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
+                        return
+                    time.sleep(sleep_interval)
+                    slept += sleep_interval
         threading.Thread(target=_cleanup_loop, daemon=True, name='NormalizedCacheCleanup').start()
 
     def _convert_image_to_pdf(self, image_path: str) -> str:

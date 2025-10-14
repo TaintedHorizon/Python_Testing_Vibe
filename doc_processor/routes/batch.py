@@ -19,6 +19,7 @@ from ..database import (
 from ..batch_guard import get_or_create_intake_batch, create_new_batch
 from ..processing import process_batch, database_connection
 from ..config_manager import app_config
+from typing import Optional
 from ..utils.helpers import create_error_response, create_success_response
 from ..document_detector import get_detector, DocumentAnalysis
 from ..processing import _process_single_documents_as_batch_with_progress, is_image_file, _process_docs_into_fixed_batch_with_progress
@@ -42,6 +43,7 @@ def _start_smart_token_cleanup_thread():
         return
     _smart_cleanup_started = True
     def _cleanup_loop():
+        # Sleep in short increments but exit quickly if the app requests shutdown
         while True:
             try:
                 now = time.time()
@@ -52,7 +54,18 @@ def _start_smart_token_cleanup_thread():
                     logger.info(f"[smart] Cleanup removed {len(expired)} expired tokens")
             except Exception as e:
                 logger.warning(f"[smart] Token cleanup error: {e}")
-            time.sleep(300)  # 5 minutes
+            # Check shutdown event periodically (every 5 seconds x 60 = ~5 minutes)
+            for _ in range(60):
+                try:
+                    from flask import current_app
+                    shutdown_ev = getattr(current_app, 'shutdown_event', None)
+                    if shutdown_ev and shutdown_ev.is_set():
+                        logger.info("[smart] Token cleanup thread detected shutdown event; exiting")
+                        return
+                except Exception:
+                    # If we can't access current_app, continue sleeping
+                    pass
+                time.sleep(5)
     threading.Thread(target=_cleanup_loop, daemon=True, name='SmartTokenCleanup').start()
 
 
@@ -86,7 +99,7 @@ def _load_cached_intake_analyses(intake_dir: str) -> dict:
         return {}
 
 
-def _orchestrate_smart_processing(batch_id: int, strategy_overrides: dict, token: str):
+def _orchestrate_smart_processing(batch_id: Optional[int], strategy_overrides: dict, token: str):
     """Generator that replicates legacy smart processing progress flow using SSE-friendly yields."""
     import os
     import logging as _logging
@@ -145,6 +158,15 @@ def _orchestrate_smart_processing(batch_id: int, strategy_overrides: dict, token
                 else:
                     analysis.reasoning = [f'Forced to single_document (image file, was {original_strategy})']
         analyses.append(analysis)
+        # Respect global shutdown request between heavy items
+        try:
+            from ..config_manager import SHUTDOWN_EVENT
+            if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
+                logger.info(f"[smart] Orchestrator detected shutdown event; aborting analysis loop at index {idx}")
+                yield {'message': 'Shutdown requested', 'complete': True, 'aborted': True}
+                return
+        except Exception:
+            pass
         yield {'message': f'Analyzed ({idx}/{total_files}): {fname}', 'progress': idx, 'total': total_files}
 
     # Apply overrides
@@ -311,22 +333,42 @@ def smart_processing_progress_sse():
     batch_id = meta.get('batch_id')
     if batch_id is None:
         return jsonify(create_error_response('Token missing batch reference'))
+    # Prefer a numeric batch_id when possible for typed downstream calls
+    try:
+        batch_id_int = int(batch_id) if not isinstance(batch_id, int) and batch_id is not None else batch_id
+    except Exception:
+        batch_id_int = None
     strategy_overrides = meta.get('strategy_overrides', {})
 
     def event_stream():
         import time as _t
         last_emit = _t.time()
         yield f"data: {json.dumps({'message':'Token accepted','progress':0,'total':0})}\n\n"
-        for update in _orchestrate_smart_processing(batch_id, strategy_overrides, token):
+        for update in _orchestrate_smart_processing(batch_id_int if batch_id_int is not None else batch_id, strategy_overrides, token):
             yield f"data: {json.dumps(update)}\n\n"
             last_emit = _t.time()
             if update.get('complete'):
                 break
+
+            # Allow early termination if shutdown requested
+            try:
+                from ..config_manager import SHUTDOWN_EVENT
+                if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
+                    yield f"data: {json.dumps({'message': 'Shutdown requested by server', 'complete': True})}\n\n"
+                    break
+            except Exception:
+                pass
+
             # Heartbeat if silence > 15s (rare because generator usually emits)
             if _t.time() - last_emit > 15:
                 yield f"data: {json.dumps({'heartbeat': True, 'ts': _t.time()})}\n\n"
                 last_emit = _t.time()
-        smart_tokens.pop(token, None)
+
+        # Cleanup token when finished or aborted
+        try:
+            smart_tokens.pop(token, None)
+        except Exception:
+            pass
 
     headers = {
         'Cache-Control': 'no-cache',
@@ -670,11 +712,18 @@ def process_batch_smart():
                 try:
                     logger.info(f"[smart] Immediate run thread starting for token {tok}")
                     # Ensure batch_id is an int for the orchestrator
+                    # Safely coerce batch_id to int if possible; preserve None and non-int values
                     try:
-                        bid = int(batch_id)
+                        if isinstance(batch_id, int):
+                            bid = batch_id
+                        elif batch_id is None:
+                            bid = None
+                        else:
+                            bid = int(batch_id)
                     except Exception:
                         bid = batch_id
-                    for _ in _orchestrate_smart_processing(bid, strategy_overrides or {}, tok):
+                    from typing import cast
+                    for _ in _orchestrate_smart_processing(cast('Optional[int]', bid), strategy_overrides or {}, tok):
                         # consume generator to drive processing; we don't need to stream
                         # results here, just ensure it runs to completion.
                         pass
