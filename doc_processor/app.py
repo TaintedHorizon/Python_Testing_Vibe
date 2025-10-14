@@ -149,6 +149,29 @@ def create_app():
 
     # Register core routes (home page and basic functionality)
     register_core_routes(app)
+    # Expose a shutdown event used by background threads to stop cleanly during tests
+    try:
+        import threading
+        import atexit
+        shutdown_event = threading.Event()
+        app.shutdown_event = shutdown_event
+
+        def _on_shutdown():
+            try:
+                logger.info("Application shutdown initiated: setting shutdown_event for background threads")
+                shutdown_event.set()
+            except Exception:
+                pass
+            try:
+                # Ensure logging handlers flush before process exit
+                logging.shutdown()
+            except Exception:
+                pass
+
+        # Register the atexit handler so tests and local runs attempt graceful stop
+        atexit.register(_on_shutdown)
+    except Exception as e:
+        logger.warning(f"Could not setup graceful shutdown event: {e}")
     # Run a safe startup cleanup to remove any empty processing batches left over
     # from previous runs, unless we're in FAST_TEST_MODE where tests manage DB
     # lifecycle and seeding themselves. FAST_TEST_MODE is set in tests via

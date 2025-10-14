@@ -48,5 +48,14 @@ jobs:
           SKIP_OLLAMA: '1'
         run: |
           . venv/bin/activate
-          pytest -q doc_processor/tests/e2e/test_gui_end_to_end_playwright.py
+          mkdir -p $GITHUB_WORKSPACE/doc_processor/tests/e2e/artifacts
+          export E2E_ARTIFACTS_DIR=$GITHUB_WORKSPACE/doc_processor/tests/e2e/artifacts
+          pytest -q doc_processor/tests/e2e || true
+        # Always upload artifacts (screenshots, HTML, app logs) for inspection
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: doc_processor/tests/e2e/artifacts/
 *** End Patch

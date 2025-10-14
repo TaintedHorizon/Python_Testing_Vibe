@@ -1,3 +1,36 @@
+# Playwright E2E tests
+
+This folder contains Playwright-based end-to-end tests that exercise the full GUI workflow (intake → analyze → smart processing → manipulate → export).
+
+Artifacts
+- On local runs the artifacts will be written to `doc_processor/tests/e2e/artifacts/` by default.
+- You can override the location using the `E2E_ARTIFACTS_DIR` environment variable.
+- On failure the following artifacts are saved per-test: full-page PNG screenshot, page HTML, and the application `app_process.log` captured from the server process.
+
+Running locally
+1. Create and activate the venv in `doc_processor/`:
+
+```bash
+cd doc_processor
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install playwright pytest-playwright
+python -m playwright install --with-deps
+```
+
+2. Run the E2E test(s):
+
+```bash
+# from repo root
+FAST_TEST_MODE=1 SKIP_OLLAMA=1 PLAYWRIGHT_E2E=1 pytest -q doc_processor/tests/e2e
+```
+
+3. Inspect artifacts (if any) in `doc_processor/tests/e2e/artifacts/`.
+
+CI
+- The GitHub Actions workflow `.github/workflows/playwright-e2e.yml` sets `E2E_ARTIFACTS_DIR` to the runner workspace path and uploads artifacts as a job artifact after the test run completes (success or failure).
+
 Playwright E2E test scaffold
 
 This folder contains a scaffold E2E test for the intake -> smart processing -> batch audit flow.
