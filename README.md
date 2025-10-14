@@ -30,6 +30,16 @@ Update (2025-10-13): Local DB schema extensions and initialization added; the `d
 For development and running tests, see `doc_processor/.github/copilot-instructions.md`
 and the `doc_processor/README.md` for project-specific startup instructions.
 
+## End-to-end testing
+
+This repository includes a Playwright-based end-to-end test suite that exercises the full GUI workflow (intake → analyze → smart processing → manipulate → export).
+
+- E2E tests are located under `doc_processor/tests/e2e/` and use Playwright (Python) together with pytest.
+- A fast in-process server-side test is available at `doc_processor/tests/test_gui_inprocess.py` for quicker verification without opening a browser.
+- Tests are designed for deterministic runs; use the environment flags `FAST_TEST_MODE=1` and `SKIP_OLLAMA=1` during CI or local runs to avoid heavy OCR/LLM calls.
+
+The GitHub Actions workflow for running the Playwright E2E tests is at `.github/workflows/playwright-e2e.yml`.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A multi-purpose development repository containing various Python projects and utilities, with a focus on document processing and system administration tools.

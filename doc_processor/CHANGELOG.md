@@ -27,6 +27,13 @@ All notable changes to this project will be documented in this file.
     - Migrated dev helper scripts to use a centralized `doc_processor.dev_tools.db_connect` helper so PRAGMAs/WAL and DB guards apply consistently.
     - Added a docs note in `doc_processor/docs/USAGE.md` to avoid starting the Flask dev server during automated tests; prefer `./start_app.sh` or the Flask test client.
 
+  ### E2E & GUI testing additions (2025-10-14)
+
+  - Added Playwright-based end-to-end GUI tests under `doc_processor/tests/e2e/` to exercise the full workflow (intake → analyze → smart processing → manipulate → export).
+  - Introduced a fast in-process Flask test at `doc_processor/tests/test_gui_inprocess.py` for quick verification without a browser.
+  - Tests run in a deterministic test mode via environment flags: `FAST_TEST_MODE=1`, `SKIP_OLLAMA=1`, and `PLAYWRIGHT_E2E=1` for CI-friendly runs.
+  - Playwright failures will be captured to artifacts (screenshots and page HTML) under `doc_processor/tests/e2e/artifacts/` when running under pytest (fixture added in next tasks).
+
 This release entry documents safety and test-determinism work done to prepare the codebase for reliable CI runs.
 
 ### Local DB initialization & schema enhancements (2025-10-13)
