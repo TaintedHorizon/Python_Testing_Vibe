@@ -14,6 +14,8 @@ from typing import Dict, Any, Optional
 import threading
 from datetime import datetime
 
+from ..config_manager import SHUTDOWN_EVENT
+
 # Import database and processing modules (adjust imports as needed)
 
 logger = logging.getLogger(__name__)
@@ -168,6 +170,15 @@ class BatchService:
                 # Perform processing
                 # result = process_batch(batch_id)
 
+                # Respect shutdown event during potentially long-running work
+                if SHUTDOWN_EVENT.is_set():
+                    with self.processing_lock:
+                        self.processing_status[batch_id].update({
+                            'status': 'aborted',
+                            'message': 'Processing aborted due to shutdown'
+                        })
+                    return
+
                 with self.processing_lock:
                     self.processing_status[batch_id] = {
                         'status': 'completed',
@@ -186,7 +197,7 @@ class BatchService:
                         'error_at': datetime.now().isoformat()
                     }
 
-        thread = threading.Thread(target=process_async)
+        thread = threading.Thread(target=process_async, daemon=True)
         thread.start()
 
         return {
@@ -220,6 +231,14 @@ class BatchService:
                         self.processing_status[batch_id]['stages'][stage]['status'] = 'processing'
                         self.processing_status[batch_id]['message'] = f'Processing {stage}...'
 
+                    # Check for shutdown between stages
+                    if SHUTDOWN_EVENT.is_set():
+                        with self.processing_lock:
+                            self.processing_status[batch_id].update({
+                                'status': 'aborted',
+                                'message': 'Smart processing aborted due to shutdown'
+                            })
+                        return
                     # Perform actual stage processing
                     # stage_result = process_stage(batch_id, stage)
 
@@ -243,7 +262,7 @@ class BatchService:
                         'error_at': datetime.now().isoformat()
                     }
 
-        thread = threading.Thread(target=smart_process_async)
+        thread = threading.Thread(target=smart_process_async, daemon=True)
         thread.start()
 
         return {
@@ -303,7 +322,7 @@ class BatchService:
                         'error_at': datetime.now().isoformat()
                     }
 
-        thread = threading.Thread(target=single_process_async)
+        thread = threading.Thread(target=single_process_async, daemon=True)
         thread.start()
 
         return {
@@ -345,7 +364,7 @@ class BatchService:
                         'error_at': datetime.now().isoformat()
                     }
 
-        thread = threading.Thread(target=traditional_process_async)
+        thread = threading.Thread(target=traditional_process_async, daemon=True)
         thread.start()
 
         return {

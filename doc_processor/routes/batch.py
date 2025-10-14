@@ -57,11 +57,14 @@ def _start_smart_token_cleanup_thread():
             # Check shutdown event periodically (every 5 seconds x 60 = ~5 minutes)
             for _ in range(60):
                 try:
-                    from flask import current_app
-                    shutdown_ev = getattr(current_app, 'shutdown_event', None)
-                    if shutdown_ev and shutdown_ev.is_set():
-                        logger.info("[smart] Token cleanup thread detected shutdown event; exiting")
-                        return
+                        from flask import current_app
+                        try:
+                            shutdown_ev = current_app.extensions.get('doc_processor', {}).get('shutdown_event')
+                        except Exception:
+                            shutdown_ev = None
+                        if shutdown_ev and getattr(shutdown_ev, 'is_set', lambda: False)():
+                            logger.info("[smart] Token cleanup thread detected shutdown event; exiting")
+                            return
                 except Exception:
                     # If we can't access current_app, continue sleeping
                     pass
@@ -291,7 +294,21 @@ def _orchestrate_smart_processing(batch_id: Optional[int], strategy_overrides: d
             logger.error(f"[smart] Error while updating batch status for batch_scans: {e}")
 
         yield {'message': f'Processing {len(batch_scans)} batch-scan documents in batch {batch_scan_batch_id}...', 'progress': processed, 'total': processing_total}
-        for out in _relay(_process_docs_into_fixed_batch_with_progress(batch_scans, batch_scan_batch_id), 'batch_scan'):
+        # Ensure batch_scan_batch_id is an int; if it's None or invalid, bail out
+        try:
+            if batch_scan_batch_id is None:
+                raise ValueError("No batch id available for batch_scan phase")
+            batch_scan_bid = int(batch_scan_batch_id)
+        except Exception as e:
+            logger.error(f"[smart] Invalid batch id for batch_scan phase: {e}")
+            yield {
+                'message': 'Batch scan aborted (invalid batch id)',
+                'complete': True,
+                'error': str(e)
+            }
+            return
+
+        for out in _relay(_process_docs_into_fixed_batch_with_progress(batch_scans, batch_scan_bid), 'batch_scan'):
                 if 'documents_completed' in out:
                     processed = out['documents_completed'] + (len(single_docs) if single_docs else 0)
                     out['progress'] = processed

@@ -19,7 +19,7 @@ from datetime import datetime
 # Import modules (adjust imports as needed)
 from ..database import get_db_connection
 from ..processing import _create_single_document_markdown_content
-from ..config_manager import app_config
+from ..config_manager import app_config, SHUTDOWN_EVENT
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,17 @@ class ExportService:
 
             def export_async():
                 try:
+                    # Abort early if application is shutting down
+                    if SHUTDOWN_EVENT.is_set():
+                        with self.export_lock:
+                            self.export_status[batch_id] = {
+                                'status': 'aborted',
+                                'progress': 0,
+                                'message': 'Export aborted due to shutdown',
+                                'export_id': export_id,
+                                'started_at': datetime.now().isoformat()
+                            }
+                        return
                     with self.export_lock:
                         self.export_status[batch_id] = {
                             'export_id': export_id,
@@ -118,7 +129,7 @@ class ExportService:
                             'error_at': datetime.now().isoformat()
                         }
 
-            thread = threading.Thread(target=export_async)
+            thread = threading.Thread(target=export_async, daemon=True)
             thread.start()
 
             return {
@@ -148,6 +159,15 @@ class ExportService:
                         self.export_status[batch_id]['progress'] = int(i / len(documents) * 100)
                         self.export_status[batch_id]['message'] = f'Creating PDF {i+1}/{len(documents)}'
 
+                    # Respect global shutdown event
+                    if SHUTDOWN_EVENT.is_set():
+                        with self.export_lock:
+                            self.export_status[batch_id].update({
+                                'status': 'aborted',
+                                'message': 'Export aborted during PDF creation',
+                            })
+                        return {'success': False, 'error': 'Export aborted', 'files_created': files_created}
+
                     # pdf_path = create_single_document_pdf(doc)
                     pdf_path = f"/tmp/export/batch_{batch_id}_doc_{i+1}.pdf"  # Placeholder
                     files_created.append(pdf_path)
@@ -162,6 +182,14 @@ class ExportService:
                         self.export_status[batch_id]['progress'] = int(i / len(groups) * 100)
                         self.export_status[batch_id]['message'] = f'Creating group PDF {i+1}/{len(groups)}'
 
+                    if SHUTDOWN_EVENT.is_set():
+                        with self.export_lock:
+                            self.export_status[batch_id].update({
+                                'status': 'aborted',
+                                'message': 'Export aborted during grouped PDF creation',
+                            })
+                        return {'success': False, 'error': 'Export aborted', 'files_created': files_created}
+
                     # pdf_path = create_grouped_pdf(group, f"Group_{i+1}")
                     pdf_path = f"/tmp/export/batch_{batch_id}_group_{i+1}.pdf"  # Placeholder
                     files_created.append(pdf_path)
@@ -170,6 +198,14 @@ class ExportService:
                 # Create single PDF with all documents
                 with self.export_lock:
                     self.export_status[batch_id]['message'] = 'Creating combined PDF'
+
+                if SHUTDOWN_EVENT.is_set():
+                    with self.export_lock:
+                        self.export_status[batch_id].update({
+                            'status': 'aborted',
+                            'message': 'Export aborted before combined PDF creation',
+                        })
+                    return {'success': False, 'error': 'Export aborted', 'files_created': files_created}
 
                 # pdf_path = create_combined_pdf(documents, f"Batch_{batch_id}")
                 pdf_path = f"/tmp/export/batch_{batch_id}_combined.pdf"  # Placeholder
@@ -198,6 +234,14 @@ class ExportService:
                     self.export_status[batch_id]['progress'] = int(i / len(documents) * 100)
                     self.export_status[batch_id]['message'] = f'Exporting image {i+1}/{len(documents)}'
 
+                if SHUTDOWN_EVENT.is_set():
+                    with self.export_lock:
+                        self.export_status[batch_id].update({
+                            'status': 'aborted',
+                            'message': 'Export aborted during image export',
+                        })
+                    return {'success': False, 'error': 'Export aborted', 'files_created': files_created}
+
                 # Copy or convert document to image
                 # image_path = export_document_as_image(doc)
                 image_path = f"/tmp/export/batch_{batch_id}_doc_{i+1}.png"  # Placeholder
@@ -219,6 +263,10 @@ class ExportService:
     def _export_both_formats(self, batch_id: int, documents: List[Dict], grouping_method: str) -> Dict[str, Any]:
         """Export documents in both PDF and image formats."""
         try:
+            # Check shutdown before starting combined work
+            if SHUTDOWN_EVENT.is_set():
+                return {'success': False, 'error': 'Export aborted before work started', 'files_created': []}
+
             pdf_result = self._export_as_pdf(batch_id, documents, grouping_method)
             image_result = self._export_as_images(batch_id, documents)
 

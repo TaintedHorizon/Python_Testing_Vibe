@@ -132,9 +132,9 @@ def create_app():
 
     # Initialize services (singleton instances)
 
-    app.document_service = DocumentService()
-    app.batch_service = BatchService()
-    app.export_service = ExportService()
+    app.document_service = DocumentService()  # type: ignore[attr-defined]
+    app.batch_service = BatchService()  # type: ignore[attr-defined]
+    app.export_service = ExportService()  # type: ignore[attr-defined]
 
     # Register error handlers
     register_error_handlers(app)
@@ -158,8 +158,31 @@ def create_app():
 
         if SHUTDOWN_EVENT is not None:
             def _on_shutdown():
+                # Avoid calling logger.* here because logging handlers may be
+                # closed already during interpreter teardown which can raise
+                # "I/O operation on closed file" errors. Write to stderr as a
+                # best-effort notification and set the shutdown event for
+                # background threads.
                 try:
-                    logger.info("Application shutdown initiated: setting SHUTDOWN_EVENT for background threads")
+                    import sys as _sys
+                    stderr = getattr(_sys, '__stderr__', None)
+                    if stderr is not None:
+                        try:
+                            stderr.write("Application shutdown initiated: setting SHUTDOWN_EVENT for background threads\n")
+                            try:
+                                stderr.flush()
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            print("Application shutdown initiated: setting SHUTDOWN_EVENT for background threads")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                try:
                     SHUTDOWN_EVENT.set()
                 except Exception:
                     pass
@@ -169,8 +192,10 @@ def create_app():
                     pass
 
             atexit.register(_on_shutdown)
-            # Also attach to app for backward-compatible access
-            app.shutdown_event = SHUTDOWN_EVENT
+            # Store shutdown event in app.extensions for static-analysis-friendly access
+            # Keep compatibility with modules that may still use getattr(current_app, 'shutdown_event')
+            app.extensions.setdefault('doc_processor', {})
+            app.extensions['doc_processor']['shutdown_event'] = SHUTDOWN_EVENT
         else:
             logger.debug("No SHUTDOWN_EVENT available from config_manager; background threads may not stop promptly on exit")
     except Exception as e:

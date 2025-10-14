@@ -169,7 +169,7 @@ class DocumentTypeDetector:
             # Perform conversion
             with Image.open(image_path) as img:
                 if img.mode in ('RGBA', 'LA', 'P'):
-                    base = Image.new('RGB', img.size, (255, 255, 255))
+                    base = Image.new('RGB', img.size, (255, 255, 255))  # type: ignore[arg-type]
                     if img.mode == 'P':
                         img = img.convert('RGBA')
                     base.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
@@ -647,7 +647,7 @@ class DocumentTypeDetector:
                 file_path=file_path,
                 file_size_mb=file_size_mb,
                 page_count=page_count,
-                processing_strategy=strategy,
+                processing_strategy=str(strategy) if strategy is not None else 'batch_scan',
                 confidence=confidence,
                 reasoning=reasoning,
                 filename_hints=filename_hint,
