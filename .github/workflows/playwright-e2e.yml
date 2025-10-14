@@ -20,7 +20,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-cache-${{ runner.os }}-python-${{ matrix.python-version || '3.12' }}-${{ hashFiles('**/requirements.txt') }}
+            key: pip-cache-${{ runner.os }}-python-3.12-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             pip-cache-${{ runner.os }}-python-
       - name: Cache Playwright browsers
