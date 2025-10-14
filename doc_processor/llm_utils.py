@@ -269,6 +269,24 @@ def _query_ollama(prompt: str, timeout: int = 45, context_window: int = 4096, ta
     logging.info(f"🌐 _query_ollama called for task: {task_name}")
     logging.debug(f"🌐 Ollama config: host={app_config.OLLAMA_HOST}, model={app_config.OLLAMA_MODEL}")
 
+    # Short-circuit for tests and offline runs. If SKIP_OLLAMA is set (env or config),
+    # return deterministic canned responses so unit tests and CI do not make network
+    # calls to an Ollama instance.
+    skip_env = os.getenv('SKIP_OLLAMA')
+    if (skip_env and skip_env != '0') or getattr(app_config, 'SKIP_OLLAMA', False):
+        logging.info(f"🌐 SKIP_OLLAMA active - returning canned response for task: {task_name}")
+        name = (task_name or '').lower()
+        # Provide simple deterministic responses that are parseable by callers.
+        if 'document_type' in name or 'document-type' in name or 'type' in name:
+            return "CLASSIFICATION: SINGLE_DOCUMENT\nCONFIDENCE: 90\nREASONING: Test-mode deterministic classification."
+        if 'document_analysis' in name or 'document-analysis' in name or 'analysis' in name:
+            # A short analysis style response used by callers that expect some text
+            return "Document analysis (test-mode): Likely single document. Confidence: 85%" 
+        if 'tag' in name or 'tag_extraction' in name or 'tag' in name:
+            return "DOCUMENT_TYPES: [invoice]\nKEYWORDS: [test, invoice]\nPEOPLE: []\nORGANIZATIONS: []\nPLACES: []\nDATES: []\nAMOUNTS: []\nREFERENCE_NUMBERS: []"
+        # Generic fallback
+        return "(SKIP_OLLAMA) Test-mode response."
+
     if not app_config.OLLAMA_HOST or not app_config.OLLAMA_MODEL:
         logging.error(f"❌ Ollama not configured - OLLAMA_HOST={app_config.OLLAMA_HOST}, OLLAMA_MODEL={app_config.OLLAMA_MODEL}")
         return None

@@ -476,14 +476,31 @@ def cleanup_empty_processing_batches() -> List[int]:
             # DATABASE_PATH after config_manager was loaded.
             if not processing_ids:
                 try:
-                    import sqlite3 as _sqlite
+                    # Prefer the project's centralized DB connector so PRAGMAs and
+                    # WAL mode are honored. dev_tools.db_connect.connect will
+                    # attempt to reuse the same connection semantics when possible.
                     env_db = os.getenv('DATABASE_PATH')
                     if env_db and os.path.exists(env_db):
-                        direct_conn = _sqlite.connect(env_db)
-                        direct_cur = direct_conn.cursor()
-                        direct_cur.execute("SELECT id FROM batches WHERE status = 'processing'")
-                        processing_ids = [r[0] for r in direct_cur.fetchall()]
-                        direct_conn.close()
+                        try:
+                            from .dev_tools.db_connect import connect as _dev_connect
+                            direct_conn = _dev_connect(env_db, timeout=30.0)
+                        except Exception:
+                            # Fallback to sqlite3 if helper not available
+                            import sqlite3 as _sqlite
+                            direct_conn = _sqlite.connect(env_db, timeout=30.0)
+                        try:
+                            direct_conn.row_factory = _sqlite.Row if hasattr(direct_conn, 'row_factory') else None
+                        except Exception:
+                            pass
+                        try:
+                            direct_cur = direct_conn.cursor()
+                            direct_cur.execute("SELECT id FROM batches WHERE status = 'processing'")
+                            processing_ids = [r[0] for r in direct_cur.fetchall()]
+                        finally:
+                            try:
+                                direct_conn.close()
+                            except Exception:
+                                pass
                 except Exception:
                     pass
 

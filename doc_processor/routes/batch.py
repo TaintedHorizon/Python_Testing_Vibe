@@ -93,6 +93,7 @@ def _orchestrate_smart_processing(batch_id: int, strategy_overrides: dict, token
     from ..config_manager import app_config as _cfg
 
     intake_dir = _cfg.INTAKE_DIR
+    logger.info(f"[smart] Orchestrator start: batch_id={batch_id} token={token} intake_dir={intake_dir}")
     yield {'message': 'Initializing smart processing...', 'progress': 0, 'total': 0}
 
     if not os.path.exists(intake_dir):
@@ -105,6 +106,7 @@ def _orchestrate_smart_processing(batch_id: int, strategy_overrides: dict, token
         if ext in ['.pdf', '.png', '.jpg', '.jpeg']:
             supported.append(os.path.join(intake_dir, f))
     total_files = len(supported)
+    logger.info(f"[smart] Found {total_files} supported intake files: {supported[:10]}")
     if total_files == 0:
         yield {'message': 'No intake files found', 'progress': 0, 'total': 0, 'complete': True}
         return
@@ -578,12 +580,21 @@ def process_batch_smart():
                     batch_id = create_new_batch('intake')
                     logger.warning(f"[smart] Batch vanished; re-created as {batch_id}")
                     cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
+                    try:
+                        conn.commit()
+                    except Exception:
+                        # best-effort commit; if it fails the caller will handle
+                        pass
                 except Exception:
                     try:
                         # Try the intake guard to reuse any existing intake batch first
                         batch_id = get_or_create_intake_batch()
                         logger.warning(f"[smart] Batch vanished; get_or_create returned {batch_id}")
                         cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
+                        try:
+                            conn.commit()
+                        except Exception:
+                            pass
                     except Exception:
                         try:
                             # Final raw fallback
@@ -592,6 +603,10 @@ def process_batch_smart():
                             batch_id = cursor.lastrowid
                             logger.warning(f"[smart] Batch vanished; re-created as {batch_id} (raw fallback)")
                             cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
+                            try:
+                                conn.commit()
+                            except Exception:
+                                pass
                         except Exception as re_e3:
                             return jsonify(create_error_response(f"Batch not found and re-create failed: {re_e3}"))
             else:
@@ -600,6 +615,10 @@ def process_batch_smart():
                 if result[0] == 'intake':
                     try:
                         cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
+                        try:
+                            conn.commit()
+                        except Exception:
+                            pass
                         logger.info(f"[smart] Elevated batch {batch_id} status from 'intake' to 'ready'")
                     except Exception as e:
                         logger.warning(f"Failed to update batch status to ready: {e}")
@@ -638,6 +657,38 @@ def process_batch_smart():
         for t in expired:
             smart_tokens.pop(t, None)
         logger.info(f"[smart] Issued token {token} for batch {batch_id} with {len(strategy_overrides)} overrides (expired cleaned: {len(expired)})")
+
+        # Optional: allow API callers to request immediate processing without
+        # establishing an SSE connection (useful for scripted or UI-less runs).
+        # Default to starting processing immediately when called from UI
+        # unless caller explicitly sets start_immediately=false.
+        start_now = True
+        if isinstance(data, dict) and ('start_immediately' in data):
+            start_now = bool(data.get('start_immediately'))
+        if start_now:
+            def _run_now(tok: str):
+                try:
+                    logger.info(f"[smart] Immediate run thread starting for token {tok}")
+                    # Ensure batch_id is an int for the orchestrator
+                    try:
+                        bid = int(batch_id)
+                    except Exception:
+                        bid = batch_id
+                    for _ in _orchestrate_smart_processing(bid, strategy_overrides or {}, tok):
+                        # consume generator to drive processing; we don't need to stream
+                        # results here, just ensure it runs to completion.
+                        pass
+                    logger.info(f"[smart] Immediate run thread completed for token {tok}")
+                except Exception as e:
+                    logger.error(f"[smart] Immediate run failed for token {tok}: {e}")
+                finally:
+                    # Best-effort cleanup of token
+                    try:
+                        smart_tokens.pop(tok, None)
+                    except Exception:
+                        pass
+
+            threading.Thread(target=_run_now, args=(token,), daemon=True, name=f"SmartRun-{token[:6]}").start()
         return jsonify(create_success_response({
             'message': 'Smart processing token issued',
             'batch_id': batch_id,

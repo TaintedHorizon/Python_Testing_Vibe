@@ -1,13 +1,27 @@
 import os
 import sqlite3
-import pytest
 import sys
 from pathlib import Path
+
+import pytest
 
 # Ensure project root is on path
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+@pytest.fixture(autouse=True)
+def _force_skip_ollama(monkeypatch):
+    """Force tests to skip real Ollama calls unless explicitly overridden."""
+    monkeypatch.setenv('SKIP_OLLAMA', '1')
+    try:
+        from doc_processor import config_manager
+        setattr(config_manager.app_config, 'SKIP_OLLAMA', True)
+    except Exception:
+        # best-effort; env var is sufficient
+        pass
+    yield
 
 
 @pytest.fixture()
@@ -26,49 +40,9 @@ def temp_db_path(tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def app(temp_db_path):
-    """Create a Flask app bound to the isolated temp database.
-
-    The caller is responsible for seeding any required tables/rows. We delay
-    import until after DATABASE_PATH is set to avoid binding to production DB.
-    """
-    from doc_processor.app import create_app  # imported late
-    application = create_app()
-    return application
-
-
-@pytest.fixture()
-def client(app):
-    """Flask test client fixture."""
-    return app.test_client()
-
-
-@pytest.fixture()
-def seed_conn(temp_db_path):
-    """Open a connection to the temp DB for seeding and yield it (auto-close)."""
-    conn = sqlite3.connect(temp_db_path)
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-
-def ensure_minimal_grouped_schema(conn):
-    """Create minimal tables needed for grouped-doc rotation tests."""
-    cur = conn.cursor()
-    cur.execute("""CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id INTEGER, document_name TEXT, status TEXT, final_filename_base TEXT)""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS pages (id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id INTEGER, source_filename TEXT, page_number INTEGER, processed_image_path TEXT, ocr_text TEXT, ai_suggested_category TEXT, human_verified_category TEXT, status TEXT, rotation_angle INTEGER DEFAULT 0)""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS document_pages (document_id INTEGER, page_id INTEGER, sequence INTEGER, PRIMARY KEY(document_id,page_id))""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS intake_rotations (filename TEXT PRIMARY KEY, rotation INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
-    conn.commit()
-
-
-@pytest.fixture()
 def allow_db_creation(monkeypatch, temp_db_path):
     """Ensure the temporary DB has the minimal schema used by integration tests."""
-    # Ensure ALLOW_NEW_DB so get_db_connection won't refuse creation in some code paths
     monkeypatch.setenv('ALLOW_NEW_DB', '1')
-    import sqlite3
     conn = sqlite3.connect(str(temp_db_path))
     cur = conn.cursor()
     # Minimal tables used across integration tests
@@ -132,9 +106,98 @@ def allow_db_creation(monkeypatch, temp_db_path):
         page_number INTEGER
     )
     """)
+    # Optional extra table used by some code paths
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS tag_usage_stats (
+        tag TEXT PRIMARY KEY,
+        usage_count INTEGER DEFAULT 0
+    )
+    """)
     conn.commit()
     conn.close()
     yield
+
+
+@pytest.fixture()
+def temp_intake_dir(tmp_path, monkeypatch):
+    intake = tmp_path / "intake"
+    intake.mkdir()
+    monkeypatch.setenv("INTAKE_DIR", str(intake))
+    return str(intake)
+
+
+@pytest.fixture()
+def app(temp_db_path, allow_db_creation, temp_intake_dir, monkeypatch):
+    """Create a Flask app bound to the isolated temp database.
+
+    The caller is responsible for seeding any required tables/rows. We delay
+    import until after DATABASE_PATH is set to avoid binding to production DB.
+    """
+    # Use FAST_TEST_MODE to speed tests
+    monkeypatch.setenv("FAST_TEST_MODE", "1")
+    # Ensure config_manager picks up test env overrides set by earlier fixtures
+    import importlib
+    try:
+        import doc_processor.config_manager as _cm
+        importlib.reload(_cm)
+    except Exception:
+        pass
+
+    from doc_processor.app import create_app  # imported late
+    application = create_app()
+    yield application
+
+
+@pytest.fixture()
+def client(app):
+    """Flask test client fixture."""
+    return app.test_client()
+
+
+@pytest.fixture()
+def seed_conn(temp_db_path):
+    """Open a connection to the temp DB for seeding and yield it (auto-close)."""
+    conn = sqlite3.connect(temp_db_path)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@pytest.fixture()
+def mocked_ollama(request, monkeypatch):
+    """Compatibility fixture: some older tests request `mocked_ollama`.
+
+    Reuse the package-level `mock_llm` fixture behavior by importing it
+    if available. This keeps test expectations stable while centralizing
+    the real mocking logic in `doc_processor/conftest.py`.
+    """
+    # If the package-level fixture `mock_llm` exists, call it.
+    # Otherwise provide a no-op mock that ensures `_query_ollama` won't
+    # perform network calls in practice (best-effort).
+    # Ask pytest for the package-level `mock_llm` fixture if available so
+    # pytest can manage its setup/teardown lifecycle. This avoids directly
+    # calling fixture functions which pytest disallows.
+    try:
+        request.getfixturevalue('mock_llm')
+        # If the above succeeded, the package-level fixture is active for
+        # the duration of this test and we can simply yield control.
+        yield
+        return
+    except Exception:
+        # If the package-level fixture isn't available, fall back.
+        pass
+
+    # Fallback: ensure `_query_ollama` is stubbed to return an empty string.
+    try:
+        import doc_processor.llm_utils as _llm_utils
+
+        monkeypatch.setattr(_llm_utils, '_query_ollama', lambda *a, **k: "")
+    except Exception:
+        # Nothing else we can do — tests will rely on SKIP_OLLAMA autouse.
+        pass
+    yield
+
 
 # Global warning filters for FAST_TEST_MODE to reduce noisy OCR-related deprecations.
 if os.getenv('FAST_TEST_MODE','0').lower() in ('1','true','t'):

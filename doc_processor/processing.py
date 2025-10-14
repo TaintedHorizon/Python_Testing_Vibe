@@ -1342,18 +1342,32 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                     os.makedirs(app_config.ARCHIVE_DIR, exist_ok=True)
                     batch_image_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
 
-                    cursor.execute("""
-                        INSERT INTO single_documents (
-                            batch_id, original_filename, original_pdf_path,
-                            page_count, file_size_bytes, status
-                        ) VALUES (?, ?, ?, ?, ?, ?)
-                    """, (
-                        batch_id, pdf_filename, pdf_path_for_processing,
-                        analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
-                        "processing"
-                    ))
-                    doc_id = cursor.lastrowid
-                    conn.commit()  # Commit immediately to save progress
+                    try:
+                        cursor.execute("""
+                            INSERT INTO single_documents (
+                                batch_id, original_filename, original_pdf_path,
+                                page_count, file_size_bytes, status
+                            ) VALUES (?, ?, ?, ?, ?, ?)
+                        """, (
+                            batch_id, pdf_filename, pdf_path_for_processing,
+                            analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
+                            "processing"
+                        ))
+                        doc_id = cursor.lastrowid
+                        conn.commit()  # Commit immediately to save progress
+                        logging.info(f"Inserted single_documents id={doc_id} for file={pdf_filename} (batch={batch_id})")
+                    except Exception as ins_err:
+                        # Log detailed error and continue processing other files
+                        logging.error(f"Failed to INSERT single_documents for {pdf_filename}: {ins_err}")
+                        import traceback
+                        logging.debug(traceback.format_exc())
+                        # Attempt to rollback to keep connection usable
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
+                        # skip to next document
+                        continue
 
                     # Step 2: Create searchable PDF with OCR (with caching)
                     searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
@@ -1508,18 +1522,35 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
                         pdf_filename = filename
 
                     # Step 1: Insert document first with basic info (no OCR yet)
-                    cursor.execute("""
-                        INSERT INTO single_documents (
-                            batch_id, original_filename, original_pdf_path,
-                            page_count, file_size_bytes, status
-                        ) VALUES (?, ?, ?, ?, ?, ?)
-                    """, (
-                        batch_id, pdf_filename, pdf_path_for_processing,
-                        analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
-                        "processing"
-                    ))
-                    doc_id = cursor.lastrowid
-                    conn.commit()  # Commit immediately to save progress
+                    try:
+                        cursor.execute("""
+                            INSERT INTO single_documents (
+                                batch_id, original_filename, original_pdf_path,
+                                page_count, file_size_bytes, status
+                            ) VALUES (?, ?, ?, ?, ?, ?)
+                        """, (
+                            batch_id, pdf_filename, pdf_path_for_processing,
+                            analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
+                            "processing"
+                        ))
+                        doc_id = cursor.lastrowid
+                        conn.commit()  # Commit immediately to save progress
+                        logging.info(f"Inserted single_documents id={doc_id} for file={pdf_filename} (batch={batch_id})")
+                    except Exception as ins_err:
+                        logging.error(f"Failed to INSERT single_documents for {pdf_filename}: {ins_err}")
+                        import traceback
+                        logging.debug(traceback.format_exc())
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
+                        yield {
+                            'error': f'Failed to create DB row for {pdf_filename}: {ins_err}',
+                            'filename': pdf_filename,
+                            'document_number': i,
+                            'total_documents': len(single_docs)
+                        }
+                        continue
 
                     # Step 2: Create searchable PDF with OCR (with caching)
                     searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
@@ -1675,18 +1706,30 @@ def _process_docs_into_fixed_batch_with_progress(docs: List[DocumentAnalysis], b
                     else:
                         pdf_path_for_processing = analysis.file_path
                         pdf_filename = filename
-                    cursor.execute("""
-                        INSERT INTO single_documents (
-                            batch_id, original_filename, original_pdf_path,
-                            page_count, file_size_bytes, status
-                        ) VALUES (?, ?, ?, ?, ?, ?)
-                    """, (
-                        batch_id, pdf_filename, pdf_path_for_processing,
-                        analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
-                        "processing"
-                    ))
-                    doc_id = cursor.lastrowid
-                    conn.commit()
+                    try:
+                        cursor.execute("""
+                            INSERT INTO single_documents (
+                                batch_id, original_filename, original_pdf_path,
+                                page_count, file_size_bytes, status
+                            ) VALUES (?, ?, ?, ?, ?, ?)
+                        """, (
+                            batch_id, pdf_filename, pdf_path_for_processing,
+                            analysis.page_count, int(analysis.file_size_mb * 1024 * 1024),
+                            "processing"
+                        ))
+                        doc_id = cursor.lastrowid
+                        conn.commit()
+                        logging.info(f"Inserted single_documents id={doc_id} for file={pdf_filename} (fixed batch={batch_id})")
+                    except Exception as ins_err:
+                        logging.error(f"Failed to INSERT single_documents for {pdf_filename} into fixed batch {batch_id}: {ins_err}")
+                        import traceback
+                        logging.debug(traceback.format_exc())
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
+                        yield {'error': f'Failed to create DB row for {pdf_filename}: {ins_err}', 'filename': filename, 'document_number': i, 'total_documents': len(docs)}
+                        continue
                     searchable_pdf_path = os.path.join(searchable_dir, f"{base_name}_searchable.pdf")
                     forced_rotation = _lookup_forced_rotation(os.path.basename(pdf_filename))
                     ocr_text, ocr_confidence, ocr_status = create_searchable_pdf(

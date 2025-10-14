@@ -73,6 +73,46 @@ def mock_llm(monkeypatch):
 
 
 @pytest.fixture(scope='session', autouse=True)
+def _enforce_llm_stub():
+    """Session autouse fixture to stub low-level LLM calls at import/collection time.
+
+    This ensures any code paths that reach into `doc_processor.llm_utils._query_ollama`
+    will hit a deterministic in-memory stub during tests and will not attempt
+    network access to an Ollama server.
+    """
+    try:
+        import doc_processor.llm_utils as _llm
+
+        # Keep original in case some tests want to restore it manually.
+        try:
+            _llm._original_query_ollama = _llm._query_ollama
+        except Exception:
+            pass
+
+        def _stub_query_ollama(*args, **kwargs):
+            # Return a lightweight deterministic response shape used by callers.
+            # Many callers only check for non-empty string or parse specific
+            # keys; returning a short, parseable placeholder keeps behavior
+            # predictable.
+            return "TYPE: single_document\nCONFIDENCE: 90\nREASON: test-mode stub"
+
+        _llm._query_ollama = _stub_query_ollama
+    except Exception:
+        # Best-effort: if the module can't be imported, tests will rely on
+        # other existing mocks (e.g., SKIP_OLLAMA env) to avoid network.
+        pass
+    yield
+    # No teardown required; test process exits after session. If the original
+    # function was saved, restore it for completeness.
+    try:
+        import doc_processor.llm_utils as _llm2
+        if hasattr(_llm2, '_original_query_ollama'):
+            _llm2._query_ollama = _llm2._original_query_ollama
+    except Exception:
+        pass
+
+
+@pytest.fixture(scope='session', autouse=True)
 def _enforce_test_environment(tmp_path_factory):
     """Session-wide autouse fixture to ensure tests use an isolated temp DB and fast test flags.
 

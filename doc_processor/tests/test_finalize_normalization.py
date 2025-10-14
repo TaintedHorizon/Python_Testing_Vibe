@@ -9,8 +9,8 @@ def client(tmp_path, monkeypatch):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     cur.executescript("""
-    CREATE TABLE batches (id INTEGER PRIMARY KEY AUTOINCREMENT, status TEXT, has_been_manipulated INTEGER DEFAULT 0);
-    CREATE TABLE single_documents (
+    CREATE TABLE IF NOT EXISTS batches (id INTEGER PRIMARY KEY AUTOINCREMENT, status TEXT, has_been_manipulated INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS single_documents (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         batch_id INTEGER NOT NULL,
         original_filename TEXT NOT NULL,
@@ -26,7 +26,7 @@ def client(tmp_path, monkeypatch):
         final_filename TEXT,
         status TEXT DEFAULT 'processing'
     );
-    CREATE TABLE categories (name TEXT PRIMARY KEY, is_active INTEGER DEFAULT 1);
+    CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY, is_active INTEGER DEFAULT 1);
     INSERT INTO categories(name,is_active) VALUES ('Reports',1);
     INSERT INTO batches(id,status) VALUES (1,'processing');
     INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, page_count, ai_suggested_category, ai_suggested_filename)
