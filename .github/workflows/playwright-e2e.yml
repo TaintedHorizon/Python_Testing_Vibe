@@ -41,6 +41,13 @@ jobs:
           pip install -r doc_processor/requirements.txt
           pip install playwright pytest-playwright
           python -m playwright install --with-deps
+      - name: Run integration tests
+        env:
+          FAST_TEST_MODE: '1'
+          SKIP_OLLAMA: '1'
+        run: |
+          . venv/bin/activate
+          pytest -q doc_processor/tests/test_integration_shutdown.py doc_processor/tests/test_integration_export.py || true
       - name: Run Playwright E2E
         env:
           PLAYWRIGHT_E2E: '1'
