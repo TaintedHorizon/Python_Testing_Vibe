@@ -85,28 +85,41 @@ class DocumentTypeDetector:
         if DocumentTypeDetector._cleanup_started:
             return
         DocumentTypeDetector._cleanup_started = True
+
         def _cleanup_loop():
-            # Use shorter sleep increments and observe global shutdown event so
-            # the thread can exit promptly when the application is shutting down
-            from .config_manager import SHUTDOWN_EVENT
+            """Background thread that periodically purges old normalized PDFs."""
             sleep_interval = 60 * 5  # 5 minutes between checks when idle
             while True:
                 try:
+                    # Obtain SHUTDOWN_EVENT and app_config robustly to support both
+                    # package-import and direct-script import contexts used in tests.
+                    shutdown_event = None
+                    app_cfg = None
                     try:
-                        from .config_manager import app_config
-                    except ImportError:
-                        from config_manager import app_config
-                    root = app_config.NORMALIZED_DIR
-                    max_age_days = app_config.NORMALIZED_CACHE_MAX_AGE_DAYS
+                        from .config_manager import SHUTDOWN_EVENT as shutdown_event, app_config as app_cfg
+                    except Exception:
+                        try:
+                            from config_manager import SHUTDOWN_EVENT as shutdown_event, app_config as app_cfg
+                        except Exception:
+                            import sys
+                            cm = sys.modules.get('doc_processor.config_manager') or sys.modules.get('config_manager')
+                            if cm is not None:
+                                shutdown_event = getattr(cm, 'SHUTDOWN_EVENT', None)
+                                app_cfg = getattr(cm, 'app_config', None)
+
+                    root = app_cfg.NORMALIZED_DIR if app_cfg is not None else None
+                    max_age_days = getattr(app_cfg, 'NORMALIZED_CACHE_MAX_AGE_DAYS', 14) if app_cfg is not None else 14
+
                     if not root or not os.path.isdir(root):
                         # Wait in smaller increments and bail out if shutdown requested
                         waited = 0
                         while waited < 3600:
-                            if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
+                            if shutdown_event is not None and shutdown_event.is_set():
                                 return
                             time.sleep(sleep_interval)
                             waited += sleep_interval
                         continue
+
                     cutoff = time.time() - (max_age_days * 86400)
                     removed = 0
                     for fname in os.listdir(root):
@@ -122,19 +135,22 @@ class DocumentTypeDetector:
                             continue
                     if removed:
                         self.logger.info(f"Normalized cache cleanup removed {removed} stale PDFs (>{max_age_days}d)")
+
                 except Exception as e:
                     try:
                         self.logger.warning(f"Normalized cache cleanup error: {e}")
                     except Exception:
                         pass
+
                 # Sleep up to 12 hours but check for shutdown periodically
                 total_sleep = 43200
                 slept = 0
                 while slept < total_sleep:
-                    if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
+                    if shutdown_event is not None and shutdown_event.is_set():
                         return
                     time.sleep(sleep_interval)
                     slept += sleep_interval
+
         threading.Thread(target=_cleanup_loop, daemon=True, name='NormalizedCacheCleanup').start()
 
     def _convert_image_to_pdf(self, image_path: str) -> str:
