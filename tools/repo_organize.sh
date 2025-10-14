@@ -10,8 +10,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 APPLY=false
+MOVE_TOOLS=false
 if [[ "${1:-}" == "--apply" ]]; then
   APPLY=true
+fi
+if [[ "${1:-}" == "--move-tools" ]] || [[ "${2:-}" == "--move-tools" ]]; then
+  MOVE_TOOLS=true
 fi
 
 # Items considered allowed at repository root (top-level only)
@@ -26,7 +30,11 @@ MOVE_CANDIDATES=(
   "Document_Scanner_Ollama_outdated"
   "archive"
   "scripts"
-  "tools/download_manager" # leave tools/ but move subfolders if desired
+  "docs/examples"
+  "tools/download_manager" # leave tools/ but optionally move subfolders
+  "tools/file_utils"
+  "tools/gamelist_editor"
+  "tools/sdcard_imager"
 )
 
 # Normalize candidates: only if they exist at root
@@ -66,6 +74,10 @@ for i in "${TO_MOVE[@]}"; do
   echo "Moving $i -> $dest"
   # create destination parent if not exists
   mkdir -p "$(dirname "$dest")"
+  if [[ "$i" == tools/* && "$MOVE_TOOLS" != true ]]; then
+    echo "Skipping move of $i because --move-tools was not provided"
+    continue
+  fi
   git mv "$i" "$dest"
 done
 
