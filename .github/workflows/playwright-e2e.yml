@@ -3,8 +3,73 @@ name: Playwright E2E
 on:
   workflow_dispatch:
   push:
-    paths:
-      - 'doc_processor/**'
+    name: Playwright E2E
+
+    on:
+      workflow_dispatch:
+      push:
+        paths:
+          - 'doc_processor/**'
+          - '.github/workflows/playwright-e2e.yml'
+
+    jobs:
+      e2e:
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+          - name: Setup Python
+            uses: actions/setup-python@v4
+            with:
+              python-version: '3.12'
+          - name: Cache pip
+            uses: actions/cache@v4
+            with:
+              path: ~/.cache/pip
+              key: pip-cache-${{ runner.os }}-python-3.12-${{ hashFiles('**/requirements.txt') }}
+              restore-keys: |
+                pip-cache-${{ runner.os }}-python-
+          - name: Cache Playwright browsers
+            uses: actions/cache@v4
+            with:
+              path: ~/.cache/ms-playwright
+              key: playwright-browsers-${{ runner.os }}-v1
+              restore-keys: |
+                playwright-browsers-
+          - name: Install system deps for Playwright
+            run: |
+              sudo apt-get update
+              sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxss1 libgbm1 libxcomposite1 libxrandr2 libasound2
+          - name: Create venv and install deps
+            run: |
+              python -m venv venv
+              . venv/bin/activate
+              pip install -r doc_processor/requirements.txt
+              pip install playwright pytest-playwright
+              python -m playwright install --with-deps
+          - name: Run integration tests
+            env:
+              FAST_TEST_MODE: '1'
+              SKIP_OLLAMA: '1'
+            run: |
+              . venv/bin/activate
+              pytest -q doc_processor/tests/test_integration_shutdown.py doc_processor/tests/test_integration_export.py || true
+          - name: Run Playwright E2E
+            env:
+              PLAYWRIGHT_E2E: '1'
+              FAST_TEST_MODE: '1'
+              SKIP_OLLAMA: '1'
+            run: |
+              . venv/bin/activate
+              mkdir -p $GITHUB_WORKSPACE/doc_processor/tests/e2e/artifacts
+              export E2E_ARTIFACTS_DIR=$GITHUB_WORKSPACE/doc_processor/tests/e2e/artifacts
+              pytest -q doc_processor/tests/e2e || true
+          # Always upload artifacts (screenshots, HTML, app logs) for inspection
+          - name: Upload E2E artifacts
+            if: always()
+            uses: actions/upload-artifact@v4
+            with:
+              name: e2e-artifacts
+              path: doc_processor/tests/e2e/artifacts/
       - '.github/workflows/playwright-e2e.yml'
 
 jobs:
@@ -16,13 +81,13 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
+        - name: Cache pip
+          uses: actions/cache@v4
+          with:
+            path: ~/.cache/pip
             key: pip-cache-${{ runner.os }}-python-3.12-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            pip-cache-${{ runner.os }}-python-
+            restore-keys: |
+              pip-cache-${{ runner.os }}-python-
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
