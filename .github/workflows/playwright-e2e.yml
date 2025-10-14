@@ -20,7 +20,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-cache-${{ runner.os }}-python-${{ matrix.python-version || '3.12' }}-{{ hashFiles('**/requirements.txt') }}
+          key: pip-cache-${{ runner.os }}-python-${{ matrix.python-version || '3.12' }}-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             pip-cache-${{ runner.os }}-python-
       - name: Cache Playwright browsers
@@ -64,5 +64,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-artifacts
-          path: doc_processor/tests/e2e/artifacts/
-*** End Patch
+        path: doc_processor/tests/e2e/artifacts/
