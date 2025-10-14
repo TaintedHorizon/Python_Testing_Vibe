@@ -4,7 +4,8 @@ on:
   push:
     branches: [ main, chore/db-backup-tests ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, chore/db-backup-tests ]
+  workflow_dispatch: {}
 
 jobs:
   test:
