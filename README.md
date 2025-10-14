@@ -103,7 +103,7 @@ This map lists active, support, legacy, and runtime directories/files for fast o
 | `LICENSE` | Legal | MIT License (root) |
 | `doc_processor/requirements.txt` | Dependencies | Processor dependencies list |
 | `archive/legacy/Document_Scanner_Gemini_outdated/` | Legacy | Deprecated Gemini-based scanner (archive only) |
-| `Document_Scanner_Ollama_outdated/` | Legacy | Deprecated early Ollama implementation (archive only) |
+| `archive/legacy/Document_Scanner_Ollama_outdated/` | Legacy | Deprecated early Ollama implementation (archive only) |
 | `tools/` | Misc Tools | Independent utility sub-projects |
 
 Legend: Core = essential runtime; Support = ancillary active; Legacy = historical only; Runtime Dir = generated/working; Service/Route/Template = layered architecture components.
@@ -193,11 +193,11 @@ All document processing directories are now properly organized within `doc_proce
 
 ### 📚 Legacy & Experimental
 
-#### **`Document_Scanner_Gemini_outdated/`** (260KB)
+#### **`archive/legacy/Document_Scanner_Gemini_outdated/`** (260KB)
 Legacy document scanner implementation using Google Gemini API.  
 *Status: Archived - superseded by doc_processor (source code only, venv removed)*
 
-#### **`Document_Scanner_Ollama_outdated/`** (164KB)
+#### **`archive/legacy/Document_Scanner_Ollama_outdated/`** (164KB)
 Legacy document scanner using Ollama integration.  
 *Status: Archived - superseded by doc_processor (source code only, venv removed)*
 
