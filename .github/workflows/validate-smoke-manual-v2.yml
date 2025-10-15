@@ -1,0 +1,12 @@
+name: Validate Smoke Manual v2
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print
+        run: |
+          echo "validate-smoke-manual-v2: OK"
