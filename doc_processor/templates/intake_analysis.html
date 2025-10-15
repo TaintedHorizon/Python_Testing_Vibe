@@ -385,7 +385,7 @@
             <div class="card-body text-center">
                 <h4>📁 No Documents Analyzed Yet</h4>
                 <p>Click the button below to analyze documents in the intake directory.</p>
-                <button onclick="startAnalysis()" class="btn btn-primary btn-lg">
+                <button data-testid="start-analysis" onclick="startAnalysis()" class="btn btn-primary btn-lg">
                     🚀 Start Analysis
                 </button>
             </div>
@@ -645,7 +645,7 @@
             <strong id="batchSummaryText">{{ analyses|length }} documents ready for processing</strong>
         </div>
         <div class="batch-actions">
-            <button onclick="startBatchProcessing('smart')" class="btn-success">
+            <button data-testid="start-smart-processing" onclick="startBatchProcessing('smart')" class="btn-success">
                 🚀 Start Smart Processing
             </button>
             <button onclick="refreshAnalysis()" class="btn-secondary">

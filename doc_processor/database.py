@@ -178,25 +178,33 @@ def get_db_connection():
     the DATABASE_PATH environment variable for backward compatibility.
     """
     global _DB_LOGGED_ONCE
-    try:
-        # Prefer centralized config first
-        from .config_manager import app_config  # local import to avoid cycles
-        db_path = app_config.DATABASE_PATH
-        # Test fixtures may override DATABASE_PATH via environment AFTER config_manager loaded.
-        # Honor an explicit env var if it points to a different location (exists or parent dir writable).
-        env_override = os.getenv("DATABASE_PATH")
-        if env_override and os.path.abspath(env_override) != os.path.abspath(db_path):
-            try:
-                override_dir = os.path.dirname(env_override)
-                if not override_dir:
-                    override_dir = '.'
-                os.makedirs(override_dir, exist_ok=True)
-                db_path = env_override  # switch to override for this connection
-            except Exception as _ovr_err:
-                logging.getLogger(__name__).warning(f"Ignored DATABASE_PATH override {env_override}: {_ovr_err}")
-    except Exception:
-        # Fallback purely to environment
+    # Allow an explicit environment override to take precedence. This is important
+    # for tests and environments that set DATABASE_PATH at runtime (e.g., pytest
+    # fixtures or CI). We validate/ensure the directory exists before using it.
+    env_override = os.getenv("DATABASE_PATH")
+    db_path = None
+    if env_override:
+        try:
+            override_dir = os.path.dirname(env_override)
+            if not override_dir:
+                override_dir = '.'
+            os.makedirs(override_dir, exist_ok=True)
+            db_path = env_override
+        except Exception as _ovr_err:
+            logging.getLogger(__name__).warning(f"Ignored DATABASE_PATH override {env_override}: {_ovr_err}")
+
+    if not db_path:
+        try:
+            # Prefer centralized config if no valid env override
+            from .config_manager import app_config  # local import to avoid cycles
+            db_path = getattr(app_config, 'DATABASE_PATH', None)
+        except Exception:
+            db_path = None
+
+    # Final fallback to any environment setting (may be None)
+    if not db_path:
         db_path = os.getenv("DATABASE_PATH")
+
     if not db_path:
         raise RuntimeError("Database path is not configured. Set in .env or via config_manager.")
 
@@ -222,8 +230,36 @@ def get_db_connection():
         # If file does not exist (or empty) we are about to create/initialize it.
         # Require explicit opt-in unless running in tests (FAST_TEST_MODE) or an allow flag is set.
         allow_new = os.getenv('ALLOW_NEW_DB') in ('1','true','TRUE','True')
+        allow_backup = os.getenv('ALLOW_NEW_DB') in ('backup', 'BACKUP')
         fast_mode = os.getenv('FAST_TEST_MODE','0').lower() in ('1','true','t')
-        if not allow_new and not fast_mode:
+        # If ALLOW_NEW_DB=backup then we'll first copy any existing file into
+        # the configured DB_BACKUP_DIR before proceeding. This provides a safer
+        # path for scripted upgrades where accidental overwrites were happening.
+        if allow_backup and db_existed_before:
+            try:
+                try:
+                    from .config_manager import app_config
+                    backup_root = getattr(app_config, 'DB_BACKUP_DIR', None)
+                except Exception:
+                    backup_root = os.getenv('DB_BACKUP_DIR')
+                if not backup_root:
+                    import os as _os
+                    xdg_data = os.getenv('XDG_DATA_HOME') or _os.path.join(_os.path.expanduser('~'), '.local', 'share')
+                    backup_root = _os.path.join(xdg_data, 'doc_processor', 'db_backups')
+                os.makedirs(backup_root, exist_ok=True)
+                import shutil
+                import datetime
+                # Use timezone-aware UTC timestamp to avoid naive datetime deprecation
+                # Use timezone-aware UTC timestamp
+                timestamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+                src = db_path
+                dest = os.path.join(backup_root, f"documents.db.backup.{timestamp}")
+                shutil.copy2(src, dest)
+                logging.getLogger(__name__).warning(f"Backed up existing DB {src} -> {dest} before re-initialization")
+            except Exception as _bck_err:
+                logging.getLogger(__name__).warning(f"Failed to backup DB before new creation: {_bck_err}")
+
+        if not allow_new and not fast_mode and not allow_backup:
             msg = (
                 f"Refusing to create new database at {db_path}. File missing or empty. "
                 "Set ALLOW_NEW_DB=1 to allow creation (or FAST_TEST_MODE=1 for tests). "
@@ -232,52 +268,191 @@ def get_db_connection():
             logging.getLogger(__name__).critical(msg)
             raise RuntimeError(msg)
 
-    conn = sqlite3.connect(db_path, timeout=30.0)  # 30 second timeout for locks
-    conn.row_factory = sqlite3.Row
-    
+    # Attempt to open the SQLite connection with retries to mitigate transient
+    # disk I/O issues observed in the test harness (pytest using tmp dirs).
+    conn = None
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            # Use a 30s timeout for busy locks. Use URI mode only if necessary.
+            conn = sqlite3.connect(db_path, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            # Log connection acquisition with process/thread context for debugging
+            try:
+                import threading
+                caller = None
+                try:
+                    # lightweight caller hint
+                    import inspect
+                    frame = inspect.stack()[1]
+                    caller = f"{frame.function} @ {frame.filename}:{frame.lineno}"
+                except Exception:
+                    caller = None
+                logging.getLogger(__name__).debug(
+                    f"[DB CONNECT] pid={os.getpid()} thread={threading.get_ident()} attempt={attempt}/{max_attempts} path={db_path} caller={caller}"
+                )
+            except Exception:
+                pass
+            break
+        except sqlite3.OperationalError as op_err:
+            # Disk I/O errors and other transient issues may surface here.
+            logging.getLogger(__name__).warning(
+                f"SQLite connect attempt {attempt} failed for {db_path}: {op_err}"
+            )
+            conn = None
+            if attempt < max_attempts:
+                try:
+                    time.sleep(0.1 * attempt)
+                except Exception:
+                    pass
+                continue
+            else:
+                # Re-raise after exhausting retries
+                raise
+    # Ensure conn is non-None for static analyzers and downstream code
+    if conn is None:
+        raise RuntimeError(f"Failed to open SQLite connection to {db_path}")
+
     # Enable WAL mode for better concurrent access
     conn.execute("PRAGMA journal_mode=WAL")
-    
+
     # Set busy timeout for additional safety
     conn.execute("PRAGMA busy_timeout=30000")  # 30 seconds in milliseconds
-    
+
     # Lightweight on-demand schema ensures for legacy grouped workflow restoration.
     # We gate this behind a quick PRAGMA table_info check to avoid overhead on hot paths.
     try:
         cursor = conn.cursor()
-        # Ensure 'documents' table (grouped workflow) exists with minimal needed columns.
-        cursor.execute("PRAGMA table_info(documents)")
-        cols = [r[1] for r in cursor.fetchall()]
-        if not cols:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS documents (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    batch_id INTEGER,
-                    document_name TEXT,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    final_filename_base TEXT,
-                    FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
-                )
-                """
-            )
-        # Ensure document_pages junction table for grouping exists
-        cursor.execute("PRAGMA table_info(document_pages)")
-        dp_cols = [r[1] for r in cursor.fetchall()]
-        if not dp_cols:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS document_pages (
-                    document_id INTEGER,
-                    page_id INTEGER,
-                    sequence INTEGER,
-                    PRIMARY KEY(document_id, page_id),
-                    FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
-                    FOREIGN KEY(page_id) REFERENCES pages(id) ON DELETE CASCADE
-                )
-                """
-            )
+        # Ensure essential application tables exist. Some tests and import-time
+        # code paths access these tables immediately; create them on-demand
+        # if they are missing. This is safe and idempotent (CREATE TABLE IF NOT EXISTS).
+        def _ensure_table(name, ddl):
+            try:
+                cursor.execute(f"PRAGMA table_info({name})")
+                cols = [r[1] for r in cursor.fetchall()]
+                if not cols:
+                    cursor.executescript(ddl)
+            except Exception:
+                # If PRAGMA or DDL fails, ignore and let callers handle missing tables
+                pass
+
+        _ensure_table('batches', """
+            CREATE TABLE IF NOT EXISTS batches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status TEXT NOT NULL DEFAULT 'processing',
+                has_been_manipulated INTEGER DEFAULT 0
+            );
+        """)
+
+        _ensure_table('pages', """
+            CREATE TABLE IF NOT EXISTS pages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER,
+                source_filename TEXT,
+                page_number INTEGER,
+                processed_image_path TEXT,
+                ocr_text TEXT,
+                ai_suggested_category TEXT,
+                human_verified_category TEXT,
+                status TEXT,
+                rotation_angle INTEGER DEFAULT 0
+            );
+        """)
+
+        _ensure_table('single_documents', """
+            CREATE TABLE IF NOT EXISTS single_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER,
+                original_filename TEXT,
+                original_pdf_path TEXT,
+                page_count INTEGER,
+                file_size_bytes INTEGER,
+                status TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ai_suggested_category TEXT,
+                ai_suggested_filename TEXT,
+                ai_confidence REAL,
+                ai_summary TEXT,
+                ocr_text TEXT,
+                ocr_confidence_avg REAL
+            );
+        """)
+
+        _ensure_table('document_tags', """
+            CREATE TABLE IF NOT EXISTS document_tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER,
+                tag_category TEXT CHECK(tag_category IN ('people','organizations','places','dates','document_types','keywords','amounts','reference_numbers')),
+                tag_value TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                llm_source TEXT,
+                extraction_confidence REAL,
+                UNIQUE(document_id, tag_category, tag_value)
+            );
+        """)
+
+        _ensure_table('categories', """
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                is_active INTEGER DEFAULT 1
+            );
+        """)
+
+        _ensure_table('interaction_log', """
+            CREATE TABLE IF NOT EXISTS interaction_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER,
+                document_id INTEGER,
+                user_id TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                event_type TEXT,
+                step TEXT,
+                content TEXT,
+                notes TEXT
+            );
+        """)
+
+        _ensure_table('intake_rotations', """
+            CREATE TABLE IF NOT EXISTS intake_rotations (
+                filename TEXT PRIMARY KEY,
+                rotation INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        _ensure_table('intake_working_files', """
+            CREATE TABLE IF NOT EXISTS intake_working_files (
+                filename TEXT PRIMARY KEY,
+                working_pdf TEXT NOT NULL,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+        # Legacy/grouped workflow tables
+        _ensure_table('documents', """
+            CREATE TABLE IF NOT EXISTS documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER,
+                document_name TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                final_filename_base TEXT,
+                FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
+            );
+        """)
+
+        _ensure_table('document_pages', """
+            CREATE TABLE IF NOT EXISTS document_pages (
+                document_id INTEGER,
+                page_id INTEGER,
+                sequence INTEGER,
+                PRIMARY KEY(document_id, page_id),
+                FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+                FOREIGN KEY(page_id) REFERENCES pages(id) ON DELETE CASCADE
+            );
+        """)
         # Emit post-creation warning if we just initialized a brand-new file
         if (not db_existed_before or pre_size == 0):
             try:
@@ -298,7 +473,53 @@ def get_db_connection():
             logging.getLogger(__name__).debug(f"[schema-ensure] grouped tables ensure warning: {_schema_err}")
         except Exception:
             pass
-    
+    try:
+        # Ensure any DDL executed above is committed so other connections see it.
+        conn.commit()
+    except Exception:
+        pass
+    # Ensure expected columns exist on tables that evolve over time. Use
+    # PRAGMA table_info to detect missing columns and ALTER TABLE ADD COLUMN
+    # for compatibility with older test DBs.
+    try:
+        cursor = conn.cursor()
+        def _ensure_column(table: str, column: str, definition: str):
+            try:
+                cursor.execute(f"PRAGMA table_info({table})")
+                cols = [r[1] for r in cursor.fetchall()]
+                if column not in cols:
+                    try:
+                        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+                    except Exception:
+                        # Some sqlite builds or modes may disallow ALTER; ignore
+                        pass
+            except Exception:
+                pass
+
+        # Columns used by processing.create_searchable_pdf and other code
+        _ensure_column('single_documents', 'searchable_pdf_path', 'TEXT')
+        _ensure_column('single_documents', 'ocr_source_signature', 'TEXT')
+        _ensure_column('single_documents', 'final_category', 'TEXT')
+        _ensure_column('single_documents', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+        _ensure_column('single_documents', 'final_filename', 'TEXT')
+        _ensure_column('single_documents', 'processed_at', 'TIMESTAMP')
+        # Tag extraction additional fields
+        _ensure_column('document_tags', 'extraction_confidence', 'REAL')
+        _ensure_column('document_tags', 'llm_source', 'TEXT')
+        _ensure_column('document_tags', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+        # Ensure a uniqueness constraint exists to prevent duplicate tag entries
+        try:
+            # Create a unique index if it does not already exist
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_document_tags_document_category_value ON document_tags(document_id, tag_category, tag_value)")
+        except Exception:
+            pass
+        try:
+            conn.commit()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
     return conn
 
 
@@ -977,10 +1198,10 @@ def log_detection_ground_truth(filename, predicted_strategy, actual_strategy, co
     """
     Log ground truth data when user corrects or validates detection decisions.
     This creates training data for improving LLM detection accuracy.
-    
+
     Args:
         filename (str): Name of the file that was classified
-        predicted_strategy (str): What the system predicted ('single_document' or 'batch_scan') 
+        predicted_strategy (str): What the system predicted ('single_document' or 'batch_scan')
         actual_strategy (str): What it actually was according to user
         confidence (float): System's confidence in the prediction (0.0 to 1.0)
         user_feedback (str, optional): User's comments about the decision
@@ -994,13 +1215,13 @@ def log_detection_ground_truth(filename, predicted_strategy, actual_strategy, co
             "correct_prediction": predicted_strategy == actual_strategy,
             "user_feedback": user_feedback
         }
-        
+
         log_interaction(
             batch_id=None,
             document_id=None,
             user_id="system",  # Use system since get_current_user_id not available here
             event_type="detection_ground_truth",
-            step="user_validation", 
+            step="user_validation",
             content=str(ground_truth_data),
             notes=f"Ground truth: {actual_strategy} (predicted: {predicted_strategy}, correct: {predicted_strategy == actual_strategy})"
         )
@@ -1010,10 +1231,10 @@ def log_detection_ground_truth(filename, predicted_strategy, actual_strategy, co
 def get_detection_training_data(limit=100):
     """
     Retrieve recent detection decisions and ground truth data for LLM training.
-    
+
     Args:
         limit (int): Maximum number of records to return
-        
+
     Returns:
         dict: Training data with detection decisions and ground truth validations
     """
@@ -1022,32 +1243,32 @@ def get_detection_training_data(limit=100):
         # Get recent detection decisions
         detection_decisions = conn.execute(
             """
-            SELECT * FROM interaction_log 
-            WHERE event_type IN ('document_detection_decision', 'llm_detection_analysis') 
-            ORDER BY timestamp DESC 
+            SELECT * FROM interaction_log
+            WHERE event_type IN ('document_detection_decision', 'llm_detection_analysis')
+            ORDER BY timestamp DESC
             LIMIT ?
             """,
             (limit,)
         ).fetchall()
-        
+
         # Get ground truth validations
         ground_truth = conn.execute(
             """
-            SELECT * FROM interaction_log 
-            WHERE event_type = 'detection_ground_truth' 
-            ORDER BY timestamp DESC 
+            SELECT * FROM interaction_log
+            WHERE event_type = 'detection_ground_truth'
+            ORDER BY timestamp DESC
             LIMIT ?
             """,
             (limit,)
         ).fetchall()
-        
+
         return {
             "detection_decisions": [dict(row) for row in detection_decisions],
             "ground_truth": [dict(row) for row in ground_truth],
             "total_decisions": len(detection_decisions),
             "total_validations": len(ground_truth)
         }
-        
+
     except sqlite3.Error as e:
         print(f"Database error while fetching training data: {e}")
         return {"detection_decisions": [], "ground_truth": [], "total_decisions": 0, "total_validations": 0}
@@ -1058,7 +1279,7 @@ def get_detection_training_data(limit=100):
 def get_detection_performance_analytics():
     """
     Get analytics on detection system performance for monitoring and improvement.
-    
+
     Returns:
         dict: Performance metrics including accuracy, LLM usage, confidence analysis
     """
@@ -1066,33 +1287,33 @@ def get_detection_performance_analytics():
     try:
         # Get accuracy metrics from ground truth data
         accuracy_data = conn.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_validations,
                 SUM(CASE WHEN content LIKE '%correct_prediction": True%' THEN 1 ELSE 0 END) as correct_predictions,
-                AVG(CASE WHEN content LIKE '%confidence%' THEN 
-                    CAST(SUBSTR(content, INSTR(content, 'confidence": ') + 13, 4) AS FLOAT) 
+                AVG(CASE WHEN content LIKE '%confidence%' THEN
+                    CAST(SUBSTR(content, INSTR(content, 'confidence": ') + 13, 4) AS FLOAT)
                     ELSE NULL END) as avg_confidence
-            FROM interaction_log 
+            FROM interaction_log
             WHERE event_type = 'detection_ground_truth'
         """).fetchone()
-        
+
         # Get LLM usage statistics
         llm_usage = conn.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as total_decisions,
                 SUM(CASE WHEN content LIKE '%llm_used": true%' OR content LIKE '%llm_used": True%' THEN 1 ELSE 0 END) as llm_used_count,
                 COUNT(*) - SUM(CASE WHEN content LIKE '%llm_used": true%' OR content LIKE '%llm_used": True%' THEN 1 ELSE 0 END) as heuristic_only_count
-            FROM interaction_log 
+            FROM interaction_log
             WHERE event_type = 'document_detection_decision'
         """).fetchone()
-        
+
         # Get recent detection decisions for trend analysis
         recent_decisions = conn.execute("""
-            SELECT timestamp, content FROM interaction_log 
+            SELECT timestamp, content FROM interaction_log
             WHERE event_type = 'document_detection_decision'
             ORDER BY timestamp DESC LIMIT 50
         """).fetchall()
-        
+
         return {
             "accuracy": {
                 "total_validations": accuracy_data[0] if accuracy_data[0] else 0,
@@ -1108,7 +1329,7 @@ def get_detection_performance_analytics():
             },
             "recent_decisions": [dict(row) for row in recent_decisions]
         }
-        
+
     except sqlite3.Error as e:
         print(f"Database error while fetching performance analytics: {e}")
         return {"accuracy": {}, "llm_usage": {}, "recent_decisions": []}
@@ -1121,38 +1342,38 @@ def get_detection_performance_analytics():
 def store_document_tags(document_id, extracted_tags, llm_source='ollama'):
     """
     Store extracted tags for a document in the database.
-    
+
     Args:
         document_id (int): The ID of the document in single_documents table
         extracted_tags (dict): Dictionary with tag categories as keys and lists of tag values
         llm_source (str): The LLM source that extracted the tags (default: 'ollama')
-    
+
     Returns:
         int: Number of tags successfully stored
     """
     if not extracted_tags:
         return 0
-    
+
     conn = get_db_connection()
     tags_stored = 0
-    
+
     try:
         with conn:
             cursor = conn.cursor()
-            
+
             # Clear existing tags for this document to avoid duplicates
             cursor.execute("DELETE FROM document_tags WHERE document_id = ?", (document_id,))
-            
+
             # Insert new tags
             for category, tag_values in extracted_tags.items():
                 if not tag_values:
                     continue
-                    
+
                 for tag_value in tag_values:
                     if tag_value and str(tag_value).strip():
                         try:
                             cursor.execute("""
-                                INSERT INTO document_tags 
+                                INSERT INTO document_tags
                                 (document_id, tag_category, tag_value, llm_source)
                                 VALUES (?, ?, ?, ?)
                             """, (document_id, category, str(tag_value).strip(), llm_source))
@@ -1160,38 +1381,47 @@ def store_document_tags(document_id, extracted_tags, llm_source='ollama'):
                         except sqlite3.IntegrityError:
                             # Skip duplicate tags (unique constraint violation)
                             pass
-            
+
     except sqlite3.Error as e:
         logging.error(f"💥 Database error storing tags for document {document_id}: {e}")
         tags_stored = 0
     finally:
         if conn:
             conn.close()
-    
+
     return tags_stored
 
 
 def get_document_tags(document_id):
     """
     Retrieve all tags for a specific document.
-    
+
     Args:
         document_id (int): The document ID to fetch tags for
-        
+
     Returns:
         dict: Dictionary with tag categories as keys and lists of tag values
     """
     conn = get_db_connection()
-    
+
     try:
         cursor = conn.cursor()
-        results = cursor.execute("""
-            SELECT tag_category, tag_value, extraction_confidence, created_at
-            FROM document_tags 
-            WHERE document_id = ?
-            ORDER BY tag_category, tag_value
-        """, (document_id,)).fetchall()
-        
+        # Inspect table to see which optional columns are present (e.g., extraction_confidence, created_at)
+        try:
+            cols_info = cursor.execute("PRAGMA table_info(document_tags)").fetchall()
+            existing_cols = {c[1] for c in cols_info}
+        except Exception:
+            existing_cols = set()
+
+        select_cols = ["tag_category", "tag_value"]
+        if 'extraction_confidence' in existing_cols:
+            select_cols.append('extraction_confidence')
+        if 'created_at' in existing_cols:
+            select_cols.append('created_at')
+
+        select_sql = f"SELECT {', '.join(select_cols)} FROM document_tags WHERE document_id = ? ORDER BY tag_category, tag_value"
+        results = cursor.execute(select_sql, (document_id,)).fetchall()
+
         # Organize tags by category
         tags_dict = {
             'people': [],
@@ -1203,14 +1433,16 @@ def get_document_tags(document_id):
             'amounts': [],
             'reference_numbers': []
         }
-        
+
         for row in results:
-            category, value, confidence, created_at = row
+            # row[0] = tag_category, row[1] = tag_value
+            category = row[0]
+            value = row[1]
             if category in tags_dict:
                 tags_dict[category].append(value)
-        
+
         return tags_dict
-        
+
     except sqlite3.Error as e:
         logging.error(f"💥 Database error fetching tags for document {document_id}: {e}")
         return {}
@@ -1222,35 +1454,35 @@ def get_document_tags(document_id):
 def find_similar_documents_by_tags(extracted_tags, limit=10, min_tag_matches=2):
     """
     Find documents with similar tag patterns for RAG context.
-    
+
     Args:
         extracted_tags (dict): Tags to search for similarity
         limit (int): Maximum number of similar documents to return
         min_tag_matches (int): Minimum number of matching tags required
-        
+
     Returns:
         list: List of similar documents with metadata
     """
     if not extracted_tags:
         return []
-    
+
     conn = get_db_connection()
-    
+
     try:
         cursor = conn.cursor()
         similar_docs = []
-        
+
         # Build query to find documents with matching tags
         for category, values in extracted_tags.items():
             if not values:
                 continue
-                
+
             # Create placeholders for the IN clause
             placeholders = ','.join(['?' for _ in values])
-            
+
             # Find documents with matching tags in this category
             query = f"""
-                SELECT DISTINCT 
+                SELECT DISTINCT
                     d.id, d.final_category, d.final_filename, d.ai_suggested_category,
                     d.created_at, COUNT(t.tag_value) as tag_matches,
                     GROUP_CONCAT(t.tag_value, ', ') as matching_tags
@@ -1262,9 +1494,9 @@ def find_similar_documents_by_tags(extracted_tags, limit=10, min_tag_matches=2):
                 ORDER BY tag_matches DESC, d.created_at DESC
                 LIMIT ?
             """
-            
+
             results = cursor.execute(query, [category] + values + [min_tag_matches, limit]).fetchall()
-            
+
             for row in results:
                 doc_id, final_category, final_filename, ai_suggested_category, created_at, tag_matches, matching_tags = row
                 similar_docs.append({
@@ -1277,17 +1509,17 @@ def find_similar_documents_by_tags(extracted_tags, limit=10, min_tag_matches=2):
                     'matching_tags': matching_tags.split(', ') if matching_tags else [],
                     'created_at': created_at
                 })
-        
+
         # Deduplicate and sort by relevance
         unique_docs = {}
         for doc in similar_docs:
             doc_id = doc['document_id']
             if doc_id not in unique_docs or doc['tag_matches'] > unique_docs[doc_id]['tag_matches']:
                 unique_docs[doc_id] = doc
-        
+
         # Return top results sorted by tag matches
         return sorted(unique_docs.values(), key=lambda x: x['tag_matches'], reverse=True)[:limit]
-        
+
     except sqlite3.Error as e:
         logging.error(f"💥 Database error finding similar documents by tags: {e}")
         return []
@@ -1299,35 +1531,35 @@ def find_similar_documents_by_tags(extracted_tags, limit=10, min_tag_matches=2):
 def get_tag_usage_stats(category=None, limit=50):
     """
     Get statistics about tag usage patterns.
-    
+
     Args:
         category (str, optional): Specific tag category to analyze
         limit (int): Maximum number of results to return
-        
+
     Returns:
         list: Tag usage statistics
     """
     conn = get_db_connection()
-    
+
     try:
         cursor = conn.cursor()
-        
+
         if category:
             results = cursor.execute("""
-                SELECT * FROM tag_usage_stats 
+                SELECT * FROM tag_usage_stats
                 WHERE tag_category = ?
                 ORDER BY usage_count DESC
                 LIMIT ?
             """, (category, limit)).fetchall()
         else:
             results = cursor.execute("""
-                SELECT * FROM tag_usage_stats 
+                SELECT * FROM tag_usage_stats
                 ORDER BY usage_count DESC
                 LIMIT ?
             """, (limit,)).fetchall()
-        
+
         return [dict(row) for row in results]
-        
+
     except sqlite3.Error as e:
         logging.error(f"💥 Database error fetching tag usage stats: {e}")
         return []
@@ -1339,18 +1571,18 @@ def get_tag_usage_stats(category=None, limit=50):
 def analyze_tag_classification_patterns():
     """
     Analyze which tag patterns correlate with successful classifications.
-    
+
     Returns:
         dict: Analysis of tag patterns and their classification accuracy
     """
     conn = get_db_connection()
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Find strong tag-to-category correlations
         patterns = cursor.execute("""
-            SELECT 
+            SELECT
                 d.final_category,
                 t.tag_category,
                 t.tag_value,
@@ -1360,18 +1592,18 @@ def analyze_tag_classification_patterns():
                 AVG(d.ai_confidence) as avg_ai_confidence
             FROM single_documents d
             JOIN document_tags t ON d.id = t.document_id
-            WHERE d.final_category IS NOT NULL 
+            WHERE d.final_category IS NOT NULL
             AND d.ai_suggested_category IS NOT NULL
             GROUP BY d.final_category, t.tag_category, t.tag_value
             HAVING frequency >= 3
             ORDER BY frequency DESC
         """).fetchall()
-        
+
         strong_patterns = []
         for row in patterns:
             final_cat, tag_cat, tag_val, freq, correct, incorrect, avg_conf = row
             total_predictions = correct + incorrect
-            
+
             if total_predictions > 0:
                 accuracy = correct / total_predictions
                 if accuracy >= 0.8 and freq >= 5:  # High accuracy with sufficient sample size
@@ -1383,10 +1615,10 @@ def analyze_tag_classification_patterns():
                         'sample_size': freq,
                         'avg_confidence': avg_conf
                     })
-        
+
         # Category-level tag analysis
         category_patterns = cursor.execute("""
-            SELECT 
+            SELECT
                 d.final_category,
                 COUNT(DISTINCT d.id) as document_count,
                 COUNT(t.id) as total_tags,
@@ -1398,13 +1630,13 @@ def analyze_tag_classification_patterns():
             GROUP BY d.final_category
             ORDER BY document_count DESC
         """).fetchall()
-        
+
         return {
             'strong_tag_patterns': strong_patterns,
             'category_analysis': [dict(row) for row in category_patterns],
             'pattern_count': len(strong_patterns)
         }
-        
+
     except sqlite3.Error as e:
         logging.error(f"💥 Database error analyzing tag classification patterns: {e}")
         return {'strong_tag_patterns': [], 'category_analysis': [], 'pattern_count': 0}

@@ -1,12 +1,8 @@
 import threading
-import time
 from http import HTTPStatus
 
 import pytest
 
-import tempfile
-import os
-import pytest
 
 from doc_processor.app import create_app
 from doc_processor.database import get_db_connection

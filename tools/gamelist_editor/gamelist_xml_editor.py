@@ -20,7 +20,7 @@ class GamelistProcessorApp:
 
         # StringVar to hold the file path of the input gamelist.xml selected by the user.
         self.input_file_path = tk.StringVar()
-        
+
         # New StringVar to hold the proposed path for the original gamelist backup.
         # This will be updated dynamically when an input gamelist is selected.
         self.proposed_orig_backup_path = tk.StringVar()
@@ -96,7 +96,7 @@ class GamelistProcessorApp:
         )
         if file_path:
             self.input_file_path.set(file_path)
-            
+
             # Update proposed original backup path
             self.proposed_orig_backup_path.set(f"Original will be backed up to: {self._generate_orig_backup_path(file_path)}")
 
@@ -122,11 +122,11 @@ class GamelistProcessorApp:
         if not input_path:
             messagebox.showerror("Error", "Please select an input gamelist.xml file.")
             return
-        
+
         if (add_image or add_manual) and not system_dir:
             messagebox.showerror("Error", "Please select the System Directory if you want to add image or manual tags. This helps the script locate your 'media' folders.")
             return
-        
+
         if (add_image or add_manual) and not os.path.isdir(system_dir):
             messagebox.showerror("Error", f"The selected System Directory does not exist: {system_dir}. Please select a valid directory.")
             return
@@ -144,13 +144,13 @@ class GamelistProcessorApp:
 
         # Define gamelist_dir here, outside the try block, as it's derived from input_path
         # which has already been validated. This ensures it's always in scope.
-        gamelist_dir = os.path.dirname(input_path) 
+        gamelist_dir = os.path.dirname(input_path)
 
         try:
             # --- Safe Backup of Original Gamelist ---
             # Get the exact path for the backup right before moving
             actual_orig_backup_path = self._generate_orig_backup_path(input_path)
-            
+
             if not os.path.exists(input_path):
                 raise FileNotFoundError(f"The selected gamelist file '{input_path}' does not exist. It might have been moved or deleted.")
 
@@ -158,7 +158,7 @@ class GamelistProcessorApp:
                 shutil.move(input_path, actual_orig_backup_path)
             except shutil.Error as e:
                 raise IOError(f"Failed to move original gamelist to backup location: {e}. Please check permissions or if the file is in use by another program.")
-            
+
             # --- XML Reading and Initial Setup ---
             # Now, read the content from the *backed-up original* file.
             with open(actual_orig_backup_path, 'r', encoding='utf-8') as f:
@@ -174,44 +174,44 @@ class GamelistProcessorApp:
             abs_images_root_dir = os.path.join(system_dir, "media", "images")
             abs_manuals_root_dir = os.path.join(system_dir, "media", "manuals")
 
-            modifications = [] 
+            modifications = []
 
             # --- Iterate Through Game Entries and Apply Logic ---
             for game in root.findall('.//game'):
-                path_element = game.find('path') 
-                
+                path_element = game.find('path')
+
                 if path_element is not None:
-                    path_value = path_element.text 
-                    
+                    path_value = path_element.text
+
                     if path_value:
                         path_value_normalized = path_value.replace("\\", "/")
                         base_name, _ = os.path.splitext(os.path.basename(path_value_normalized))
 
                         # --- Logic for <image> Tag ---
-                        if add_image: 
-                            image_filename = base_name + ".png" 
+                        if add_image:
+                            image_filename = base_name + ".png"
                             absolute_image_path = os.path.join(abs_images_root_dir, image_filename)
                             image_path_value = os.path.relpath(absolute_image_path, gamelist_xml_parent_dir).replace("\\", "/")
-                            
+
                             # Ensure relative paths start with "./" or "../"
                             if not image_path_value.startswith(('./', '../')):
                                 image_path_value = './' + image_path_value
 
-                            image_element = game.find('image') 
-                            if image_element is None: 
-                                new_image_element = ET.Element('image') 
-                                new_image_element.text = image_path_value 
+                            image_element = game.find('image')
+                            if image_element is None:
+                                new_image_element = ET.Element('image')
+                                new_image_element.text = image_path_value
                                 try:
                                     path_index = list(game).index(path_element)
                                     modifications.append((game, path_index + 1, new_image_element))
                                 except ValueError:
-                                    pass 
-                            else: 
-                                image_element.text = image_path_value 
+                                    pass
+                            else:
+                                image_element.text = image_path_value
 
                         # --- Logic for <manual> Tag ---
-                        if add_manual: 
-                            manual_filename = base_name + ".pdf" 
+                        if add_manual:
+                            manual_filename = base_name + ".pdf"
                             absolute_manual_path = os.path.join(abs_manuals_root_dir, manual_filename)
                             manual_path_value = os.path.relpath(absolute_manual_path, gamelist_xml_parent_dir).replace("\\", "/")
 
@@ -219,17 +219,17 @@ class GamelistProcessorApp:
                             if not manual_path_value.startswith(('./', '../')):
                                 manual_path_value = './' + manual_path_value
 
-                            manual_element = game.find('manual') 
-                            if manual_element is None: 
-                                new_manual_element = ET.Element('manual') 
-                                new_manual_element.text = manual_path_value 
-                                
+                            manual_element = game.find('manual')
+                            if manual_element is None:
+                                new_manual_element = ET.Element('manual')
+                                new_manual_element.text = manual_path_value
+
                                 current_insert_after = None
-                                if add_image: 
-                                    current_insert_after = game.find('image') 
-                                    if current_insert_after is None: 
-                                        current_insert_after = path_element 
-                                else: 
+                                if add_image:
+                                    current_insert_after = game.find('image')
+                                    if current_insert_after is None:
+                                        current_insert_after = path_element
+                                else:
                                     current_insert_after = path_element
 
                                 if current_insert_after is not None:
@@ -237,19 +237,19 @@ class GamelistProcessorApp:
                                         insert_index = list(game).index(current_insert_after) + 1
                                         modifications.append((game, insert_index, new_manual_element))
                                     except ValueError:
-                                        pass 
-                            else: 
-                                manual_element.text = manual_path_value 
+                                        pass
+                            else:
+                                manual_element.text = manual_path_value
 
             # --- Apply Pending Modifications to the XML Tree ---
             modifications.sort(key=lambda x: (id(x[0]), -x[1]))
             for parent, index, new_element in modifications:
-                parent.insert(index, new_element) 
-            
+                parent.insert(index, new_element)
+
             # --- Final XML Formatting and Writing ---
             # Using ET.indent for pretty printing (Python 3.9+)
             ET.indent(tree, space="  ")
-            
+
             # Determine the path for the new gamelist.xml (gamelist_new.xml in the same directory as original).
             new_gamelist_output_path = os.path.join(gamelist_dir, "gamelist_new.xml")
 

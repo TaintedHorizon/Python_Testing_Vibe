@@ -5,7 +5,8 @@ Ensures AI assistants and developers follow canonical patterns defined in
 `.github/copilot-instructions.md`.
 """
 from __future__ import annotations
-import os, sys
+import os
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

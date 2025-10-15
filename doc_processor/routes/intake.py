@@ -9,7 +9,7 @@ Benefits:
 - Reduced merge conflicts in team development
 """
 
-from flask import Blueprint, render_template, jsonify, request, Response, redirect, url_for, flash
+from flask import Blueprint, render_template, jsonify, request, Response, url_for
 from ..document_detector import get_detector
 from ..config_manager import app_config
 from ..database import get_db_connection
@@ -33,7 +33,11 @@ def _resolve_working_pdf_path(original_filename: str) -> str:
     """
     try:
         import tempfile
-        from PIL import Image
+        # PIL.Image is only conditionally used; import inside try and set to None if unavailable
+        try:
+            from PIL import Image
+        except Exception:
+            Image = None
     except Exception:
         tempfile = None
         Image = None
@@ -158,7 +162,8 @@ def analyze_intake_page():
                 except Exception:
                     pass
         if purge_cache:
-            import tempfile, os as _os
+            import tempfile
+            import os as _os
             cache_file = _os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
             if _os.path.exists(cache_file):
                 try:
@@ -181,7 +186,7 @@ def analyze_intake_page():
     except Exception as e:
         logging.warning(f"Failed to load cached analysis results: {e}")
         cached_analyses = None
-    
+
     # IMPORTANT: Overlay persisted rotations from DB on top of cached analyses
     # This ensures manual rotations survive page refreshes even if the cache is stale
     try:
@@ -209,11 +214,11 @@ def analyze_intake_page():
                 logging.info(f"Applied {updated} persisted rotation(s) to cached analyses for refresh consistency")
     except Exception as e:
         logging.warning(f"Failed to overlay persisted rotations onto cached analyses: {e}")
-    
+
     # If caller provided a batch_id (from Batch Control), pass it through so the
     # client can be redirected to the appropriate preview when analysis completes.
     batch_id = request.args.get('batch_id')
-    return render_template("intake_analysis.html", 
+    return render_template("intake_analysis.html",
                          analyses=cached_analyses,  # Use cached if available
                          intake_dir=app_config.INTAKE_DIR,
                          batch_id=batch_id)
@@ -239,19 +244,19 @@ def ensure_active_batch():
 def analyze_intake_progress():
     """
     Server-Sent Events endpoint for real-time intake analysis progress.
-    
+
     This endpoint provides live updates during the document detection and analysis process.
     """
     def generate_progress():
         try:
             # Import here to avoid circular imports
             import os
-            
+
             intake_dir = app_config.INTAKE_DIR
             if not os.path.exists(intake_dir):
                 yield f"data: {json.dumps({'error': f'Intake directory does not exist: {intake_dir}'})}\n\n"
                 return
-                
+
             # Clean up any old converted PDFs to ensure fresh start
             import tempfile
             import glob
@@ -277,11 +282,11 @@ def analyze_intake_progress():
                     conn.close()
                 except Exception:
                     pass
-            
+
             # Scan intake directory for files - treat ALL as needing conversion
             original_pdf_files = []
             image_files = []
-            
+
             for f in os.listdir(intake_dir):
                 file_ext = os.path.splitext(f)[1].lower()
                 file_path = os.path.join(intake_dir, f)
@@ -289,32 +294,32 @@ def analyze_intake_progress():
                     original_pdf_files.append(file_path)
                 elif file_ext in ['.png', '.jpg', '.jpeg']:
                     image_files.append(file_path)
-            
+
             total_files = len(original_pdf_files) + len(image_files)
             # Total operations = convert all files (PDFs + images) + analyze all converted PDFs
             total_operations = total_files + total_files  # Convert everything + analyze everything
-            
+
             if total_files == 0:
                 yield f"data: {json.dumps({'complete': True, 'analyses': [], 'total': 0, 'single_count': 0, 'batch_count': 0, 'success': True})}\n\n"
                 return
-            
+
             # Send initial progress
             logging.info(f"Starting two-phase analysis for {total_files} files ({len(original_pdf_files)} PDFs, {len(image_files)} images)")
             yield f"data: {json.dumps({'progress': 0, 'total': total_operations, 'current_file': None, 'message': f'Found {total_files} files - starting two-phase processing...'})}\n\n"
-            
+
             # Phase 1: Convert ALL files to standardized PDFs
             all_converted_pdfs = []
             detector = get_detector(use_llm_for_ambiguous=True)
             current_operation = 0
-            
+
             yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': None, 'message': f'Phase 1: Converting {total_files} files to standardized PDFs...'})}\n\n"
-            
+
             # Convert images to PDFs
             for i, image_path in enumerate(image_files):
                 image_name = os.path.basename(image_path)
                 current_operation += 1
                 yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': image_name, 'message': f'Converting image {i+1}/{len(image_files)}: {image_name}...'})}\n\n"
-                
+
                 converted_pdf = detector._convert_image_to_pdf(image_path)
                 all_converted_pdfs.append(converted_pdf)
                 logging.info(f"Converted image: {image_name} -> {os.path.basename(converted_pdf)}")
@@ -335,13 +340,13 @@ def analyze_intake_progress():
                         conn.close()
                     except Exception:
                         pass
-            
+
             # Copy original PDFs to temp directory for consistent handling
             for i, pdf_path in enumerate(original_pdf_files):
                 pdf_name = os.path.basename(pdf_path)
                 current_operation += 1
                 yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': pdf_name, 'message': f'Standardizing PDF {i+1}/{len(original_pdf_files)}: {pdf_name}...'})}\n\n"
-                
+
                 # Copy to temp with consistent naming
                 temp_pdf_path = os.path.join(temp_dir, f"{Path(pdf_path).stem}_standardized.pdf")
                 import shutil
@@ -365,25 +370,25 @@ def analyze_intake_progress():
                         conn.close()
                     except Exception:
                         pass
-            
+
             # Phase 2: Analyze all standardized PDFs
             total_pdfs = len(all_converted_pdfs)
             yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': None, 'message': f'Phase 2: Analyzing {total_pdfs} standardized PDFs...'})}\n\n"
-            
+
             analyses = []
             single_count = 0
             batch_count = 0
-            
+
             for i, pdf_path in enumerate(all_converted_pdfs):
                 pdf_name = os.path.basename(pdf_path)
                 current_operation += 1
-                
+
                 # Send progress update for current PDF analysis
                 yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': pdf_name, 'message': f'Analyzing PDF {i+1}/{total_pdfs}: {pdf_name}...'})}\n\n"
-                
+
                 # Analyze the standardized PDF
                 analysis = detector.analyze_pdf(pdf_path)
-                
+
                 # Determine original filename for display
                 original_filename = pdf_name
                 if "_converted.pdf" in pdf_name:
@@ -397,7 +402,7 @@ def analyze_intake_progress():
                 elif "_standardized.pdf" in pdf_name:
                     # Find the original PDF name
                     original_filename = pdf_name.replace("_standardized.pdf", ".pdf")
-                
+
                 # Load any persisted rotation for this filename
                 persisted_rotation = None
                 try:
@@ -429,14 +434,14 @@ def analyze_intake_progress():
                     'detected_rotation': persisted_rotation if persisted_rotation is not None else analysis.detected_rotation,
                     'pdf_path': pdf_path  # Store the actual PDF path for serving
                 }
-                
+
                 analyses.append(analysis_data)
-                
+
                 if analysis.processing_strategy == "single_document":
                     single_count += 1
                 else:
                     batch_count += 1
-            
+
             # Cache the analysis results for future use
             import tempfile
             import pickle
@@ -447,7 +452,7 @@ def analyze_intake_progress():
                 logging.info(f"Cached analysis results to {cache_file}")
             except Exception as cache_err:
                 logging.warning(f"Failed to cache analysis results: {cache_err}")
-            
+
             # Build completion payload. If caller requested a batch_id, include a redirect
             # to the manipulation view for that batch so the client can follow automatically.
             complete_payload = {
@@ -466,31 +471,31 @@ def analyze_intake_progress():
             except Exception:
                 pass
             yield f"data: {json.dumps(complete_payload)}\n\n"
-            
+
         except Exception as e:
             logging.error(f"Error in intake analysis SSE: {e}")
             yield f"data: {json.dumps({'error': str(e), 'complete': True, 'success': False})}\n\n"
-    
+
     return Response(generate_progress(), mimetype='text/event-stream')
 
 @intake_bp.route("/api/analyze_intake")
 def analyze_intake_api():
     """
     API endpoint for intake analysis (fallback for browsers with SSE issues).
-    
+
     Returns JSON response with analysis results for all files in intake directory.
     """
     try:
         from ..document_detector import get_detector
-        
+
         detector = get_detector(use_llm_for_ambiguous=True)
         analyses = detector.analyze_intake_directory(app_config.INTAKE_DIR)
-        
+
         # Convert analyses to JSON-serializable format
         analyses_data = []
         single_count = 0
         batch_count = 0
-        
+
         # Load persisted rotations once
         persisted = {}
         try:
@@ -523,12 +528,12 @@ def analyze_intake_api():
                 'detected_rotation': detected_rot  # Include rotation info (persisted if available)
             }
             analyses_data.append(analysis_data)
-            
+
             if analysis.processing_strategy == "single_document":
                 single_count += 1
             else:
                 batch_count += 1
-        
+
         # Cache the analysis results for future use
         import tempfile
         import pickle
@@ -539,7 +544,7 @@ def analyze_intake_api():
             logging.info(f"Cached analysis results to {cache_file}")
         except Exception as cache_err:
             logging.warning(f"Failed to cache analysis results: {cache_err}")
-        
+
         result = {
             'analyses': analyses_data,
             'total': len(analyses_data),
@@ -555,7 +560,7 @@ def analyze_intake_api():
         except Exception:
             pass
         return jsonify(result)
-        
+
     except Exception as e:
         logging.error(f"Error in analyze_intake_api: {e}")
         return jsonify({'error': str(e), 'success': False}), 500
@@ -564,7 +569,7 @@ def analyze_intake_api():
 def rescan_ocr():
     """
     API endpoint to rescan OCR for a specific document with manual rotation.
-    
+
     Expected JSON payload:
     {
         "filename": "document.pdf",
@@ -576,12 +581,12 @@ def rescan_ocr():
         filename = data.get('filename')
         rotation = data.get('rotation', 0)
         quality = (data.get('quality') or 'default').lower()
-        
+
         if not filename:
             return jsonify({'error': 'Filename is required', 'success': False}), 400
-        
+
         logging.info(f"[RESCAN_OCR] request filename={filename} rotation={rotation} quality={quality}")
-        
+
         # Resolve the standardized/converted PDF path for OCR
         file_path = os.path.join(app_config.INTAKE_DIR, filename)
         if not os.path.exists(file_path):
@@ -608,7 +613,7 @@ def rescan_ocr():
         working_pdf = _resolve_working_pdf_path(filename)
         content_sample = _rescan_pdf_ocr(working_pdf, rotation, quality=quality)
         logging.info(f"[RESCAN_OCR] completed for {filename} (chars={len(content_sample) if content_sample else 0})")
-            
+
         return jsonify({
             'success': True,
             'filename': filename,
@@ -616,7 +621,7 @@ def rescan_ocr():
             'content_sample': content_sample[:500] if content_sample else None,
             'message': f'OCR rescanned successfully with {rotation}° rotation'
         })
-        
+
     except Exception as e:
         logging.error(f"Error in rescan_ocr: {e}")
         return jsonify({'error': str(e), 'success': False}), 500
@@ -625,7 +630,7 @@ def rescan_ocr():
 def reanalyze_llm():
     """
     API endpoint to re-analyze a document with LLM using updated OCR text.
-    
+
     Expected JSON payload:
     {
         "filename": "document.pdf"
@@ -634,27 +639,27 @@ def reanalyze_llm():
     try:
         data = request.get_json()
         filename = data.get('filename')
-        
+
         if not filename:
             return jsonify({'error': 'Filename is required', 'success': False}), 400
-            
+
         logging.info(f"Re-analyzing LLM for {filename}")
-        
+
         # Resolve the standardized/converted PDF path for LLM analysis
         file_path = os.path.join(app_config.INTAKE_DIR, filename)
         if not os.path.exists(file_path):
             return jsonify({'error': f'File not found: {filename}', 'success': False}), 404
-        
+
         # Get current analysis from cache or re-analyze
         from ..document_detector import get_detector
         detector = get_detector(use_llm_for_ambiguous=True)
 
         working_pdf = _resolve_working_pdf_path(filename)
         analysis = detector.analyze_pdf(working_pdf)
-        
+
         if not analysis:
             return jsonify({'error': 'Failed to re-analyze document', 'success': False}), 500
-            
+
         return jsonify({
             'success': True,
             'filename': filename,
@@ -664,7 +669,7 @@ def reanalyze_llm():
             'llm_analysis': analysis.llm_analysis,
             'message': 'LLM re-analysis completed successfully'
         })
-        
+
     except Exception as e:
         logging.error(f"Error in reanalyze_llm: {e}")
         return jsonify({'error': str(e), 'success': False}), 500
@@ -672,36 +677,35 @@ def reanalyze_llm():
 def _rescan_pdf_ocr(file_path: str, rotation: int, quality: str = 'default') -> str:
     """
     Re-run OCR on a PDF file with specified rotation.
-    
+
     Args:
         file_path (str): Path to the PDF file
         rotation (int): Rotation angle (0, 90, 180, 270)
-        
+
     Returns:
         str: Extracted text content
     """
     try:
         try:
             from pdf2image import convert_from_path
-            from PIL import Image
             import pytesseract
         except ImportError as import_error:
             logging.error(f"Missing required dependencies for PDF OCR: {import_error}")
             return "Error: Missing required dependencies for PDF OCR"
-        
+
         # Convert first few pages to images (higher DPI for high-accuracy mode)
         dpi = 200
         if quality in {"high", "hq", "best"}:
             dpi = 400
         pages = convert_from_path(file_path, first_page=1, last_page=3, dpi=dpi)
         page_texts = []
-        
+
         for page_idx, page_img in enumerate(pages):
             # Apply rotation if specified
             if rotation != 0:
                 page_img = page_img.rotate(-rotation, expand=True)
                 logging.info(f"Applied {rotation}° rotation to page {page_idx + 1}")
-            
+
             # Run Tesseract OCR with tuned config for better accuracy
             tesseract_config = "--oem 1 --psm 6"  # LSTM-only, assume a block of text
             try:
@@ -732,12 +736,12 @@ def _rescan_pdf_ocr(file_path: str, rotation: int, quality: str = 'default') -> 
                             logging.info(f"EasyOCR found no usable text on page {page_idx + 1}")
                 except Exception as eo_err:
                     logging.warning(f"EasyOCR fallback failed on page {page_idx + 1}: {eo_err}")
-        
+
         combined_text = "\n\n".join(page_texts)
         logging.info(f"Total OCR text extracted: {len(combined_text)} characters")
-        
+
         return combined_text
-        
+
     except Exception as e:
         logging.error(f"Error in PDF OCR rescan: {e}")
         return ""
@@ -745,28 +749,28 @@ def _rescan_pdf_ocr(file_path: str, rotation: int, quality: str = 'default') -> 
 def _rescan_image_ocr(file_path: str, rotation: int) -> str:
     """
     Re-run OCR on an image file with specified rotation.
-    
+
     Args:
         file_path (str): Path to the image file
         rotation (int): Rotation angle (0, 90, 180, 270)
-        
+
     Returns:
         str: Extracted text content
     """
     try:
         from PIL import Image
         import numpy as np
-        
+
         with Image.open(file_path) as img:
             # Convert to RGB if necessary
             if img.mode != 'RGB':
                 img = img.convert('RGB')
-            
+
             # Apply rotation if specified
             if rotation != 0:
                 img = img.rotate(-rotation, expand=True)
                 logging.info(f"Applied {rotation}° rotation to image")
-            
+
             # Use EasyOCR for better results
             try:
                 from ..processing import EasyOCRSingleton
@@ -775,7 +779,7 @@ def _rescan_image_ocr(file_path: str, rotation: int) -> str:
                 from processing import EasyOCRSingleton
                 reader = EasyOCRSingleton.get_reader()
             ocr_results = reader.readtext(np.array(img))
-            
+
             if ocr_results:
                 text = " ".join([text for (_, text, _) in ocr_results])
                 logging.info(f"Extracted {len(text)} characters from rotated image")
@@ -783,7 +787,7 @@ def _rescan_image_ocr(file_path: str, rotation: int) -> str:
             else:
                 logging.warning("No text extracted from rotated image")
                 return ""
-                
+
     except Exception as e:
         logging.error(f"Error in image OCR rescan: {e}")
         return ""
@@ -796,13 +800,13 @@ def save_rotation():
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No JSON data provided'}), 400
-        
+
         filename = data.get('filename')
         rotation = data.get('rotation', 0)
-        
+
         if not filename:
             return jsonify({'error': 'Filename required'}), 400
-        
+
         logging.info(f"[SAVE_ROTATION] request filename={filename} rotation={rotation}")
         # Upsert rotation in dedicated intake_rotations table
         conn = get_db_connection()
@@ -814,10 +818,10 @@ def save_rotation():
             cursor.execute("INSERT INTO intake_rotations (filename, rotation) VALUES (?, ?)", (filename, rotation))
         conn.commit()
         conn.close()
-        
+
         logging.info(f"Saved rotation {rotation}° for {filename}")
         return jsonify({'success': True})
-        
+
     except Exception as e:
         logging.error(f"Error saving rotation: {e}")
         return jsonify({'error': 'Failed to save rotation'}), 500

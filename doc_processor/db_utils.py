@@ -11,17 +11,19 @@ from .exceptions import DatabaseError
 def database_transaction() -> Generator[sqlite3.Connection, None, None]:
     """
     Context manager for database transactions that ensures proper commit/rollback.
-    
+
     Yields:
         sqlite3.Connection: Database connection with transaction management
-        
+
     Raises:
         DatabaseError: If there is any error during database operations
     """
     conn = None
     try:
-        conn = sqlite3.connect(app_config.DATABASE_PATH)
-        conn.row_factory = sqlite3.Row
+        # Use the centralized DB connection helper to ensure consistent PRAGMA
+        # settings (WAL, busy_timeout) and safety guards.
+        from .database import get_db_connection
+        conn = get_db_connection()
         # Start transaction
         yield conn
         # Commit if no exceptions occurred
@@ -33,7 +35,7 @@ def database_transaction() -> Generator[sqlite3.Connection, None, None]:
             except Exception as rollback_error:
                 logging.error(f"Failed to rollback transaction: {rollback_error}")
         raise DatabaseError(f"Database error: {str(e)}", details=str(e))
-    except Exception as e:
+    except Exception:
         if conn:
             try:
                 conn.rollback()
@@ -50,14 +52,14 @@ def database_transaction() -> Generator[sqlite3.Connection, None, None]:
 def execute_query(query: str, params: tuple = ()) -> list:
     """
     Executes a SELECT query and returns results.
-    
+
     Args:
         query: SQL query string
         params: Query parameters
-        
+
     Returns:
         list: Query results
-        
+
     Raises:
         DatabaseError: If there is any error during query execution
     """
@@ -72,14 +74,14 @@ def execute_query(query: str, params: tuple = ()) -> list:
 def execute_command(command: str, params: tuple = ()) -> int:
     """
     Executes an INSERT, UPDATE, or DELETE command.
-    
+
     Args:
         command: SQL command string
         params: Command parameters
-        
+
     Returns:
         int: Number of affected rows or last insert ID
-        
+
     Raises:
         DatabaseError: If there is any error during command execution
     """

@@ -1,6 +1,7 @@
-import os, sqlite3, pytest
+import sqlite3
+import pytest
 from doc_processor.app import create_app
-from doc_processor.config_manager import AppConfig, app_config as _ac
+from doc_processor.config_manager import AppConfig
 import doc_processor.config_manager as _cfg_mod
 
 @pytest.fixture()

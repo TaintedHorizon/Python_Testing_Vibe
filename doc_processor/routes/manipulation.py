@@ -25,7 +25,6 @@ from ..database import (
 )
 from ..utils.helpers import create_error_response, create_success_response
 from ..config_manager import app_config
-from ..llm_utils import get_ai_document_type_analysis
 from ..security import sanitize_filename
 
 logger = logging.getLogger(__name__)
@@ -34,7 +33,6 @@ bp = Blueprint('manipulation', __name__)
 
 # Compatibility routes prefix wrapper: legacy tests call /document/serve_single_pdf and /document/batch/.../manipulate
 # We provide a thin forwarding blueprint-level route group without changing existing paths.
-from flask import current_app
 
 @bp.route('/document/serve_single_pdf/<int:doc_id>')
 def serve_single_pdf_compat(doc_id: int):  # pragma: no cover (reuse main logic; tests hit it indirectly)
@@ -77,24 +75,24 @@ def save_document():
         document_id = request.form.get('document_id')
         category = request.form.get('category')
         filename = request.form.get('filename')
-        
+
         if not document_id:
             return jsonify(create_error_response("Document ID is required"))
-        
+
         # Update document in database
         # with database_connection() as conn:
         #     cursor = conn.cursor()
         #     cursor.execute("""
-        #         UPDATE documents 
+        #         UPDATE documents
         #         SET category = ?, filename = ?, updated_at = datetime('now')
         #         WHERE id = ?
         #     """, (category, filename, document_id))
-        
+
         return jsonify(create_success_response({
             'message': 'Document saved successfully',
             'document_id': document_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error saving document: {e}")
         return jsonify(create_error_response(f"Failed to save document: {str(e)}"))
@@ -106,24 +104,24 @@ def update_page():
         page_id = request.form.get('page_id')
         ocr_text = request.form.get('ocr_text')
         category = request.form.get('category')
-        
+
         if not page_id:
             return jsonify(create_error_response("Page ID is required"))
-        
+
         # Update page in database
         # with database_connection() as conn:
         #     cursor = conn.cursor()
         #     cursor.execute("""
-        #         UPDATE documents 
+        #         UPDATE documents
         #         SET ocr_text = ?, category = ?, updated_at = datetime('now')
         #         WHERE id = ?
         #     """, (ocr_text, category, page_id))
-        
+
         return jsonify(create_success_response({
             'message': 'Page updated successfully',
             'page_id': page_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error updating page: {e}")
         return jsonify(create_error_response(f"Failed to update page: {str(e)}"))
@@ -136,12 +134,12 @@ def delete_page(page_id: int):
         # with database_connection() as conn:
         #     cursor = conn.cursor()
         #     cursor.execute("DELETE FROM documents WHERE id = ?", (page_id,))
-        
+
         return jsonify(create_success_response({
             'message': 'Page deleted successfully',
             'page_id': page_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error deleting page {page_id}: {e}")
         return jsonify(create_error_response(f"Failed to delete page: {str(e)}"))
@@ -201,7 +199,7 @@ def serve_single_pdf(doc_id: int):
         if rotation_angle == 0:
             return send_file(pdf_abs, mimetype='application/pdf', as_attachment=False)
 
-        import fitz, hashlib, time
+        import fitz
         cache_basename = f"rot_cache_doc_{doc_id}_{rotation_angle}.pdf"
         cache_path = os.path.join('/tmp', cache_basename)
         regenerate = True
@@ -246,15 +244,15 @@ def rerun_ocr():
         document_id = request.form.get('document_id')
         if not document_id:
             return jsonify(create_error_response("Document ID is required"))
-        
+
         # Rerun OCR processing
         # result = rerun_ocr_for_document(document_id)
-        
+
         return jsonify(create_success_response({
             'message': 'OCR rerun completed',
             'document_id': document_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error rerunning OCR: {e}")
         return jsonify(create_error_response(f"Failed to rerun OCR: {str(e)}"))
@@ -574,16 +572,16 @@ def revisit_ordering_document(document_id: int):
         # with database_connection() as conn:
         #     cursor = conn.cursor()
         #     cursor.execute("""
-        #         UPDATE documents 
+        #         UPDATE documents
         #         SET status = 'needs_ordering_review', updated_at = datetime('now')
         #         WHERE id = ?
         #     """, (document_id,))
-        
+
         return jsonify(create_success_response({
             'message': 'Document marked for ordering review',
             'document_id': document_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error marking document for revisit: {e}")
         return jsonify(create_error_response(f"Failed to mark for revisit: {str(e)}"))
@@ -596,16 +594,16 @@ def revisit_ordering_batch(batch_id: int):
         # with database_connection() as conn:
         #     cursor = conn.cursor()
         #     cursor.execute("""
-        #         UPDATE documents 
+        #         UPDATE documents
         #         SET status = 'needs_ordering_review', updated_at = datetime('now')
         #         WHERE batch_id = ?
         #     """, (batch_id,))
-        
+
         return jsonify(create_success_response({
             'message': f'Batch {batch_id} marked for ordering review',
             'batch_id': batch_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error marking batch for revisit: {e}")
         return jsonify(create_error_response(f"Failed to mark batch for revisit: {str(e)}"))
@@ -618,12 +616,12 @@ def finish_ordering(batch_id: int):
         # with database_connection() as conn:
         #     cursor = conn.cursor()
         #     cursor.execute("UPDATE batches SET status = 'ordered' WHERE id = ?", (batch_id,))
-        
+
         return jsonify(create_success_response({
             'message': f'Ordering completed for batch {batch_id}',
             'batch_id': batch_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error finishing ordering for batch {batch_id}: {e}")
         return jsonify(create_error_response(f"Failed to finish ordering: {str(e)}"))
@@ -637,11 +635,11 @@ def view_documents(batch_id: int):
         # with database_connection() as conn:
         #     cursor = conn.cursor()
         #     documents = get_documents_by_batch(batch_id, include_details=True)
-        
-        return render_template('view_documents.html', 
-                             batch_id=batch_id, 
+
+        return render_template('view_documents.html',
+                             batch_id=batch_id,
                              documents=[])
-        
+
     except Exception as e:
         logger.error(f"Error viewing documents for batch {batch_id}: {e}")
         flash(f"Error loading documents: {str(e)}", "error")

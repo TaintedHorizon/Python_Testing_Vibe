@@ -17,13 +17,36 @@ CATEGORIES_BACKUP_FILE = "custom_categories_backup.json"
 
 def get_db_connection():
     """Establishes a connection to the SQLite database."""
-    db_path = os.getenv("DATABASE_PATH")
-    if not db_path or not os.path.exists(db_path):
-        print(f"[ERROR] Database path not found at '{db_path}'. Please check your .env file.")
-        return None
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+    # Prefer the application's centralized DB connection helper when available
+    try:
+        # Prefer the central helper which applies PRAGMAs and safety checks
+        from doc_processor.database import get_db_connection as _get_db_connection
+        return _get_db_connection()
+    except Exception:
+        # Fallback: ensure env or config_manager provides a path and connect directly
+        db_path = os.getenv('DATABASE_PATH')
+        if not db_path:
+            try:
+                from config_manager import app_config
+                db_path = getattr(app_config, 'DATABASE_PATH', None)
+            except Exception:
+                db_path = None
+
+            if not db_path:
+                print("[ERROR] Database path not found. Please check your .env or app_config.")
+                return None
+
+            # Use dev_tools helper as a robust fallback which prefers the app helper
+            try:
+                from doc_processor.dev_tools.db_connect import connect as db_connect
+                conn = db_connect(db_path, timeout=30.0)
+                conn.row_factory = sqlite3.Row
+                return conn
+            except Exception:
+                from .db_connect import connect as db_connect
+                conn = db_connect(db_path, timeout=30.0)
+                conn.row_factory = sqlite3.Row
+                return conn
 
 def backup_custom_categories(conn):
     """Saves custom categories to a JSON file."""
@@ -33,14 +56,14 @@ def backup_custom_categories(conn):
         cursor.execute("SELECT DISTINCT human_verified_category FROM pages WHERE human_verified_category IS NOT NULL")
         all_categories = {row[0] for row in cursor.fetchall() if row[0]}
         custom_categories = sorted(list(all_categories - set(DEFAULT_CATEGORIES)))
-        
+
         if not custom_categories:
             print("No custom categories found to back up.")
             return
 
         with open(CATEGORIES_BACKUP_FILE, "w") as f:
             json.dump(custom_categories, f, indent=4)
-        
+
         print(f"Successfully backed up {len(custom_categories)} custom categories to '{CATEGORIES_BACKUP_FILE}'")
         for cat in custom_categories:
             print(f"  - {cat}")
@@ -55,7 +78,7 @@ def clear_database_tables(conn):
         for table in TABLES_TO_CLEAR:
             print(f"  - Clearing table: {table}...")
             cursor.execute(f"DELETE FROM {table};")
-        
+
         # *** NEW: Reset the autoincrement counter for the batches table ***
         print("  - Resetting batch ID counter...")
         cursor.execute("DELETE FROM sqlite_sequence WHERE name='batches';")
@@ -71,10 +94,10 @@ def clear_test_directories():
     Deletes the contents of the PROCESSED_DIR and FILING_CABINET_DIR using a robust method.
     """
     print("\n--- Step 3: Clearing test file directories ---")
-    
+
     processed_dir = os.getenv("PROCESSED_DIR")
     filing_cabinet_dir = os.getenv("FILING_CABINET_DIR")
-    
+
     paths_to_clear = set()
     if processed_dir: paths_to_clear.add(os.path.abspath(processed_dir))
     if filing_cabinet_dir: paths_to_clear.add(os.path.abspath(filing_cabinet_dir))
@@ -90,7 +113,7 @@ def clear_test_directories():
         if not os.path.isdir(dir_path):
             print(f"Skipping '{dir_path}': Directory not found or not configured.")
             return
-        
+
         print(f"Clearing contents of '{dir_path}'...")
         for item in os.listdir(dir_path):
             item_path = os.path.join(dir_path, item)
@@ -140,7 +163,7 @@ def main():
         finally:
             conn.close()
     if dry_run:
-        print(f"[DRY RUN] Would clear directories for PROCESSED_DIR and FILING_CABINET_DIR")
+        print("[DRY RUN] Would clear directories for PROCESSED_DIR and FILING_CABINET_DIR")
     else:
         clear_test_directories()
 

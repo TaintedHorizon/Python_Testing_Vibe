@@ -6,21 +6,20 @@ Extracted from the monolithic app.py to improve maintainability.
 """
 from flask import Blueprint, request, jsonify, render_template, redirect, url_for, flash
 import logging
-from typing import Dict, Any
 import os
 import json
 import uuid
 import time
 import threading
-from datetime import datetime
 
 # Import existing modules (these imports will need to be adjusted based on the actual module structure)
 from ..database import (
-    get_db_connection, get_batch_by_id, get_documents_for_batch, insert_grouped_document
+    insert_grouped_document
 )
 from ..batch_guard import get_or_create_intake_batch, create_new_batch
-from ..processing import process_batch, database_connection, process_single_document
+from ..processing import process_batch, database_connection
 from ..config_manager import app_config
+from typing import Optional
 from ..utils.helpers import create_error_response, create_success_response
 from ..document_detector import get_detector, DocumentAnalysis
 from ..processing import _process_single_documents_as_batch_with_progress, is_image_file, _process_docs_into_fixed_batch_with_progress
@@ -44,6 +43,7 @@ def _start_smart_token_cleanup_thread():
         return
     _smart_cleanup_started = True
     def _cleanup_loop():
+        # Sleep in short increments but exit quickly if the app requests shutdown
         while True:
             try:
                 now = time.time()
@@ -54,13 +54,29 @@ def _start_smart_token_cleanup_thread():
                     logger.info(f"[smart] Cleanup removed {len(expired)} expired tokens")
             except Exception as e:
                 logger.warning(f"[smart] Token cleanup error: {e}")
-            time.sleep(300)  # 5 minutes
+            # Check shutdown event periodically (every 5 seconds x 60 = ~5 minutes)
+            for _ in range(60):
+                try:
+                        from flask import current_app
+                        try:
+                            shutdown_ev = current_app.extensions.get('doc_processor', {}).get('shutdown_event')
+                        except Exception:
+                            shutdown_ev = None
+                        if shutdown_ev and getattr(shutdown_ev, 'is_set', lambda: False)():
+                            logger.info("[smart] Token cleanup thread detected shutdown event; exiting")
+                            return
+                except Exception:
+                    # If we can't access current_app, continue sleeping
+                    pass
+                time.sleep(5)
     threading.Thread(target=_cleanup_loop, daemon=True, name='SmartTokenCleanup').start()
 
 
 def _load_cached_intake_analyses(intake_dir: str) -> dict:
     """Attempt to load cached intake analyses from pickle, return mapping path->DocumentAnalysis."""
-    import os, pickle, logging as _logging
+    import os
+    import pickle
+    import logging as _logging
     cache_file = "/tmp/intake_analysis_cache.pkl"
     if not os.path.exists(cache_file):
         return {}
@@ -74,7 +90,6 @@ def _load_cached_intake_analyses(intake_dir: str) -> dict:
             elif isinstance(item, dict):
                 # Legacy key fix: filename -> file_path
                 if 'filename' in item and 'file_path' not in item:
-                    import os as _os
                     item['file_path'] = os.path.join(intake_dir, item['filename'])
                     item.pop('filename', None)
                 try:
@@ -87,12 +102,14 @@ def _load_cached_intake_analyses(intake_dir: str) -> dict:
         return {}
 
 
-def _orchestrate_smart_processing(batch_id: int, strategy_overrides: dict, token: str):
+def _orchestrate_smart_processing(batch_id: Optional[int], strategy_overrides: dict, token: str):
     """Generator that replicates legacy smart processing progress flow using SSE-friendly yields."""
-    import os, time as _time, json as _json, logging as _logging
+    import os
+    import logging as _logging
     from ..config_manager import app_config as _cfg
 
     intake_dir = _cfg.INTAKE_DIR
+    logger.info(f"[smart] Orchestrator start: batch_id={batch_id} token={token} intake_dir={intake_dir}")
     yield {'message': 'Initializing smart processing...', 'progress': 0, 'total': 0}
 
     if not os.path.exists(intake_dir):
@@ -105,6 +122,7 @@ def _orchestrate_smart_processing(batch_id: int, strategy_overrides: dict, token
         if ext in ['.pdf', '.png', '.jpg', '.jpeg']:
             supported.append(os.path.join(intake_dir, f))
     total_files = len(supported)
+    logger.info(f"[smart] Found {total_files} supported intake files: {supported[:10]}")
     if total_files == 0:
         yield {'message': 'No intake files found', 'progress': 0, 'total': 0, 'complete': True}
         return
@@ -143,6 +161,15 @@ def _orchestrate_smart_processing(batch_id: int, strategy_overrides: dict, token
                 else:
                     analysis.reasoning = [f'Forced to single_document (image file, was {original_strategy})']
         analyses.append(analysis)
+        # Respect global shutdown request between heavy items
+        try:
+            from ..config_manager import SHUTDOWN_EVENT
+            if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
+                logger.info(f"[smart] Orchestrator detected shutdown event; aborting analysis loop at index {idx}")
+                yield {'message': 'Shutdown requested', 'complete': True, 'aborted': True}
+                return
+        except Exception:
+            pass
         yield {'message': f'Analyzed ({idx}/{total_files}): {fname}', 'progress': idx, 'total': total_files}
 
     # Apply overrides
@@ -267,7 +294,21 @@ def _orchestrate_smart_processing(batch_id: int, strategy_overrides: dict, token
             logger.error(f"[smart] Error while updating batch status for batch_scans: {e}")
 
         yield {'message': f'Processing {len(batch_scans)} batch-scan documents in batch {batch_scan_batch_id}...', 'progress': processed, 'total': processing_total}
-        for out in _relay(_process_docs_into_fixed_batch_with_progress(batch_scans, batch_scan_batch_id), 'batch_scan'):
+        # Ensure batch_scan_batch_id is an int; if it's None or invalid, bail out
+        try:
+            if batch_scan_batch_id is None:
+                raise ValueError("No batch id available for batch_scan phase")
+            batch_scan_bid = int(batch_scan_batch_id)
+        except Exception as e:
+            logger.error(f"[smart] Invalid batch id for batch_scan phase: {e}")
+            yield {
+                'message': 'Batch scan aborted (invalid batch id)',
+                'complete': True,
+                'error': str(e)
+            }
+            return
+
+        for out in _relay(_process_docs_into_fixed_batch_with_progress(batch_scans, batch_scan_bid), 'batch_scan'):
                 if 'documents_completed' in out:
                     processed = out['documents_completed'] + (len(single_docs) if single_docs else 0)
                     out['progress'] = processed
@@ -309,22 +350,42 @@ def smart_processing_progress_sse():
     batch_id = meta.get('batch_id')
     if batch_id is None:
         return jsonify(create_error_response('Token missing batch reference'))
+    # Prefer a numeric batch_id when possible for typed downstream calls
+    try:
+        batch_id_int = int(batch_id) if not isinstance(batch_id, int) and batch_id is not None else batch_id
+    except Exception:
+        batch_id_int = None
     strategy_overrides = meta.get('strategy_overrides', {})
 
     def event_stream():
         import time as _t
         last_emit = _t.time()
         yield f"data: {json.dumps({'message':'Token accepted','progress':0,'total':0})}\n\n"
-        for update in _orchestrate_smart_processing(batch_id, strategy_overrides, token):
+        for update in _orchestrate_smart_processing(batch_id_int if batch_id_int is not None else batch_id, strategy_overrides, token):
             yield f"data: {json.dumps(update)}\n\n"
             last_emit = _t.time()
             if update.get('complete'):
                 break
+
+            # Allow early termination if shutdown requested
+            try:
+                from ..config_manager import SHUTDOWN_EVENT
+                if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
+                    yield f"data: {json.dumps({'message': 'Shutdown requested by server', 'complete': True})}\n\n"
+                    break
+            except Exception:
+                pass
+
             # Heartbeat if silence > 15s (rare because generator usually emits)
             if _t.time() - last_emit > 15:
                 yield f"data: {json.dumps({'heartbeat': True, 'ts': _t.time()})}\n\n"
                 last_emit = _t.time()
-        smart_tokens.pop(token, None)
+
+        # Cleanup token when finished or aborted
+        try:
+            smart_tokens.pop(token, None)
+        except Exception:
+            pass
 
     headers = {
         'Cache-Control': 'no-cache',
@@ -409,7 +470,7 @@ def batch_control():
                     'audit_url': url_for('batch.batch_audit', batch_id=batch_id)
                 })
             return render_template('batch_control.html', batches=batches)
-            
+
     except Exception as e:
         logger.error(f"Error loading batch control page: {e}")
         flash(f"Error loading batches: {str(e)}", "error")
@@ -422,11 +483,11 @@ def process_new_batch():
         intake_dir = app_config.INTAKE_DIR
         if not intake_dir or not os.path.exists(intake_dir):
             return jsonify(create_error_response("Intake directory not configured or doesn't exist"))
-        
+
         # Create new batch
         # Create new intake batch via helper to centralize INSERT semantics
         batch_id = create_new_batch('intake')
-        
+
         # Start processing in background
         def process_batch_async():
             try:
@@ -436,10 +497,10 @@ def process_new_batch():
                         'progress': 0,
                         'message': 'Starting batch processing...'
                     }
-                
+
                 # Process the batch
                 result = process_batch()
-                
+
                 with processing_lock:
                     if result:
                         processing_status[batch_id] = {
@@ -453,7 +514,7 @@ def process_new_batch():
                             'progress': 0,
                             'message': 'Batch processing failed'
                         }
-                        
+
             except Exception as e:
                 logger.error(f"Error in async batch processing: {e}")
                 with processing_lock:
@@ -462,15 +523,15 @@ def process_new_batch():
                         'progress': 0,
                         'message': f"Processing error: {str(e)}"
                     }
-        
+
         thread = threading.Thread(target=process_batch_async)
         thread.start()
-        
+
         return jsonify(create_success_response({
             'batch_id': batch_id,
             'message': f'Batch {batch_id} created and processing started'
         }))
-        
+
     except Exception as e:
         logger.error(f"Error creating new batch: {e}")
         return jsonify(create_error_response(f"Failed to create batch: {str(e)}"))
@@ -566,7 +627,7 @@ def process_batch_smart():
                 logger.warning(f"Invalid strategy_overrides payload ignored: {e}")
         if strategy_overrides:
             logger.info(f"[smart] Received {len(strategy_overrides)} strategy overrides for batch {batch_id}")
-        
+
         # Validate batch exists (after auto-create logic, so should exist)
         with database_connection() as conn:
             cursor = conn.cursor()
@@ -578,13 +639,22 @@ def process_batch_smart():
                     batch_id = create_new_batch('intake')
                     logger.warning(f"[smart] Batch vanished; re-created as {batch_id}")
                     cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
-                except Exception as re_e:
+                    try:
+                        conn.commit()
+                    except Exception:
+                        # best-effort commit; if it fails the caller will handle
+                        pass
+                except Exception:
                     try:
                         # Try the intake guard to reuse any existing intake batch first
                         batch_id = get_or_create_intake_batch()
                         logger.warning(f"[smart] Batch vanished; get_or_create returned {batch_id}")
                         cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
-                    except Exception as re_e2:
+                        try:
+                            conn.commit()
+                        except Exception:
+                            pass
+                    except Exception:
                         try:
                             # Final raw fallback
                             cursor.execute("INSERT INTO batches (status) VALUES ('intake')")
@@ -592,6 +662,10 @@ def process_batch_smart():
                             batch_id = cursor.lastrowid
                             logger.warning(f"[smart] Batch vanished; re-created as {batch_id} (raw fallback)")
                             cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
+                            try:
+                                conn.commit()
+                            except Exception:
+                                pass
                         except Exception as re_e3:
                             return jsonify(create_error_response(f"Batch not found and re-create failed: {re_e3}"))
             else:
@@ -600,10 +674,14 @@ def process_batch_smart():
                 if result[0] == 'intake':
                     try:
                         cursor.execute("UPDATE batches SET status = 'ready' WHERE id = ?", (batch_id,))
+                        try:
+                            conn.commit()
+                        except Exception:
+                            pass
                         logger.info(f"[smart] Elevated batch {batch_id} status from 'intake' to 'ready'")
                     except Exception as e:
                         logger.warning(f"Failed to update batch status to ready: {e}")
-        
+
         # Instead of starting processing here, create a token & stash parameters for SSE orchestrator
         # Persist per-document strategies if documents already exist for this batch (best-effort)
         if strategy_overrides:
@@ -638,13 +716,52 @@ def process_batch_smart():
         for t in expired:
             smart_tokens.pop(t, None)
         logger.info(f"[smart] Issued token {token} for batch {batch_id} with {len(strategy_overrides)} overrides (expired cleaned: {len(expired)})")
+
+        # Optional: allow API callers to request immediate processing without
+        # establishing an SSE connection (useful for scripted or UI-less runs).
+        # Default to starting processing immediately when called from UI
+        # unless caller explicitly sets start_immediately=false.
+        start_now = True
+        if isinstance(data, dict) and ('start_immediately' in data):
+            start_now = bool(data.get('start_immediately'))
+        if start_now:
+            def _run_now(tok: str):
+                try:
+                    logger.info(f"[smart] Immediate run thread starting for token {tok}")
+                    # Ensure batch_id is an int for the orchestrator
+                    # Safely coerce batch_id to int if possible; preserve None and non-int values
+                    try:
+                        if isinstance(batch_id, int):
+                            bid = batch_id
+                        elif batch_id is None:
+                            bid = None
+                        else:
+                            bid = int(batch_id)
+                    except Exception:
+                        bid = batch_id
+                    from typing import cast
+                    for _ in _orchestrate_smart_processing(cast('Optional[int]', bid), strategy_overrides or {}, tok):
+                        # consume generator to drive processing; we don't need to stream
+                        # results here, just ensure it runs to completion.
+                        pass
+                    logger.info(f"[smart] Immediate run thread completed for token {tok}")
+                except Exception as e:
+                    logger.error(f"[smart] Immediate run failed for token {tok}: {e}")
+                finally:
+                    # Best-effort cleanup of token
+                    try:
+                        smart_tokens.pop(tok, None)
+                    except Exception:
+                        pass
+
+            threading.Thread(target=_run_now, args=(token,), daemon=True, name=f"SmartRun-{token[:6]}").start()
         return jsonify(create_success_response({
             'message': 'Smart processing token issued',
             'batch_id': batch_id,
             'token': token,
             'strategy_overrides_count': len(strategy_overrides)
         }))
-        
+
     except Exception as e:
         logger.error(f"Error starting smart processing: {e}")
         return jsonify(create_error_response(f"Failed to start smart processing: {str(e)}"))
@@ -656,7 +773,7 @@ def process_batch_all_single():
         batch_id = request.json.get('batch_id') if request.json else None
         if not batch_id:
             return jsonify(create_error_response("Batch ID is required"))
-        
+
         # Start single document processing
         def process_single_async():
             try:
@@ -666,36 +783,36 @@ def process_batch_all_single():
                         'progress': 0,
                         'message': 'Processing as single documents...'
                     }
-                
+
                 # Get all documents in batch
                 with database_connection() as conn:
                     cursor = conn.cursor()
                     cursor.execute("SELECT id FROM documents WHERE batch_id = ?", (batch_id,))
                     document_ids = [row[0] for row in cursor.fetchall()]
-                
+
                 total_docs = len(document_ids)
                 processed = 0
-                
+
                 for doc_id in document_ids:
                     try:
                         # TODO: Fix this function call - process_single_document needs correct implementation
                         # process_single_document(doc_id)
                         processed += 1
-                        
+
                         with processing_lock:
                             processing_status[batch_id]['progress'] = int(processed / total_docs * 100)
                             processing_status[batch_id]['message'] = f'Processed {processed}/{total_docs} documents'
-                            
+
                     except Exception as e:
                         logger.error(f"Error processing document {doc_id}: {e}")
-                
+
                 with processing_lock:
                     processing_status[batch_id] = {
                         'status': 'completed',
                         'progress': 100,
                         'message': f'Completed processing {processed}/{total_docs} documents'
                     }
-                    
+
             except Exception as e:
                 logger.error(f"Error in single document processing: {e}")
                 with processing_lock:
@@ -704,15 +821,15 @@ def process_batch_all_single():
                         'progress': 0,
                         'message': f"Processing error: {str(e)}"
                     }
-        
+
         thread = threading.Thread(target=process_single_async)
         thread.start()
-        
+
         return jsonify(create_success_response({
             'message': 'Single document processing started',
             'batch_id': batch_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error starting single document processing: {e}")
         return jsonify(create_error_response(f"Failed to start processing: {str(e)}"))
@@ -724,7 +841,7 @@ def process_batch_force_traditional():
         batch_id = request.json.get('batch_id') if request.json else None
         if not batch_id:
             return jsonify(create_error_response("Batch ID is required"))
-        
+
         # Start traditional processing
         def traditional_process_async():
             try:
@@ -734,10 +851,10 @@ def process_batch_force_traditional():
                         'progress': 0,
                         'message': 'Starting traditional processing...'
                     }
-                
+
                 # Process with traditional methods (no AI)
                 result = process_batch()
-                
+
                 with processing_lock:
                     if result:
                         processing_status[batch_id] = {
@@ -751,7 +868,7 @@ def process_batch_force_traditional():
                             'progress': 0,
                             'message': 'Traditional processing failed'
                         }
-                        
+
             except Exception as e:
                 logger.error(f"Error in traditional processing: {e}")
                 with processing_lock:
@@ -760,15 +877,15 @@ def process_batch_force_traditional():
                         'progress': 0,
                         'message': f"Processing error: {str(e)}"
                     }
-        
+
         thread = threading.Thread(target=traditional_process_async)
         thread.start()
-        
+
         return jsonify(create_success_response({
             'message': 'Traditional processing started',
             'batch_id': batch_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error starting traditional processing: {e}")
         return jsonify(create_error_response(f"Failed to start processing: {str(e)}"))
@@ -779,23 +896,23 @@ def reset_batch(batch_id: int):
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Reset batch status
             cursor.execute("UPDATE batches SET status = 'intake' WHERE id = ?", (batch_id,))
-            
+
             # Reset all documents in batch
             cursor.execute("UPDATE documents SET status = 'pending' WHERE batch_id = ?", (batch_id,))
-            
+
             # Clear any processing status
             with processing_lock:
                 if batch_id in processing_status:
                     del processing_status[batch_id]
-        
+
         return jsonify(create_success_response({
             'message': f'Batch {batch_id} has been reset',
             'batch_id': batch_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error resetting batch {batch_id}: {e}")
         return jsonify(create_error_response(f"Failed to reset batch: {str(e)}"))
@@ -806,22 +923,22 @@ def reset_grouping(batch_id: int):
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Reset grouping information
             cursor.execute("""
-                UPDATE documents 
-                SET group_id = NULL, group_position = NULL 
+                UPDATE documents
+                SET group_id = NULL, group_position = NULL
                 WHERE batch_id = ?
             """, (batch_id,))
-            
+
             # Update batch status if needed
             cursor.execute("UPDATE batches SET status = 'processed' WHERE id = ?", (batch_id,))
-        
+
         return jsonify(create_success_response({
             'message': f'Grouping reset for batch {batch_id}',
             'batch_id': batch_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error resetting grouping for batch {batch_id}: {e}")
         return jsonify(create_error_response(f"Failed to reset grouping: {str(e)}"))
@@ -832,41 +949,41 @@ def batch_audit(batch_id: int):
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Get batch info
             cursor.execute("SELECT * FROM batches WHERE id = ?", (batch_id,))
             batch = cursor.fetchone()
-            
+
             if not batch:
                 flash("Batch not found", "error")
                 return redirect(url_for('batch.batch_control'))
-            
+
             # Get detailed document information
             cursor.execute("""
-                SELECT id, filename, status, category, confidence_score, 
+                SELECT id, filename, status, category, confidence_score,
                        ocr_text, created_at, updated_at
-                FROM documents 
+                FROM documents
                 WHERE batch_id = ?
                 ORDER BY id
             """, (batch_id,))
-            
+
             documents = cursor.fetchall()
-            
+
             # Get processing statistics
             cursor.execute("""
                 SELECT status, COUNT(*) as count
-                FROM documents 
+                FROM documents
                 WHERE batch_id = ?
                 GROUP BY status
             """, (batch_id,))
-            
+
             status_counts = dict(cursor.fetchall())
-            
-            return render_template('batch_audit.html', 
-                                 batch=batch, 
+
+            return render_template('batch_audit.html',
+                                 batch=batch,
                                  documents=documents,
                                  status_counts=status_counts)
-            
+
     except Exception as e:
         logger.error(f"Error loading batch audit for {batch_id}: {e}")
         flash(f"Error loading audit: {str(e)}", "error")
@@ -898,7 +1015,7 @@ def api_smart_processing_progress():
     """API endpoint for smart processing progress."""
     try:
         with processing_lock:
-            smart_status = {k: v for k, v in processing_status.items() 
+            smart_status = {k: v for k, v in processing_status.items()
                           if v.get('status') == 'smart_processing'}
             return jsonify(create_success_response(smart_status))
     except Exception as e:

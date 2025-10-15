@@ -13,22 +13,17 @@ Extracted from the monolithic app.py to improve maintainability.
 from flask import Blueprint, request, jsonify, Response, current_app
 import os
 import logging
-from typing import Dict, Any, List, Optional, Generator
+from typing import Generator
 import json
 import time
 import threading
 
 from ..database import (
-    get_db_connection, update_page_data,
-    get_batch_by_id, get_documents_for_batch,
-    update_document_final_filename,
+    get_db_connection,
 )
-from ..processing import get_ai_classification
 from ..config_manager import app_config
 from ..utils.helpers import create_error_response, create_success_response
-from ..services.rotation_service import apply_physical_rotation
 from ..services.rotation_service import get_logical_rotation, set_logical_rotation
-from ..config_manager import app_config
 
 bp = Blueprint('api', __name__, url_prefix='/api')
 logger = logging.getLogger(__name__)
@@ -147,7 +142,8 @@ def rescan_document_api(doc_id: int):
         if ocr_dpi < 72:  # sanity clamp
             ocr_dpi = 72
         def _run_ocr(p, applied_rotation, dpi):  # Real OCR implementation (rotation & DPI-aware)
-            import fitz, pytesseract
+            import fitz
+            import pytesseract
             from PIL import Image
             text_parts = []
             confidences = []
@@ -233,7 +229,17 @@ def rescan_document_api(doc_id: int):
                 throttle_skipped_ai = True
                 logger.info(f"[rescan] Throttling AI (skipping classification) for doc {doc_id}, last run {(now_ts - last_llm_ts):.2f}s ago")
             else:
-                logger.info(f"[rescan] Starting LLM classification doc {doc_id} mode={mode}")
+                # Check whether categories exist before attempting LLM classification.
+                try:
+                    from ..database import get_all_categories as _get_all_categories
+                    _cats = _get_all_categories()
+                except Exception:
+                    _cats = None
+                if not _cats:
+                    ai_error = 'classification_skipped_no_categories'
+                    logger.error(f"[rescan] No categories available in DB; skipping classification for doc {doc_id}")
+                else:
+                    logger.info(f"[rescan] Starting LLM classification doc {doc_id} mode={mode}")
                 try:
                     ai_start = time.time()
                     # Use sample of updated/new ocr text
@@ -327,9 +333,14 @@ def rescan_document_api(doc_id: int):
                             # Category changed but filename unchanged; allow regeneration
                             need_new_filename = True
                         elif text_hash and prev_hash and prev_hash != text_hash:
+                            # Content changed since last recorded hash - allow regeneration
                             need_new_filename = True
                         elif text_hash and not prev_hash:
-                            need_new_filename = True
+                            # No previous hash recorded. Regenerate filename only when AI actually ran
+                            # or when no previous filename exists. This prevents overwriting an
+                            # existing filename when the LLM failed or was skipped.
+                            if updated_flags.get('ai') or not prev_ai_file:
+                                need_new_filename = True
                         # Allow filename generation even if text_sample is empty (tests monkeypatch generator)
                         if new_ai_cat and need_new_filename:
                             try:
@@ -517,9 +528,9 @@ def analyze_intake_progress():
                 'files_processed': 0,
                 'total_files': 0
             })
-        
+
         return jsonify(create_success_response(progress))
-        
+
     except Exception as e:
         logger.error(f"Error getting intake progress: {e}")
         return jsonify(create_error_response(f"Failed to get progress: {str(e)}"))
@@ -530,10 +541,10 @@ def analyze_intake_api():
     try:
         data = request.get_json() or {}
         intake_dir = data.get('intake_dir')
-        
+
         if not intake_dir:
             return jsonify(create_error_response("Intake directory is required"))
-        
+
         # Start analysis in background
         def analyze_async():
             try:
@@ -545,10 +556,10 @@ def analyze_intake_api():
                         'files_processed': 0,
                         'total_files': 0
                     }
-                
+
                 # Perform actual analysis
                 # result = analyze_intake_directory(intake_dir)
-                
+
                 with status_lock:
                     processing_status['intake_analysis'] = {
                         'status': 'completed',
@@ -557,7 +568,7 @@ def analyze_intake_api():
                         'files_processed': 0,  # Actual count
                         'total_files': 0       # Actual count
                     }
-                    
+
             except Exception as e:
                 logger.error(f"Error in intake analysis: {e}")
                 with status_lock:
@@ -568,15 +579,15 @@ def analyze_intake_api():
                         'files_processed': 0,
                         'total_files': 0
                     }
-        
+
         thread = threading.Thread(target=analyze_async)
         thread.start()
-        
+
         return jsonify(create_success_response({
             'message': 'Intake analysis started',
             'intake_dir': intake_dir
         }))
-        
+
     except Exception as e:
         logger.error(f"Error starting intake analysis: {e}")
         return jsonify(create_error_response(f"Failed to start analysis: {str(e)}"))
@@ -593,9 +604,9 @@ def single_processing_progress():
                 'total_documents': 0,
                 'processed_documents': 0
             })
-        
+
         return jsonify(create_success_response(progress))
-        
+
     except Exception as e:
         logger.error(f"Error getting single processing progress: {e}")
         return jsonify(create_error_response(f"Failed to get progress: {str(e)}"))
@@ -611,9 +622,9 @@ def batch_processing_progress():
                 'current_batch': None,
                 'message': 'No batch processing in progress'
             })
-        
+
         return jsonify(create_success_response(progress))
-        
+
     except Exception as e:
         logger.error(f"Error getting batch processing progress: {e}")
         return jsonify(create_error_response(f"Failed to get progress: {str(e)}"))
@@ -624,10 +635,10 @@ def smart_processing_start():
     try:
         data = request.get_json()
         batch_id = data.get('batch_id')
-        
+
         if not batch_id:
             return jsonify(create_error_response("Batch ID is required"))
-        
+
         # Start smart processing
         def smart_process_async():
             try:
@@ -644,7 +655,7 @@ def smart_processing_start():
                             'ordering': {'status': 'pending', 'progress': 0}
                         }
                     }
-                
+
                 # Simulate smart processing stages
                 stages = ['ocr', 'classification', 'grouping', 'ordering']
                 for i, stage in enumerate(stages):
@@ -652,21 +663,21 @@ def smart_processing_start():
                     with status_lock:
                         processing_status['smart_processing']['stages'][stage]['status'] = 'processing'
                         processing_status['smart_processing']['message'] = f'Processing {stage}...'
-                    
+
                     # Simulate processing time
                     time.sleep(2)
-                    
+
                     # Complete stage
                     with status_lock:
                         processing_status['smart_processing']['stages'][stage]['status'] = 'completed'
                         processing_status['smart_processing']['stages'][stage]['progress'] = 100
                         processing_status['smart_processing']['progress'] = int((i + 1) / len(stages) * 100)
-                
+
                 # Complete processing
                 with status_lock:
                     processing_status['smart_processing']['status'] = 'completed'
                     processing_status['smart_processing']['message'] = 'Smart processing completed'
-                    
+
             except Exception as e:
                 logger.error(f"Error in smart processing: {e}")
                 with status_lock:
@@ -675,15 +686,15 @@ def smart_processing_start():
                         'progress': 0,
                         'message': f"Smart processing failed: {str(e)}"
                     }
-        
+
         thread = threading.Thread(target=smart_process_async)
         thread.start()
-        
+
         return jsonify(create_success_response({
             'message': 'Smart processing started',
             'batch_id': batch_id
         }))
-        
+
     except Exception as e:
         logger.error(f"Error starting smart processing: {e}")
         return jsonify(create_error_response(f"Failed to start smart processing: {str(e)}"))
@@ -699,9 +710,9 @@ def smart_processing_status():
                 'message': 'No smart processing in progress',
                 'stages': {}
             })
-        
+
         return jsonify(create_success_response(status))
-        
+
     except Exception as e:
         logger.error(f"Error getting smart processing status: {e}")
         return jsonify(create_error_response(f"Failed to get status: {str(e)}"))
@@ -713,24 +724,28 @@ def processing_status_events():
     def generate_events() -> Generator[str, None, None]:
         """Generate server-sent events for processing status."""
         last_status = {}
-        
+
         while True:
             try:
                 with status_lock:
                     current_status = dict(processing_status)
-                
+
                 # Only send if status changed
                 if current_status != last_status:
                     yield f"data: {json.dumps(current_status)}\n\n"
                     last_status = current_status.copy()
-                
-                time.sleep(1)  # Check every second
-                
+
+                    # Check every second but exit promptly if shutdown requested
+                    from ..config_manager import SHUTDOWN_EVENT
+                    if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
+                        break
+                    time.sleep(1)  # Check every second
+
             except Exception as e:
                 logger.error(f"Error in SSE generation: {e}")
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
                 break
-    
+
     return Response(generate_events(), mimetype='text/event-stream')
 
 @bp.route("/events/batch_status/<int:batch_id>")
@@ -744,17 +759,22 @@ def batch_status_events(batch_id: int):
                 # with database_connection() as conn:
                 #     cursor = conn.cursor()
                 #     batch_status = get_batch_status(batch_id)
-                
+
                 batch_status = {'status': 'unknown', 'progress': 0}  # Placeholder
-                
+
                 yield f"data: {json.dumps(batch_status)}\n\n"
-                time.sleep(2)  # Check every 2 seconds
-                
+                # Check every 2 seconds but observe shutdown event
+                from ..config_manager import SHUTDOWN_EVENT
+                for _ in range(2):
+                    if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
+                        return
+                    time.sleep(1)
+
             except Exception as e:
                 logger.error(f"Error in batch SSE generation: {e}")
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
                 break
-    
+
     return Response(generate_batch_events(), mimetype='text/event-stream')
 
 # Utility APIs
@@ -769,9 +789,9 @@ def file_safety_check():
             'disk_space_gb': 10.5,  # Placeholder
             'active_processes': 0    # Placeholder
         }
-        
+
         return jsonify(create_success_response(safety_status))
-        
+
     except Exception as e:
         logger.error(f"Error checking file safety: {e}")
         return jsonify(create_error_response(f"Failed to check file safety: {str(e)}"))
@@ -800,9 +820,9 @@ def system_info():
             }
         except Exception:
             pass
-        
+
         return jsonify(create_success_response(system_info))
-        
+
     except Exception as e:
         logger.error(f"Error getting system info: {e}")
         return jsonify(create_error_response(f"Failed to get system info: {str(e)}"))
@@ -814,11 +834,11 @@ def clear_processing_status():
     try:
         with status_lock:
             processing_status.clear()
-        
+
         return jsonify(create_success_response({
             'message': 'Processing status cleared'
         }))
-        
+
     except Exception as e:
         logger.error(f"Error clearing processing status: {e}")
         return jsonify(create_error_response(f"Failed to clear status: {str(e)}"))
@@ -829,12 +849,12 @@ def debug_processing_status():
     try:
         with status_lock:
             current_status = dict(processing_status)
-        
+
         return jsonify(create_success_response({
             'processing_status': current_status,
             'status_count': len(current_status)
         }))
-        
+
     except Exception as e:
         logger.error(f"Error getting debug status: {e}")
         return jsonify(create_error_response(f"Failed to get debug status: {str(e)}"))

@@ -1,4 +1,3 @@
-import re
 import pytest
 from doc_processor.app import create_app
 

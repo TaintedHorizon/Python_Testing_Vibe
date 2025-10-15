@@ -29,7 +29,11 @@ Options:
 Exit Codes:
   0 success, 1 error, 2 partial (some docs failed)
 """
-import os, sys, sqlite3, argparse, logging
+import os
+import sys
+import sqlite3
+import argparse
+import logging
 from typing import Optional
 
 # Ensure local imports work when script run directly
@@ -58,7 +62,8 @@ TAG_TABLE = "document_tags"  # assumed existing via store_document_tags
 
 # Lightweight OCR (optional) import guard
 try:
-    import fitz, pytesseract
+    import fitz
+    import pytesseract
     from PIL import Image
 except Exception:
     fitz = None
@@ -167,7 +172,27 @@ def main():
         logging.error(f"Database not found: {db_path}")
         return 1
 
-    conn = sqlite3.connect(db_path)
+    # Acquire a DB connection preferring the app helper, then the dev_tools helper, then sqlite3.connect
+    conn = None
+    try:
+        try:
+            from doc_processor.database import get_db_connection
+            conn = get_db_connection()
+            conn.row_factory = sqlite3.Row
+        except Exception:
+            try:
+                from doc_processor.dev_tools.db_connect import connect as db_connect
+                conn = db_connect(db_path, timeout=30.0)
+                conn.row_factory = sqlite3.Row
+            except Exception:
+                # Final fallback to direct sqlite3.connect for uncommon
+                # environments where the helper isn't importable.
+                conn = sqlite3.connect(db_path, timeout=30.0)
+                conn.row_factory = sqlite3.Row
+    except Exception as e:
+        logging.error(f"Failed to open database connection: {e}")
+        return 1
+
     cur = conn.cursor()
 
     # Fetch documents for batch

@@ -1,4 +1,5 @@
-import os, sqlite3, tempfile, shutil, json, re
+import os
+import sqlite3
 import pytest
 
 # IMPORTANT: set global fast/test flags BEFORE importing app factory so config_manager picks them up
@@ -7,7 +8,7 @@ os.environ.setdefault('FAST_TEST_MODE', '1')
 
 from doc_processor.app import create_app
 from doc_processor import config_manager as _cfg_mod
-from doc_processor.config_manager import AppConfig, app_config
+from doc_processor.config_manager import AppConfig
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):

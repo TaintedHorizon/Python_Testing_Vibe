@@ -50,7 +50,7 @@ try:
     import win32api # Provides access to many Windows API functions (e.g., GetLogicalDriveStrings, GetVolumeInformation, CloseHandle)
     import win32file # Provides file-related Windows API functions (e.g., CreateFile, ReadFile)
     import win32con # Provides Windows constants (e.g., DRIVE_REMOVABLE, GENERIC_READ, FILE_SHARE_READ)
-    
+
     # Load kernel32.dll: This DLL contains core Windows API functions like GetDriveTypeW and DeviceIoControl.
     kernel32 = ctypes.WinDLL('kernel32')
 
@@ -210,9 +210,9 @@ class SDCardImager(tk.Tk):
         self.estimated_drive_size = tk.StringVar(value="Size: N/A") # Displays the estimated size of the selected drive.
         self.current_speed = tk.StringVar(value="Speed: N/A") # Displays current read/write speed.
         self.time_remaining = tk.StringVar(value="ETA: N/A") # Displays estimated time remaining.
-        
+
         # Event for controlling the cancellation of the imaging thread.
-        self.cancel_event = threading.Event() 
+        self.cancel_event = threading.Event()
         self.imaging_thread = None # Placeholder for the imaging thread.
 
         log_message("Member variables initialized.", "DEBUG")
@@ -338,12 +338,12 @@ class SDCardImager(tk.Tk):
         """
         if seconds is None or seconds < 0:
             return "N/A"
-        
+
         seconds = int(seconds)
         hours = seconds // 3600
         minutes = (seconds % 3600) // 60
         remaining_seconds = seconds % 60
-        
+
         parts = []
         if hours > 0:
             parts.append(f"{hours}h")
@@ -393,7 +393,7 @@ class SDCardImager(tk.Tk):
 
         self.drive_menu['values'] = drive_list # Update the combobox with the found drives.
         log_message(f"Drives populated: {drive_list}", "DEBUG")
-        
+
         # Logic to manage the current selection if drives are refreshed.
         if not drive_list:
             self.source_drive.set("") # Clear selection if no drives are found.
@@ -469,7 +469,7 @@ class SDCardImager(tk.Tk):
 
         # Extract just the drive letter (e.g., "D:") from the full descriptive text.
         source_drive_letter = source_full_text.split(' ')[0]
-        
+
         # Get the size of the source drive for space check.
         raw_source_path = r'\\.\{}'.format(source_drive_letter.rstrip('\\'))
         source_size = self.get_drive_size(raw_source_path)
@@ -483,7 +483,7 @@ class SDCardImager(tk.Tk):
         destination_dir = os.path.dirname(destination)
         if not destination_dir: # If no directory specified, assume current working directory.
             destination_dir = os.getcwd()
-        
+
         try:
             # Get free space on the destination drive/partition.
             # win32api.GetDiskFreeSpaceEx returns (FreeBytesAvailableToCaller, TotalNumberOfBytes, TotalNumberOfFreeBytes)
@@ -523,7 +523,7 @@ class SDCardImager(tk.Tk):
         self.cancel_button.config(state="normal") # Enable the cancel button.
 
         log_message("Starting imaging thread...", "INFO")
-        
+
         # Create and start a new thread for the imaging process.
         # This keeps the main GUI thread responsive.
         self.imaging_thread = threading.Thread(target=self.create_image, args=(source_drive_letter, destination, source_size))
@@ -670,12 +670,12 @@ class SDCardImager(tk.Tk):
                 win32con.FILE_FLAG_BACKUP_SEMANTICS, # Essential for device access.
                 None
             )
-            log_message(f"Source drive opened successfully.", "DEBUG")
+            log_message("Source drive opened successfully.", "DEBUG")
 
             log_message(f"Attempting to open destination file: {destination_file_path}", "DEBUG")
             # Open the destination file in binary write mode.
             image_file_handle = open(destination_file_path, 'wb')
-            log_message(f"Destination file opened successfully.", "DEBUG")
+            log_message("Destination file opened successfully.", "DEBUG")
 
             # Update GUI status and progress bar on the main thread.
             self.after(0, lambda: self.status_label.config(text="Imaging in progress..."))
@@ -708,16 +708,16 @@ class SDCardImager(tk.Tk):
 
                 current_time = time.time()
                 elapsed_total_time = current_time - start_time
-                
+
                 # Update progress, speed, and ETA on the main thread periodically (e.g., every 0.5 seconds).
                 if current_time - last_update_time >= 0.5:
                     progress_percent = (bytes_read / total_size) * 100
-                    
+
                     # Calculate speed
                     bytes_since_last_update = bytes_read - last_bytes_read
                     time_since_last_update = current_time - last_update_time
                     speed_bps = bytes_since_last_update / time_since_last_update if time_since_last_update > 0 else 0
-                    
+
                     # Calculate ETA
                     remaining_bytes = total_size - bytes_read
                     eta_seconds = remaining_bytes / speed_bps if speed_bps > 0 else float('inf')
@@ -731,7 +731,7 @@ class SDCardImager(tk.Tk):
                     last_bytes_read = bytes_read
 
                     log_message(f"Progress: {progress_percent:.2f}% ({self.format_bytes(bytes_read)} read, Speed: {self.format_bytes(speed_bps)}/s, ETA: {self.format_seconds_to_hms(eta_seconds)})", "DEBUG")
-                
+
                 # Small sleep to yield control and allow GUI updates/cancellation check.
                 time.sleep(0.01) # Sleep for 10ms
 
@@ -742,13 +742,14 @@ class SDCardImager(tk.Tk):
                 self.after(0, lambda: messagebox.showinfo("Success", "The SD card image has been created successfully."))
                 log_message("Imaging complete success message shown.", "INFO")
 
-        except Exception as e:
+        except Exception as exc:
             # Catch and log any errors that occur during the imaging process.
-            log_message(f"An error occurred during imaging: {e}", "CRITICAL")
-            log_exception(type(e), e, e.__traceback__) # Log the full traceback for debugging.
+            log_message(f"An error occurred during imaging: {exc}", "CRITICAL")
+            log_exception(type(exc), exc, exc.__traceback__) # Log the full traceback for debugging.
             # Update GUI to show error.
             self.after(0, lambda: self.status_label.config(text="Error!", foreground="red"))
-            self.after(0, lambda: messagebox.showerror("Imaging Error", f"An error occurred during imaging: {e}"))
+            # Use captured exception variable `exc` for message; bind it into the lambda to avoid late-binding issues
+            self.after(0, lambda exc=exc: messagebox.showerror("Imaging Error", f"An error occurred during imaging: {exc}"))
         finally:
             log_message("Imaging process finally block entered.", "DEBUG")
             # Ensure all open handles and files are closed, regardless of success or failure.
@@ -772,7 +773,7 @@ class SDCardImager(tk.Tk):
             self.after(0, lambda: self.current_speed.set("Speed: N/A"))
             self.after(0, lambda: self.time_remaining.set("ETA: N/A"))
             # Only reset status to "Ready" if not already "Cancelled!" or "Error!"
-            if not self.cancel_event.is_set() and not "Error!" in self.status_label.cget("text"):
+            if not self.cancel_event.is_set() and "Error!" not in self.status_label.cget("text"):
                  self.after(0, lambda: self.status_label.config(text="Ready"))
             log_message("UI reset to ready state.", "DEBUG")
             log_message("create_image finished.", "INFO")
@@ -795,7 +796,7 @@ class SDCardImager(tk.Tk):
 
 if __name__ == "__main__":
     # This block handles the initial execution and privilege elevation.
-    
+
     # Initialize the log file with a new run separator for clarity.
     if os.path.exists(LOG_FILE_PATH):
         with open(LOG_FILE_PATH, "a") as log_f:

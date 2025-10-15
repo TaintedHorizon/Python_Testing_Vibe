@@ -8,9 +8,9 @@ See .github/copilot-instructions.md - NEVER import from old 'config.py'
 import os
 from dataclasses import dataclass
 from typing import Optional
-from pathlib import Path
 from dotenv import load_dotenv
 import logging
+import threading
 
 @dataclass
 class AppConfig:
@@ -38,7 +38,7 @@ class AppConfig:
     OLLAMA_CONTEXT_WINDOW: Optional[int] = 8192
     OLLAMA_NUM_GPU: Optional[int] = None
     OLLAMA_TIMEOUT: int = 45
-    
+
     # --- Task-Specific Context Windows ---
     OLLAMA_CTX_CLASSIFICATION: int = 2048
     OLLAMA_CTX_DETECTION: int = 2048
@@ -89,15 +89,14 @@ class AppConfig:
         """
         Creates a configuration instance from environment variables.
         Validates required paths and settings.
-        
+
         Returns:
             AppConfig: Validated configuration instance
-        
+
         Raises:
             ValueError: If required configuration is missing or invalid
         """
         # Try to load .env from workspace root, then from doc_processor/
-        from dotenv import load_dotenv
         import pathlib
         env_loaded = load_dotenv()
         if not env_loaded:
@@ -138,9 +137,19 @@ class AppConfig:
             ollama_num_gpu = os.getenv("OLLAMA_NUM_GPU")
             ollama_num_gpu = int(ollama_num_gpu) if ollama_num_gpu is not None and ollama_num_gpu != "" else None
             ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "45"))
+            # If running in FAST_TEST_MODE and no DATABASE_PATH is provided, prefer
+            # an isolated temporary database under the system temp directory.
+            db_env = os.getenv('DATABASE_PATH')
+            fast_mode_flag = os.getenv('FAST_TEST_MODE', str(cls.FAST_TEST_MODE)).lower() in ('true', '1', 't')
+            if fast_mode_flag and not db_env:
+                import tempfile
+                test_db_default = os.path.join(tempfile.gettempdir(), f'doc_processor_test_{os.getpid()}.db')
+            else:
+                test_db_default = cls.DATABASE_PATH
+
             config = cls(
                 # Core Application Configuration
-                DATABASE_PATH=get_env("DATABASE_PATH", cls.DATABASE_PATH),
+                DATABASE_PATH=get_env("DATABASE_PATH", test_db_default),
                 INTAKE_DIR=validate_directory(get_env("INTAKE_DIR", cls.INTAKE_DIR), "INTAKE"),
                 PROCESSED_DIR=validate_directory(get_env("PROCESSED_DIR", cls.PROCESSED_DIR), "PROCESSED"),
                 # Allow an optional WIP_DIR override; default to PROCESSED_DIR if not set
@@ -150,14 +159,14 @@ class AppConfig:
                 NORMALIZED_DIR=validate_directory(get_env("NORMALIZED_DIR", cls.NORMALIZED_DIR), "NORMALIZED"),
                 NORMALIZED_CACHE_MAX_AGE_DAYS=int(get_env("NORMALIZED_CACHE_MAX_AGE_DAYS", str(cls.NORMALIZED_CACHE_MAX_AGE_DAYS))),
                 ARCHIVE_RETENTION_DAYS=archive_retention_days,
-                
+
                 # AI Service Configuration
                 OLLAMA_HOST=get_optional_env("OLLAMA_HOST"),
                 OLLAMA_MODEL=get_optional_env("OLLAMA_MODEL"),
                 OLLAMA_CONTEXT_WINDOW=int(get_env("OLLAMA_CONTEXT_WINDOW", str(cls.OLLAMA_CONTEXT_WINDOW))),
                 OLLAMA_NUM_GPU=ollama_num_gpu,
                 OLLAMA_TIMEOUT=ollama_timeout,
-                
+
                 # Task-Specific Context Windows
                 OLLAMA_CTX_CLASSIFICATION=int(get_env("OLLAMA_CTX_CLASSIFICATION", str(cls.OLLAMA_CTX_CLASSIFICATION))),
                 OLLAMA_CTX_DETECTION=int(get_env("OLLAMA_CTX_DETECTION", str(cls.OLLAMA_CTX_DETECTION))),
@@ -165,7 +174,7 @@ class AppConfig:
                 OLLAMA_CTX_ORDERING=int(get_env("OLLAMA_CTX_ORDERING", str(cls.OLLAMA_CTX_ORDERING))),
                 OLLAMA_CTX_TITLE_GENERATION=int(get_env("OLLAMA_CTX_TITLE_GENERATION", str(cls.OLLAMA_CTX_TITLE_GENERATION))),
                 OLLAMA_CTX_TAGGING=int(get_env("OLLAMA_CTX_TAGGING", str(cls.OLLAMA_CTX_TAGGING))),
-                
+
                 # Logging Configuration
                 LOG_FILE_PATH=get_env("LOG_FILE_PATH", cls.LOG_FILE_PATH),
                 LOG_MAX_BYTES=int(get_env("LOG_MAX_BYTES", str(cls.LOG_MAX_BYTES))),
@@ -182,7 +191,7 @@ class AppConfig:
                 OCR_OVERLAY_TEXT_LIMIT=int(get_env("OCR_OVERLAY_TEXT_LIMIT", str(cls.OCR_OVERLAY_TEXT_LIMIT))),
                 # Backup dir can be optionally provided by env
                 DB_BACKUP_DIR=get_optional_env("DB_BACKUP_DIR"),
-                
+
                 # Status Constants (these are not loaded from environment)
                 STATUS_PENDING_VERIFICATION=cls.STATUS_PENDING_VERIFICATION,
                 STATUS_VERIFICATION_COMPLETE=cls.STATUS_VERIFICATION_COMPLETE,
@@ -192,7 +201,7 @@ class AppConfig:
                 STATUS_FAILED=cls.STATUS_FAILED,
                 STATUS_READY_FOR_MANIPULATION=cls.STATUS_READY_FOR_MANIPULATION
             )
-            
+
             # Validate database path
             db_dir = os.path.dirname(config.DATABASE_PATH)
             if db_dir:
@@ -209,7 +218,7 @@ class AppConfig:
                 os.makedirs(config.DB_BACKUP_DIR, exist_ok=True)
             except Exception as e:
                 logging.warning(f"Could not create DB_BACKUP_DIR '{config.DB_BACKUP_DIR}': {e}")
-            
+
             return config
 
         except Exception as e:
@@ -242,3 +251,28 @@ try:
 except Exception as e:
     logging.critical(f"Failed to load configuration: {e}")
     raise
+
+# Global shutdown event that other modules (background threads, cleaners)
+# can watch to exit promptly during test teardown or process shutdown.
+# Placing this in config_manager makes it available early in the import
+# order for modules that start background threads at import time.
+try:
+    SHUTDOWN_EVENT = threading.Event()
+except Exception:
+    # Best-effort fallback
+    SHUTDOWN_EVENT = None
+
+# Enforce CPU-only early when OLLAMA_NUM_GPU is explicitly set to 0.
+# Doing this here ensures CUDA_VISIBLE_DEVICES is cleared before other
+# modules (or third-party libs) import and possibly initialize CUDA.
+try:
+    ollama_gpu = getattr(app_config, 'OLLAMA_NUM_GPU', None)
+    if ollama_gpu is not None and int(ollama_gpu) == 0:
+        prev_val = os.environ.get('CUDA_VISIBLE_DEVICES')
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        logging.getLogger(__name__).info(
+            f"Enforcing CPU-only for Ollama/tests: cleared CUDA_VISIBLE_DEVICES (was: {prev_val})"
+        )
+except Exception:
+    # Best-effort only; don't fail startup for odd environments
+    pass

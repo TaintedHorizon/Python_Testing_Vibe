@@ -38,18 +38,42 @@ def upgrade_database():
     # Retrieve the database path from environment variables, with a default fallback.
     db_path = os.getenv("DATABASE_PATH", "documents.db")
 
-    # A crucial check: if the database file doesn't exist, this script shouldn't
-    # run. The database must be created first by `database_setup.py`.
-    if not os.path.exists(db_path):
-        print(
-            f"Database file not found at '{db_path}'. Please run database_setup.py first."
-        )
-        return
+    import argparse
+    import sys
+    parser = argparse.ArgumentParser(description='Run database upgrade/migrations (destructive)')
+    parser.add_argument('--dry-run', action='store_true', help='Show changes without applying them')
+    parser.add_argument('--yes', '-y', action='store_true', help='Auto-confirm destructive actions (or set CONFIRM_RESET=1)')
+    args = parser.parse_args()
+
+    dry_run = args.dry_run or os.getenv('DRY_RUN','0').lower() in ('1','true','t')
+    env_confirm = os.getenv('CONFIRM_RESET','0').lower() in ('1','true','t')
+    if not (env_confirm or args.yes):
+        confirm = input("This may DROP or MODIFY tables. Type 'yes' to continue: ")
+        if confirm.lower() != 'yes':
+            print("Operation cancelled (no confirmation).")
+            sys.exit(0)
 
     conn = None  # Initialize for the 'finally' block.
     try:
-        # Establish the database connection.
-        conn = sqlite3.connect(db_path)
+        # Prefer centralized helper when running inside the application context
+        try:
+            from ..database import get_db_connection
+            conn = get_db_connection()
+        except Exception:
+            try:
+                from doc_processor.database import get_db_connection
+                conn = get_db_connection()
+            except Exception:
+                # Fallback to the dev_tools helper which will prefer the app helper
+                try:
+                    from doc_processor.dev_tools.db_connect import connect as db_connect
+                    conn = db_connect(db_path, timeout=30.0)
+                    conn.row_factory = sqlite3.Row
+                except Exception:
+                    from doc_processor.dev_tools.db_connect import connect as db_connect
+                    conn = db_connect(db_path, timeout=30.0)
+                    conn.row_factory = sqlite3.Row
+        assert conn is not None
         cursor = conn.cursor()
         print(f"Successfully connected to database at '{db_path}' for upgrade.")
 

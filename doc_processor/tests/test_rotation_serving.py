@@ -1,6 +1,9 @@
-import os, tempfile, sqlite3, time, sys
+import os
+import tempfile
+import sqlite3
+import time
+import sys
 from pathlib import Path
-from flask import Flask
 
 # Establish a placeholder DATABASE_PATH early so config_manager uses an isolated temp DB
 _TEST_DB_PLACEHOLDER = os.path.join(tempfile.gettempdir(), 'rotation_test_placeholder.db')
@@ -78,8 +81,12 @@ def test_rotation_serving():
     if db_path.exists():
         os.remove(db_path)
 
-    # Seed database
-    conn = sqlite3.connect(db_path)
+    # Seed database (prefer the centralized helper so PRAGMA and WAL are applied)
+    try:
+        from doc_processor.database import get_db_connection
+        conn = get_db_connection()
+    except Exception:
+        conn = sqlite3.connect(db_path)
     _ensure_tables(conn)
     cur = conn.cursor()
     cur.execute(
@@ -102,7 +109,11 @@ def test_rotation_serving():
     assert len(data1) > 100
 
     # Update rotation to 180° (regeneration expected)
-    conn = sqlite3.connect(db_path)
+    try:
+        from doc_processor.database import get_db_connection
+        conn = get_db_connection()
+    except Exception:
+        conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     cur.execute("UPDATE intake_rotations SET rotation = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?", (180, 'orig.pdf'))
     conn.commit()

@@ -1,6 +1,7 @@
 # doc_processor/restore_categories.py
 import os
 import sqlite3
+from doc_processor.dev_tools.db_connect import connect as db_connect
 import json
 from dotenv import load_dotenv
 
@@ -11,14 +12,45 @@ load_dotenv()
 CATEGORIES_BACKUP_FILE = "custom_categories_backup.json"
 DUMMY_BATCH_STATUS = "template_batch"
 
+import argparse
+import sys
+parser = argparse.ArgumentParser(description='Restore custom categories from backup into the DB (destructive)')
+parser.add_argument('--dry-run', action='store_true', help='Show changes without applying them')
+parser.add_argument('--yes', '-y', action='store_true', help='Auto-confirm destructive actions (or set CONFIRM_RESET=1)')
+args = parser.parse_args()
+
+dry_run = args.dry_run or os.getenv('DRY_RUN','0').lower() in ('1','true','t')
+env_confirm = os.getenv('CONFIRM_RESET','0').lower() in ('1','true','t')
+if not (env_confirm or args.yes):
+    confirm = input("This will insert dummy batches/pages into the database to seed categories. Type 'yes' to continue: ")
+    if confirm.lower() != 'yes':
+        print("Operation cancelled (no confirmation).")
+        sys.exit(0)
+
 def get_db_connection():
-    """Establishes a connection to the SQLite database."""
+    """Establishes a connection to the SQLite database using dev_tools.db_connect.connect.
+
+    This respects the application's configured DB helper when the path matches,
+    otherwise falls back to a direct sqlite3 connection.
+    """
     db_path = os.getenv("DATABASE_PATH")
     if not db_path or not os.path.exists(db_path):
         print(f"[ERROR] Database path not found at '{db_path}'. Please check your .env file.")
         return None
-    conn = sqlite3.connect(db_path)
-    return conn
+    try:
+        conn = db_connect(db_path, timeout=30.0)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except Exception:
+        # As a last resort, direct sqlite3 connect
+        try:
+            # Use the helper as a final fallback as well for consistent behavior
+            conn = db_connect(db_path, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            return conn
+        except Exception:
+            print("[ERROR] Failed to connect to the database using db_connect")
+            return None
 
 def main():
     """
@@ -59,7 +91,7 @@ def main():
             (DUMMY_BATCH_STATUS,)
         )
         existing_dummy_categories = {row[0] for row in cursor.fetchall()}
-        
+
         categories_to_add = [cat for cat in custom_categories if cat not in existing_dummy_categories]
 
         if not categories_to_add:
@@ -69,32 +101,42 @@ def main():
         print(f"Adding {len(categories_to_add)} new custom categories to the database...")
 
         # 5. Create a new dummy batch
-        cursor.execute("INSERT INTO batches (status) VALUES (?)", (DUMMY_BATCH_STATUS,))
-        dummy_batch_id = cursor.lastrowid
-        print(f"Created new template batch with ID: {dummy_batch_id}")
+        if dry_run:
+            print("DRY-RUN: would create new template batch and insert dummy pages for categories")
+            dummy_batch_id = None
+        else:
+            cursor.execute("INSERT INTO batches (status) VALUES (?)", (DUMMY_BATCH_STATUS,))
+            dummy_batch_id = cursor.lastrowid
+            print(f"Created new template batch with ID: {dummy_batch_id}")
 
         # 6. Insert a dummy page for each new custom category
         for category in categories_to_add:
-            cursor.execute(
-                """
-                INSERT INTO pages 
-                    (batch_id, source_filename, page_number, ocr_text, status, human_verified_category) 
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    dummy_batch_id,
-                    "template_file",
-                    0,
-                    f"Template page for category: {category}",
-                    "template_page",
-                    category
+            if dry_run:
+                print(f"DRY-RUN: would add dummy page for category: '{category}'")
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO pages
+                        (batch_id, source_filename, page_number, ocr_text, status, human_verified_category)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        dummy_batch_id,
+                        "template_file",
+                        0,
+                        f"Template page for category: {category}",
+                        "template_page",
+                        category
+                    )
                 )
-            )
-            print(f"  - Added dummy page for category: '{category}'")
-        
+                print(f"  - Added dummy page for category: '{category}'")
+
         # 7. Commit changes
-        conn.commit()
-        print("\nSuccessfully restored custom categories to the database.")
+        if dry_run:
+            print("DRY-RUN: no changes were committed.")
+        else:
+            conn.commit()
+            print("\nSuccessfully restored custom categories to the database.")
 
     except sqlite3.Error as e:
         print(f"[ERROR] A database error occurred: {e}")

@@ -59,3 +59,21 @@ Need to understand where a function or route lives? Consult:
 - Use scripts in `dev_tools/` for database resets and diagnostics.
 - Check logs for errors and review the database for stuck batches.
 - Monitor AI context usage logs to optimize performance vs quality.
+
+## Avoid running the Flask development server during tests
+
+Sometimes you'll see "Starting Flask development server" lines in `app.log` or your terminal. Those appear when someone starts the long-lived dev server (for example by running `python -m doc_processor.app` directly) rather than using the provided startup script or the Flask test client. During automated tests you should avoid launching a persistent server — the test harness uses the Flask test client and starts the app in-process.
+
+Recommendations:
+
+- For manual development runs, always use the repository startup script which configures the correct virtualenv and environment:
+
+```bash
+./start_app.sh
+```
+
+- For automated tests, run pytest (the harness uses the Flask test client). Do not run `python -m doc_processor.app` in CI or test runs.
+
+- If you need to run the app manually for debugging, prefer doing so in a separate terminal and stop it before running the test suite to avoid port conflicts and noisy logs.
+
+These practices prevent accidental background servers from interfering with tests and keep logs clean.

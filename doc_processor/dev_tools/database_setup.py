@@ -17,8 +17,16 @@ def create_database():
     If the tables already exist, the script does nothing to them.
     This function is idempotent and safe to run multiple times.
     """
-    # Get the database file path from environment variables, defaulting to 'documents.db'.
-    db_path = os.getenv("DATABASE_PATH", "documents.db")
+    # Resolve database path: prefer env DATABASE_PATH, then app_config, then repo-local fallback.
+    db_path = os.getenv('DATABASE_PATH')
+    if not db_path:
+        try:
+            from ..config_manager import app_config
+            db_path = getattr(app_config, 'DATABASE_PATH', None)
+        except Exception:
+            db_path = None
+    if not db_path:
+        db_path = os.path.join(os.path.dirname(__file__), '..', 'documents.db')
     print(f"[SETUP] Using database file: {os.path.abspath(db_path)}")
     # Get the directory part of the database path.
     db_dir = os.path.dirname(db_path)
@@ -29,12 +37,23 @@ def create_database():
         os.makedirs(db_dir)
         print(f"Created directory: {db_dir}")
 
+    from doc_processor.dev_tools.db_connect import connect as db_connect
     conn = None
+    def _connect(path):
+        """Connect to DB: prefer centralized helper when path matches configured DB."""
+        try:
+            return db_connect(path, timeout=30.0)
+        except Exception:
+            from .db_connect import connect as db_connect
+            return db_connect(path, timeout=30.0)
+
     try:
-        # Connect to the database. SQLite will create the file if it doesn't exist.
-        conn = sqlite3.connect(db_path)
+        # Prefer the application's centralized DB helper when running inside
+        # the app context. This applies PRAGMA settings and safety guards.
+        conn = _connect(db_path)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        print(f"Successfully connected to database at '{db_path}'")
+        print(f"Successfully connected to database at '{os.path.abspath(db_path)}'")
 
         # --- Create 'batches' table ---
         # A batch represents a single processing run, initiated when the user clicks
@@ -187,6 +206,90 @@ def create_database():
 
         # Commit all the `CREATE TABLE` and `INSERT` statements to the database,
         # making the changes permanent.
+        # --- Additional modern tables / columns (idempotent) ---
+        # single_documents: newer single-document workflow table
+        cursor.execute(
+            """
+        CREATE TABLE IF NOT EXISTS single_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id INTEGER,
+            source_filename TEXT,
+            final_category TEXT,
+            final_filename TEXT,
+            searchable_pdf_path TEXT,
+            ocr_text TEXT,
+            ocr_confidence_avg REAL,
+            ai_confidence REAL,
+            ai_summary TEXT,
+            page_count INTEGER,
+            file_size_bytes INTEGER,
+            status TEXT DEFAULT 'pending',
+            final_category_locked INTEGER DEFAULT 0,
+            ai_filename_source_hash TEXT,
+            ocr_source_signature TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
+        );
+        """
+        )
+        print("Table 'single_documents' created or already exists.")
+
+        # document_tags: extracted metadata / tag storage with uniqueness constraint
+        cursor.execute(
+            """
+        CREATE TABLE IF NOT EXISTS document_tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id INTEGER,
+            tag_category TEXT,
+            tag_value TEXT,
+            llm_source TEXT,
+            extraction_confidence REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(document_id, tag_category, tag_value),
+            FOREIGN KEY(document_id) REFERENCES single_documents(id) ON DELETE CASCADE
+        );
+        """
+        )
+        print("Table 'document_tags' created or already exists.")
+
+        # tag_usage_stats: summary/aggregation for tag usage patterns
+        cursor.execute(
+            """
+        CREATE TABLE IF NOT EXISTS tag_usage_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tag_category TEXT,
+            tag_value TEXT,
+            usage_count INTEGER DEFAULT 0,
+            last_used TIMESTAMP
+        );
+        """
+        )
+        print("Table 'tag_usage_stats' created or already exists.")
+
+        # Ensure new columns exist on existing tables (best-effort):
+        def table_has_column(tbl, col):
+            try:
+                rows = cursor.execute(f"PRAGMA table_info({tbl})").fetchall()
+                return any(r[1] == col for r in rows)
+            except Exception:
+                return False
+
+        # documents.final_filename_base
+        if not table_has_column('documents', 'final_filename_base'):
+            try:
+                cursor.execute("ALTER TABLE documents ADD COLUMN final_filename_base TEXT")
+                print("Added column 'final_filename_base' to 'documents'")
+            except Exception:
+                pass
+
+        # batches.has_been_manipulated
+        if not table_has_column('batches', 'has_been_manipulated'):
+            try:
+                cursor.execute("ALTER TABLE batches ADD COLUMN has_been_manipulated INTEGER DEFAULT 0")
+                print("Added column 'has_been_manipulated' to 'batches'")
+            except Exception:
+                pass
+
         conn.commit()
         print("Database schema is up to date.")
 
@@ -199,7 +302,10 @@ def create_database():
         # or not. This ensures that the database connection is always closed,
         # preventing resource leaks.
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
             print("Database connection closed.")
 
 

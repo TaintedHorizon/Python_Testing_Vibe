@@ -1,6 +1,45 @@
 
 # Python_Testing_Vibe
 
+Recent changes (see `doc_processor/CHANGELOG.md` for full details):
+
+Note: As of 2025-10-12 the `chore/db-backup-tests` branch includes a final lint pass and green unit tests (43 passed, 4 skipped). See changelog for details.
+
+Update (2025-10-13): Local DB schema extensions and initialization added; the `database_setup.py` script now creates `document_tags`, `single_documents`, and `tag_usage_stats`. For local development the DB was initialized at `/home/svc-scan/db/documents.db`.
+
+- Hardened database behavior: the application now protects against accidental
+   creation or overwrite of repository-local SQLite files. Tests and local runs
+   run against a temporary database unless explicitly allowed. A `DB_BACKUP_DIR`
+   configuration option is respected for backing up database snapshots.
+- Deterministic tests: pytest runs use an isolated temporary SQLite database and
+   `FAST_TEST_MODE` to avoid heavy processing during tests. The export worker is
+   executed inline in `FAST_TEST_MODE` to prevent timing/race issues in the
+   test suite.
+- Ollama (LLM) client behavior: the central LLM helper now prefers using the
+   installed Python `ollama` client and passes `options.num_gpu` (derived from
+   `OLLAMA_NUM_GPU`) to request CPU vs GPU execution. If the client fails or
+   returns an invalid result, a robust HTTP fallback to `/api/generate` is used
+   so different client/server versions are tolerated.
+- Legacy scripts that instantiated `ollama.Client` directly were patched to
+   honor `OLLAMA_NUM_GPU` so dev tools don't unintentionally force GPU usage.
+- Integration test: an optional, skipped-by-default integration test
+   (`doc_processor/tests/test_ollama_integration.py`) was added; enable it by
+   setting `RUN_OLLAMA_INTEGRATION=1` to validate that `num_gpu=0` results in
+   CPU execution on your Ollama host.
+
+For development and running tests, see `doc_processor/.github/copilot-instructions.md`
+and the `doc_processor/README.md` for project-specific startup instructions.
+
+## End-to-end testing
+
+This repository includes a Playwright-based end-to-end test suite that exercises the full GUI workflow (intake → analyze → smart processing → manipulate → export).
+
+- E2E tests are located under `doc_processor/tests/e2e/` and use Playwright (Python) together with pytest.
+- A fast in-process server-side test is available at `doc_processor/tests/test_gui_inprocess.py` for quicker verification without opening a browser.
+- Tests are designed for deterministic runs; use the environment flags `FAST_TEST_MODE=1` and `SKIP_OLLAMA=1` during CI or local runs to avoid heavy OCR/LLM calls.
+
+The GitHub Actions workflow for running the Playwright E2E tests is at `.github/workflows/playwright-e2e.yml`.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A multi-purpose development repository containing various Python projects and utilities, with a focus on document processing and system administration tools.
@@ -63,8 +102,8 @@ This map lists active, support, legacy, and runtime directories/files for fast o
 | `doc_processor/readme.md` | Docs | In-depth processor documentation |
 | `LICENSE` | Legal | MIT License (root) |
 | `doc_processor/requirements.txt` | Dependencies | Processor dependencies list |
-| `Document_Scanner_Gemini_outdated/` | Legacy | Deprecated Gemini-based scanner (archive only) |
-| `Document_Scanner_Ollama_outdated/` | Legacy | Deprecated early Ollama implementation (archive only) |
+| `archive/legacy/Document_Scanner_Gemini_outdated/` | Legacy | Deprecated Gemini-based scanner (archive only) |
+| `archive/legacy/Document_Scanner_Ollama_outdated/` | Legacy | Deprecated early Ollama implementation (archive only) |
 | `tools/` | Misc Tools | Independent utility sub-projects |
 
 Legend: Core = essential runtime; Support = ancillary active; Legacy = historical only; Runtime Dir = generated/working; Service/Route/Template = layered architecture components.
@@ -154,15 +193,56 @@ All document processing directories are now properly organized within `doc_proce
 
 ### 📚 Legacy & Experimental
 
-#### **`Document_Scanner_Gemini_outdated/`** (260KB)
+#### **`archive/legacy/Document_Scanner_Gemini_outdated/`** (260KB)
 Legacy document scanner implementation using Google Gemini API.  
 *Status: Archived - superseded by doc_processor (source code only, venv removed)*
 
-#### **`Document_Scanner_Ollama_outdated/`** (164KB)
+#### **`archive/legacy/Document_Scanner_Ollama_outdated/`** (164KB)
 Legacy document scanner using Ollama integration.  
 *Status: Archived - superseded by doc_processor (source code only, venv removed)*
 
 ## Quick Start
+To run the application locally and avoid accidental repository-local DB creation, follow these steps:
+
+1. Create and activate the virtualenv in the `doc_processor/` directory:
+
+```bash
+cd doc_processor
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+2. If you're starting the app in a development environment and don't have an existing DB, either:
+
+- Explicitly allow DB creation (intentional):
+
+```bash
+export ALLOW_NEW_DB=1
+```
+
+- Or configure a backup-before-create location and choose backup behavior:
+
+```bash
+export DB_BACKUP_DIR=/var/lib/doc_processor/db_backups
+export ALLOW_NEW_DB=backup
+```
+
+3. Start the app using the repository-provided startup script (this ensures the correct venv and environment are used):
+
+```bash
+./start_app.sh
+```
+
+Notes:
+- For running tests and CI, use `FAST_TEST_MODE=1` and the test harness will create isolated temporary databases and skip heavy OCR/LLM work:
+
+```bash
+FAST_TEST_MODE=1 OLLAMA_NUM_GPU=0 pytest
+```
+
+- Avoid running `python -m doc_processor.app` directly in CI or test environments as it may start a long-lived dev server that interferes with test harnesses.
+
 
 ## Documentation
 

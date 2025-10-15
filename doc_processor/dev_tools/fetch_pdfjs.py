@@ -15,9 +15,7 @@ You can pin a version via PDFJS_VERSION env var (default: 4.2.67)
 from __future__ import annotations
 
 import os
-import sys
 import urllib.request
-import itertools
 from pathlib import Path
 
 CDN_VERSION = os.environ.get("PDFJS_VERSION", "3.11.174")

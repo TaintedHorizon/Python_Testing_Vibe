@@ -9,7 +9,9 @@ Outputs a table of discovered *.db files, size, mtime, and quick row counts for 
 Safety: Read-only; never mutates files.
 """
 from __future__ import annotations
-import os, sys, argparse, sqlite3, time
+import os
+import argparse
+import time
 from pathlib import Path
 
 KEY_TABLES = ["batches", "single_documents", "documents"]
@@ -23,7 +25,24 @@ def gather_db_info(path: Path) -> dict:
         'error': None,
     }
     try:
-        conn = sqlite3.connect(str(path))
+        # If this is the active app DB, prefer the app helper which applies PRAGMAs.
+        try:
+            from config_manager import app_config
+            if os.path.abspath(str(path)) == os.path.abspath(app_config.DATABASE_PATH):
+                from ..database import get_db_connection
+                conn = get_db_connection()
+            else:
+                # Open read-only to avoid accidental writes
+                from .db_connect import connect as db_connect
+                conn = db_connect(f'file:{str(path)}?mode=ro', uri=True, timeout=5.0)
+        except Exception:
+            # Fallback to safe read-only connection via helper
+            try:
+                from .db_connect import connect as db_connect
+                conn = db_connect(f'file:{str(path)}?mode=ro', uri=True, timeout=5.0)
+            except Exception:
+                conn = None
+        assert conn is not None
         cur = conn.cursor()
         tables = {r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         for t in KEY_TABLES:

@@ -6,37 +6,72 @@ Prevents duplicate batch creation and provides safe batch management.
 
 import logging
 from typing import Optional, List, Dict, Any
-import sys
 import os
 import shutil
 import threading
 
-# Add the parent directory to the path for imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from contextlib import contextmanager
+import sqlite3 as _sqlite3
 
-try:
-    from processing import database_connection
-except ImportError:
-    # Fallback for standalone execution
-    import sqlite3
-    from contextlib import contextmanager
-    
-    @contextmanager
-    def database_connection():
-        """Fallback database connection."""
-        db_path = os.path.join(os.path.dirname(__file__), 'documents.db')
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
+# Provide a single, robust database_connection contextmanager for this module.
+# Order of preference:
+# 1. delegate to processing.database_connection (when running inside app)
+# 2. use doc_processor.database.get_db_connection() to get consistent PRAGMA/guards
+# 3. fallback to direct sqlite3.connect(db_path)
+@contextmanager
+def database_connection():
+    try:
+        # 1) delegate to processing.module's database_connection if available
+        from .processing import database_connection as _proc_db_conn
+        with _proc_db_conn() as conn:
+            yield conn
+            return
+    except Exception:
+        pass
+
+    # 2) Try the centralized get_db_connection from this package
+    try:
+        from .database import get_db_connection as _get_db_connection
+        conn = _get_db_connection()
         try:
             yield conn
         finally:
+            if conn:
+                conn.close()
+        return
+    except Exception:
+        pass
+
+    # 3) Last-resort fallback honoring DATABASE_PATH env var
+    db_path = os.getenv('DATABASE_PATH') or os.path.join(os.path.dirname(__file__), 'documents.db')
+    try:
+        # Prefer the centralized helper when available so PRAGMAs, WAL and guards apply
+        from .database import get_db_connection as _get_db_connection
+        conn = _get_db_connection()
+    except Exception:
+        # Try to re-use the dev_tools helper which will return the app's
+        # get_db_connection() when the path matches, or a normal sqlite3
+        # connection otherwise. This keeps a single, consistent connect
+        # strategy across dev tools and runtime code.
+        try:
+            from .dev_tools.db_connect import connect as _dev_connect
+            conn = _dev_connect(db_path, timeout=30.0)
+        except Exception:
+            conn = _sqlite3.connect(db_path, timeout=30.0)
+        conn.row_factory = _sqlite3.Row
+    try:
+        yield conn
+    finally:
+        try:
             conn.close()
+        except Exception:
+            pass
 
 
 def find_existing_processing_batch() -> Optional[int]:
     """
     Find any existing batch in 'processing' status.
-    
+
     Returns:
         int: Batch ID if found, None otherwise
     """
@@ -44,14 +79,14 @@ def find_existing_processing_batch() -> Optional[int]:
         with database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id FROM batches 
-                WHERE status = 'processing' 
-                ORDER BY id DESC 
+                SELECT id FROM batches
+                WHERE status = 'processing'
+                ORDER BY id DESC
                 LIMIT 1
             """)
             result = cursor.fetchone()
             return result[0] if result else None
-            
+
     except Exception as e:
         logging.error(f"Error finding existing processing batch: {e}")
         return None
@@ -140,10 +175,10 @@ def backup_originals_for_batch(batch_id: int) -> int:
 def check_batch_has_documents(batch_id: int) -> bool:
     """
     Check if a batch has any documents.
-    
+
     Args:
         batch_id: ID of the batch to check
-        
+
     Returns:
         bool: True if batch has documents
     """
@@ -155,7 +190,7 @@ def check_batch_has_documents(batch_id: int) -> bool:
             """, (batch_id,))
             count = cursor.fetchone()[0]
             return count > 0
-            
+
     except Exception as e:
         logging.error(f"Error checking batch {batch_id} documents: {e}")
         return False
@@ -165,18 +200,18 @@ def get_or_create_processing_batch() -> int:
     """
     Get existing processing batch or create new one if none exists.
     This prevents duplicate batch creation.
-    
+
     Returns:
         int: Batch ID to use for processing
     """
     try:
         # First, check for existing processing batch
         existing_batch_id = find_existing_processing_batch()
-        
+
         if existing_batch_id:
             # Check if it has documents
             has_docs = check_batch_has_documents(existing_batch_id)
-            
+
             if has_docs:
                 logging.info(f"🔄 Found existing processing batch {existing_batch_id} with documents - resuming")
                 return existing_batch_id
@@ -184,7 +219,7 @@ def get_or_create_processing_batch() -> int:
                 # Empty processing batch - can reuse it
                 logging.info(f"♻️  Found empty processing batch {existing_batch_id} - reusing")
                 return existing_batch_id
-        
+
         # No existing processing batch, create new one
         with database_connection() as conn:
             cursor = conn.cursor()
@@ -193,10 +228,10 @@ def get_or_create_processing_batch() -> int:
             """, ("processing",))
             new_batch_id = _ensure_lastrowid(cursor)
             conn.commit()
-            
+
             logging.info(f"✨ Created new processing batch {new_batch_id}")
             return new_batch_id
-            
+
     except Exception as e:
         logging.error(f"Error in get_or_create_processing_batch: {e}")
         # Fallback - create new batch
@@ -422,12 +457,12 @@ def create_new_batch(status: str) -> int:
 def cleanup_empty_processing_batches() -> List[int]:
     """
     Clean up any processing batches that have no documents.
-    
+
     Returns:
         list: IDs of batches that were cleaned up
     """
     cleaned_batches = []
-    
+
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
@@ -441,14 +476,31 @@ def cleanup_empty_processing_batches() -> List[int]:
             # DATABASE_PATH after config_manager was loaded.
             if not processing_ids:
                 try:
-                    import sqlite3 as _sqlite
+                    # Prefer the project's centralized DB connector so PRAGMAs and
+                    # WAL mode are honored. dev_tools.db_connect.connect will
+                    # attempt to reuse the same connection semantics when possible.
                     env_db = os.getenv('DATABASE_PATH')
                     if env_db and os.path.exists(env_db):
-                        direct_conn = _sqlite.connect(env_db)
-                        direct_cur = direct_conn.cursor()
-                        direct_cur.execute("SELECT id FROM batches WHERE status = 'processing'")
-                        processing_ids = [r[0] for r in direct_cur.fetchall()]
-                        direct_conn.close()
+                        try:
+                            from .dev_tools.db_connect import connect as _dev_connect
+                            direct_conn = _dev_connect(env_db, timeout=30.0)
+                        except Exception:
+                            # Fallback to sqlite3 if helper not available
+                            import sqlite3 as _sqlite
+                            direct_conn = _sqlite.connect(env_db, timeout=30.0)
+                        try:
+                            direct_conn.row_factory = _sqlite.Row if hasattr(direct_conn, 'row_factory') else None
+                        except Exception:
+                            pass
+                        try:
+                            direct_cur = direct_conn.cursor()
+                            direct_cur.execute("SELECT id FROM batches WHERE status = 'processing'")
+                            processing_ids = [r[0] for r in direct_cur.fetchall()]
+                        finally:
+                            try:
+                                direct_conn.close()
+                            except Exception:
+                                pass
                 except Exception:
                     pass
 
@@ -461,7 +513,7 @@ def cleanup_empty_processing_batches() -> List[int]:
                     cnt = 0
                 if cnt == 0:
                     empty_batches.append(bid)
-            
+
             # Delete empty processing batches
             for batch_id in empty_batches:
                 # If retention guard enabled, ensure retention copy exists before deleting
@@ -487,12 +539,12 @@ def cleanup_empty_processing_batches() -> List[int]:
                 cursor.execute("DELETE FROM batches WHERE id = ?", (batch_id,))
                 cleaned_batches.append(batch_id)
                 logging.info(f"🧹 Cleaned up empty processing batch {batch_id}")
-            
+
             conn.commit()
-            
+
     except Exception as e:
         logging.error(f"Error cleaning up empty batches: {e}")
-    
+
     return cleaned_batches
 
 
@@ -627,14 +679,14 @@ def cleanup_empty_batches_policy(age_minutes: int = 60, statuses: Optional[List[
 def get_batch_guard_info() -> Dict[str, Any]:
     """
     Get information about batch guard status for debugging.
-    
+
     Returns:
         dict: Guard status information
     """
     try:
         with database_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Get processing batches
             cursor.execute("""
                 SELECT b.id, COUNT(sd.id) as doc_count
@@ -645,18 +697,18 @@ def get_batch_guard_info() -> Dict[str, Any]:
                 ORDER BY b.id
             """)
             processing_batches = [{"batch_id": row[0], "document_count": row[1]} for row in cursor.fetchall()]
-            
+
             # Get total batches
             cursor.execute("SELECT COUNT(*) FROM batches")
             total_batches = cursor.fetchone()[0]
-            
+
             return {
                 "total_batches": total_batches,
                 "processing_batches": processing_batches,
                 "processing_count": len(processing_batches),
                 "has_guard_issues": len(processing_batches) > 1
             }
-            
+
     except Exception as e:
         logging.error(f"Error getting batch guard info: {e}")
         return {"error": str(e)}
@@ -666,16 +718,16 @@ if __name__ == "__main__":
     # Demo the batch guard
     print("🛡️  Batch Guard Status")
     print("=" * 30)
-    
+
     info = get_batch_guard_info()
     print(f"Total Batches: {info.get('total_batches', 'unknown')}")
     print(f"Processing Batches: {info.get('processing_count', 'unknown')}")
-    
+
     if info.get('has_guard_issues'):
         print("⚠️  WARNING: Multiple processing batches detected!")
         for batch in info.get('processing_batches', []):
             print(f"  Batch {batch['batch_id']}: {batch['document_count']} documents")
-        
+
         print("\n🧹 Cleaning up empty batches...")
         cleaned = cleanup_empty_processing_batches()
         if cleaned:

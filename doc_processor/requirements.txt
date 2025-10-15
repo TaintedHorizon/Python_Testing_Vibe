@@ -39,6 +39,7 @@ ollama>=0.1.7
 # --- Testing ---
 # pytest is used for running automated tests
 pytest>=7.4.0
+pytest-timeout>=2.2.0
 
 # --- Development/Optional Dependencies ---
 # These are additional packages that may be useful for development but not strictly required for production

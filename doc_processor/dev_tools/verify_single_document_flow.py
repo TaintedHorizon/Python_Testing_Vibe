@@ -20,13 +20,13 @@ from database import get_db_connection
 
 def check_single_document_workflow():
     """Check the database for any single documents and their final locations."""
-    
+
     print("🔍 Checking Single Document Workflow...")
     print("=" * 60)
-    
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     # Check for single document batches
     cursor.execute("""
         SELECT b.id, b.status, b.start_time, COUNT(sd.id) as doc_count
@@ -36,59 +36,59 @@ def check_single_document_workflow():
         GROUP BY b.id, b.status, b.start_time
         ORDER BY b.start_time DESC
     """)
-    
+
     single_doc_batches = cursor.fetchall()
-    
+
     if not single_doc_batches:
         print("✅ No single document batches found (system clean)")
         conn.close()
         return True
-    
+
     print(f"📊 Found {len(single_doc_batches)} single document batches:")
     print()
-    
+
     for batch_id, status, start_time, doc_count in single_doc_batches:
         print(f"Batch #{batch_id}")
         print(f"  Status: {status}")
         print(f"  Start Time: {start_time}")
         print(f"  Documents: {doc_count}")
         print()
-    
+
     conn.close()
     print("🎯 Verification Complete!")
     return True
 
 def check_archive_for_single_documents():
     """Check if any single documents ended up in archive (they shouldn't)."""
-    
+
     print("🔍 Checking Archive for Misplaced Single Documents...")
     print("=" * 60)
-    
+
     if not app_config.ARCHIVE_DIR or not os.path.exists(app_config.ARCHIVE_DIR):
         print("✅ No archive directory found")
         return True
-    
+
     pdf_files = [f for f in os.listdir(app_config.ARCHIVE_DIR) if f.lower().endswith('.pdf')]
-    
+
     if not pdf_files:
         print("✅ Archive is empty (good - single docs should go to categories)")
         return True
-    
+
     print(f"⚠️  Found {len(pdf_files)} PDF files in archive:")
     for pdf_file in pdf_files:
         print(f"    📄 {pdf_file}")
-    
+
     print("\n💡 If these are single documents, they should be in category folders instead!")
     return True
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    
+
     try:
         check_single_document_workflow()
         print()
         check_archive_for_single_documents()
-        
+
         print("\n" + "=" * 60)
         print("📋 SUMMARY: Single Document Flow Verification")
         print("=" * 60)
@@ -96,7 +96,7 @@ if __name__ == "__main__":
         print("❌ Legacy workflow: process_single_document() → archive (DEPRECATED)")
         print("\n💡 All single documents should now use the modern workflow!")
         print("   Single docs go: intake → WIP → category folders (NOT archive)")
-        
+
     except Exception as e:
         print(f"❌ Error during verification: {e}")
         sys.exit(1)

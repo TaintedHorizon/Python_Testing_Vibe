@@ -177,7 +177,7 @@ doc_processor/
 
 Other top-level folders:
 - `tools/` — Utility scripts and GUIs (e.g., download manager, file copy, SD card imager)
-- `Document_Scanner_Ollama_outdated/`, `Document_Scanner_Gemini_outdated/` — Legacy/experimental code (not core)
+- `archive/legacy/Document_Scanner_Ollama_outdated/`, `archive/legacy/Document_Scanner_Gemini_outdated/` — Legacy/experimental code (not core)
 
 ---
 ## Project Hygiene Files
@@ -204,7 +204,7 @@ venv/bin/pytest tests/
 ## .gitignore and Large Files
 
 The following files are excluded from version control:
-- Model/data weights: `Document_Scanner_Ollama_outdated/model_cache/*.pth`
+- Model/data weights: `archive/legacy/Document_Scanner_Ollama_outdated/model_cache/*.pth`
 - Database files: `**/documents.db`
 - Python cache: `**/__pycache__/`
 - Virtual environments: `venv/`
@@ -285,7 +285,7 @@ Documentation and usage guides. Example: `USAGE.md` covers quick start, workflow
 
 ### Other Folders
 - `tools/`: Utility scripts and GUIs (download manager, file copy, SD card imager, etc.)
-- `Document_Scanner_Ollama_outdated/`, `Document_Scanner_Gemini_outdated/`: Legacy/experimental code (not core)
+- `archive/legacy/Document_Scanner_Ollama_outdated/`, `archive/legacy/Document_Scanner_Gemini_outdated/`: Legacy/experimental code (not core)
 
 ---
 

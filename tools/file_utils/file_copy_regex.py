@@ -11,11 +11,11 @@ from typing import List, Tuple # For type hinting
 def find_matching_files(source: str, pattern: str) -> List[Tuple[str, str, str]]:
     """
     Finds all files in the source directory that match the given regex pattern.
-    
+
     Args:
         source (str): Path of the directory to search in
         pattern (str): Regex pattern for file names
-        
+
     Returns:
         list: List of tuples containing paths of matching files and their relative paths
               Each tuple is (filename, absolute_path, relative_path)
@@ -36,12 +36,12 @@ def find_matching_files(source: str, pattern: str) -> List[Tuple[str, str, str]]
 def main() -> None:  # Main function where the program starts execution
     """
     The main entry point for the script.
-    
+
     This function is responsible for parsing command-line arguments and executing the file copying process.
     """
     # Create an argument parser
     parser = argparse.ArgumentParser(description='Copy files matching a regex pattern from one directory to another.')
-    
+
     # Add command-line arguments for source directory, destination directory, and regex pattern
     parser.add_argument('-s', '--source', help='Source directory', required=True)
     parser.add_argument('-d', '--destination', help='Destination directory', required=True)
@@ -68,22 +68,22 @@ def main() -> None:  # Main function where the program starts execution
         print("No matches found.")
     else:
         print("Found matches:")
-        
+
         for i, (filename, abs_path, rel_path) in enumerate(matches):
             print(f"{i+1}. {rel_path}")  # Display matching files
 
         response = input("Proceed with copying these files? (y/n): ")
-        
+
         if response.lower() == 'y':
             # If confirmed, proceed with copying the matching files
             print("Copying matching files...")
-            
+
             for filename, source_file_path, relative_path in matches:
                 try:
                     # Recreate directory structure in the destination
                     destination_file_path = os.path.join(destination_path, relative_path)
                     os.makedirs(os.path.dirname(destination_file_path), exist_ok=True)
-                    
+
                     shutil.copy2(source_file_path, destination_file_path)  # Attempt to copy file from source to destination
                     print(f"Copied {relative_path}")  # Display success message
                 except Exception as e:

@@ -15,7 +15,7 @@ Safety:
   * Never drops or renames columns.
 """
 from __future__ import annotations
-import os, sqlite3, argparse, textwrap, sys, time
+import os, sqlite3, argparse, sys
 from pathlib import Path
 
 REQUIRED_TABLES_SQL = {
@@ -120,7 +120,13 @@ def get_db_path() -> Path:
     return Path(db_path).expanduser().resolve()
 
 def connect(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path))
+    from doc_processor.dev_tools.db_connect import connect as db_connect
+    try:
+        conn = db_connect(str(db_path), timeout=30.0)
+    except Exception:
+        # Fallback for in-repo direct import if the package import fails
+        from .db_connect import connect as db_connect_local
+        conn = db_connect_local(str(db_path), timeout=30.0)
     conn.row_factory = sqlite3.Row
     return conn
 

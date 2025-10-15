@@ -1,7 +1,4 @@
-import os
-import sqlite3
 from doc_processor.batch_guard import get_or_create_intake_batch, cleanup_empty_processing_batches, create_new_batch
-from doc_processor.database import get_db_connection
 
 
 def test_create_and_reuse_intake_batch(tmp_path, monkeypatch):

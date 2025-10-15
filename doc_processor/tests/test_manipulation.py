@@ -1,9 +1,6 @@
-import os
 import sqlite3
-import tempfile
 import pytest
 from doc_processor.app import create_app
-from doc_processor.config_manager import app_config
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):

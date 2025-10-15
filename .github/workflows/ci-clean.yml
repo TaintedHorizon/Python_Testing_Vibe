@@ -1,0 +1,17 @@
+name: CI Clean Test
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ chore/clean-workflows-batch ]
+
+env:
+  RUN_E2E: '1'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print
+        run: echo "ci-clean: OK"
