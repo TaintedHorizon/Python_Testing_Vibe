@@ -16,7 +16,7 @@ jobs:
           uname -a
           echo "GITHUB_REF=$GITHUB_REF"
           echo "GITHUB_SHA=$GITHUB_SHA"
-name: CI Debug
+            branches: [ chore/db-backup-tests, chore/clean-workflows ]
 
 on:
   workflow_dispatch: {}
@@ -30,7 +30,3 @@ jobs:
       - uses: actions/checkout@v4
       - name: Print debug info
         run: |
-          echo "CI debug: hello from $GITHUB_ACTOR"
-          uname -a
-          echo "GITHUB_REF=$GITHUB_REF"
-          echo "GITHUB_SHA=$GITHUB_SHA"
