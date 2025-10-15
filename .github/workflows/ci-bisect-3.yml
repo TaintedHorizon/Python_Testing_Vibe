@@ -3,7 +3,7 @@ name: CI Bisect 3
 on:
   workflow_dispatch: {}
   push:
-    branches: [ chore/db-backup-tests ]
+    branches: [ chore/db-backup-tests, chore/clean-workflows ]
 
 jobs:
   test:
@@ -14,10 +14,6 @@ jobs:
         mode: [fast]
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
       - name: Print
         run: |
           echo "bisect3: mode=${{ matrix.mode }} python=${{ matrix.python-version }}"
