@@ -2,8 +2,6 @@ name: CI Smoke
 
 on:
   workflow_dispatch: {}
-  push:
-    branches: [ chore/clean-workflows ]
 
 jobs:
   smoke:

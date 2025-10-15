@@ -1,12 +1,6 @@
 name: Playwright E2E
-
 on:
-  workflow_dispatch:
-  push:
-    paths:
-      - 'doc_processor/**'
-      - '.github/workflows/playwright-e2e.yml'
-
+  workflow_dispatch: {}
 jobs:
   e2e:
     runs-on: ubuntu-latest
@@ -32,15 +26,8 @@ jobs:
             playwright-browsers-
       - name: Install system deps for Playwright
         run: |
-          # Make apt non-interactive and retry a few times in case of transient mirror errors
-          export DEBIAN_FRONTEND=noninteractive
-          for i in 1 2 3; do
-            sudo apt-get update -y && \
-            sudo apt-get install -y --no-install-recommends \
-              libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxss1 libgbm1 libxcomposite1 libxrandr2 libasound2 && break || {
-              echo "apt install failed (attempt $i), retrying in 5s..."; sleep 5;
-            }
-          done
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxss1 libgbm1 libxcomposite1 libxrandr2 libasound2
       - name: Create venv and install deps
         run: |
           python -m venv venv

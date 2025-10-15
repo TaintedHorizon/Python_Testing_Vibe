@@ -2,8 +2,6 @@ name: CI Clean Test
 
 on:
   workflow_dispatch: {}
-  push:
-    branches: [ chore/clean-workflows ]
 
 jobs:
   smoke:
@@ -11,5 +9,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Print
-        run: |
-          echo "ci-clean: OK"
+        run: echo "ci-clean: OK"

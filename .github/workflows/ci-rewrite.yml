@@ -1,15 +1,6 @@
 name: CI Rewrite
-
 on:
-  workflow_dispatch:
-    inputs:
-      run_e2e:
-        description: 'Run E2E (set to 1 to run)'
-        required: false
-        default: '0'
-  push:
-    branches: [ chore/db-backup-tests, chore/clean-workflows ]
-
+  workflow_dispatch: {}
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -36,7 +27,7 @@ jobs:
           fi
 
   e2e:
-    if: ${{ github.event.inputs.run_e2e == '1' }}
+    if: ${{ env.RUN_E2E == '1' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

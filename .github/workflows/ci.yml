@@ -1,10 +1,6 @@
 name: CI Minimal Test
-
 on:
   workflow_dispatch: {}
-  push:
-    branches: [ chore/clean-workflows ]
-
 jobs:
   test:
     runs-on: ubuntu-latest

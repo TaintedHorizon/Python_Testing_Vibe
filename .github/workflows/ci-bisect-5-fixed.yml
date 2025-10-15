@@ -1,4 +1,4 @@
-name: CI Bisect 5
+name: CI Bisect 5 Fixed
 
 on:
   workflow_dispatch: {}
@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Print test
-        run: echo "bisect5 test"
+        run: echo "bisect5 fixed test"
 
   e2e:
     if: ${{ env.RUN_E2E == '1' }}
@@ -19,4 +19,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Print e2e
-        run: echo "bisect5 e2e"
+        run: echo "bisect5 fixed e2e"

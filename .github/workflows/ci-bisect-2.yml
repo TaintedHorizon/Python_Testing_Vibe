@@ -3,7 +3,7 @@ name: CI Bisect 2
 on:
   workflow_dispatch: {}
   push:
-    branches: [ chore/db-backup-tests, chore/clean-workflows ]
+    branches: [ chore/db-backup-tests ]
 
 jobs:
   test:

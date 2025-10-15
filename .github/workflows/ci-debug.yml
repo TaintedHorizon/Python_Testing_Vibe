@@ -3,7 +3,7 @@ name: CI Debug
 on:
   workflow_dispatch: {}
   push:
-    branches: [ chore/db-backup-tests, chore/clean-workflows ]
+    branches: [ chore/db-backup-tests ]
 
 jobs:
   debug:
@@ -16,17 +16,3 @@ jobs:
           uname -a
           echo "GITHUB_REF=$GITHUB_REF"
           echo "GITHUB_SHA=$GITHUB_SHA"
-            branches: [ chore/db-backup-tests, chore/clean-workflows ]
-
-on:
-  workflow_dispatch: {}
-  push:
-    branches: [ chore/db-backup-tests ]
-
-jobs:
-  debug:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Print debug info
-        run: |
