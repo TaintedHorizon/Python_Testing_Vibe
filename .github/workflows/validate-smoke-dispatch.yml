@@ -1,7 +1,11 @@
 name: Validate Smoke Dispatch
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      trigger:
+        description: 'Manual trigger to force registration'
+        required: false
 
 jobs:
   smoke:
