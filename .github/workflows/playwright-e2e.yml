@@ -58,7 +58,6 @@ jobs:
           mkdir -p $GITHUB_WORKSPACE/doc_processor/tests/e2e/artifacts
           export E2E_ARTIFACTS_DIR=$GITHUB_WORKSPACE/doc_processor/tests/e2e/artifacts
           pytest -q doc_processor/tests/e2e || true
-      # Always upload artifacts (screenshots, HTML, app logs) for inspection
       - name: Upload E2E artifacts
         if: always()
         uses: actions/upload-artifact@v4
