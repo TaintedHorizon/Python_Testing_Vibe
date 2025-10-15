@@ -3,7 +3,7 @@ name: CI Debug
 on:
   workflow_dispatch: {}
   push:
-    branches: [ chore/db-backup-tests ]
+    branches: [ chore/db-backup-tests, chore/clean-workflows ]
 
 jobs:
   debug:
