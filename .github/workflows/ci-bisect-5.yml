@@ -13,10 +13,3 @@ jobs:
       - name: Print test
         run: echo "bisect5 test"
 
-  e2e:
-    if: ${{ env.RUN_E2E == '1' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Print e2e
-        run: echo "bisect5 e2e"
