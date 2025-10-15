@@ -2,6 +2,11 @@ name: CI Clean Test
 
 on:
   workflow_dispatch: {}
+  push:
+    branches: [ chore/clean-workflows-batch ]
+
+env:
+  RUN_E2E: '1'
 
 jobs:
   smoke:

@@ -3,7 +3,10 @@ name: CI Bisect 5 Fixed
 on:
   workflow_dispatch: {}
   push:
-    branches: [ chore/db-backup-tests ]
+    branches: [ chore/clean-workflows-batch ]
+
+env:
+  RUN_E2E: '1'
 
 jobs:
   test:
