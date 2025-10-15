@@ -3,6 +3,26 @@ name: CI Bisect 1
 on:
   workflow_dispatch: {}
   push:
+    branches: [ chore/db-backup-tests, chore/clean-workflows ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      - name: Print
+        run: |
+          echo "bisect1: OK"
+          echo "PYTHON=${{ runner.os }} 3.12"
+name: CI Bisect 1
+
+on:
+  workflow_dispatch: {}
+  push:
     branches: [ chore/db-backup-tests ]
 
 jobs:
