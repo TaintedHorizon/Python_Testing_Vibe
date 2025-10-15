@@ -1,9 +1,12 @@
 name: CI Bisect 5
-env:
-  RUN_E2E: '0'
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: 'Run E2E (set to 1 to run)'
+        required: false
+        default: '0'
   push:
     branches: [ chore/db-backup-tests, chore/clean-workflows ]
 
@@ -16,7 +19,7 @@ jobs:
         run: echo "bisect5 test"
 
   e2e:
-    if: ${{ env.RUN_E2E == '1' }}
+    if: ${{ github.event.inputs.run_e2e == '1' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
