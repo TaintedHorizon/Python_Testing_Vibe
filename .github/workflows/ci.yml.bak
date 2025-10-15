@@ -1,0 +1,6 @@
+name: CI (backup)
+
+on:
+  workflow_dispatch: {}
+
+# Backup copy of the original CI workflow. Do not run this file.
