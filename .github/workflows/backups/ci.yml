@@ -1,0 +1,12 @@
+name: CI Minimal Test
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print
+        run: echo "ci minimal test"
