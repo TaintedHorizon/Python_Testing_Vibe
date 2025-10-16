@@ -1374,8 +1374,14 @@ function resetStartButtons() {
 function updateAnalysisProgress(data) {
     console.log('Progress update received:', data); // Debug logging
     
-    const progressPercent = data.total > 0 ? Math.round((data.progress / data.total) * 100) : 0;
-    const progressText = data.total > 0 ? `${data.progress} of ${data.total} PDFs` : '0 of 0 PDFs';
+    // Prefer PDF-centric counters when provided by the server (pdf_progress/pdf_total).
+    // The server historically emitted operation-level counters (convert+analyze)
+    // which double-counted steps; new server payloads include pdf_progress/pdf_total
+    // so prefer those for user-facing messages.
+    const displayProgress = (typeof data.pdf_progress === 'number' && typeof data.pdf_total === 'number') ? data.pdf_progress : data.progress;
+    const displayTotal = (typeof data.pdf_total === 'number' && typeof data.pdf_progress === 'number') ? data.pdf_total : data.total;
+    const progressPercent = displayTotal > 0 ? Math.round((displayProgress / displayTotal) * 100) : 0;
+    const progressText = displayTotal > 0 ? `${displayProgress} of ${displayTotal} PDFs` : '0 of 0 PDFs';
     
     // Update progress bar if it exists
     const progressBar = document.querySelector('#loading-state .progress-bar');
