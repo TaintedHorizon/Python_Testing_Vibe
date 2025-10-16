@@ -34,6 +34,21 @@ All notable changes to this project will be documented in this file.
   - Tests run in a deterministic test mode via environment flags: `FAST_TEST_MODE=1`, `SKIP_OLLAMA=1`, and `PLAYWRIGHT_E2E=1` for CI-friendly runs.
   - Playwright failures will be captured to artifacts (screenshots and page HTML) under `doc_processor/tests/e2e/artifacts/` when running under pytest (fixture added in next tasks).
 
+### CI and Playwright E2E stabilisation (2025-10-16)
+
+- Added canonical GitHub Actions workflow `.github/workflows/playwright-e2e.yml` to start the Flask app inside the job and run Playwright Node E2E tests against `http://127.0.0.1:5000/`.
+- Added local reproduction helper `scripts/run_local_e2e.sh` that mirrors the CI job steps so developers can iterate locally without using Actions minutes.
+- Synchronized `ui_tests/package.json` and `ui_tests/package-lock.json` (committed) and added `@playwright/test` to ensure `npm ci` works deterministically in CI.
+- Replaced a corrupted Playwright test file (`ui_tests/e2e/intake_progress.spec.js`) with a cleaned minimal version to fix parse errors encountered during test runs.
+- Hardened the workflow by:
+  - creating the `doc_processor/logs` directory before starting the app to avoid redirection failures,
+  - selecting `ubuntu-22.04` runner to ensure required system packages are available for Playwright browser installs.
+- Cancelled in-progress workflow runs while iterating locally to avoid consuming further GitHub Actions minutes.
+
+Notes:
+- Local-first approach recommended: run `./scripts/run_local_e2e.sh` to debug and stabilize tests and UI before enabling CI runs. This file reproduces the CI sequence and is safe to run repeatedly.
+
+
 This release entry documents safety and test-determinism work done to prepare the codebase for reliable CI runs.
 
 ### Local DB initialization & schema enhancements (2025-10-13)
