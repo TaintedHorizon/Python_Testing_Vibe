@@ -1,7 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
 test('shows PDF-centric progress when SSE provides pdf_progress/pdf_total', async ({ page }) => {
-  // Build minimal HTML that matches the parts of intake_analysis.html used
   const html = `
     <div id="loading-state">
       <div class="progress">
@@ -13,16 +12,16 @@ test('shows PDF-centric progress when SSE provides pdf_progress/pdf_total', asyn
 
   await page.setContent(html);
 
-  // Expose a function that mirrors the template's updateAnalysisProgress behavior
+  // Add the function that the real page defines
   await page.addScriptTag({ content: `
     window.updateAnalysisProgress = function(data) {
-      const displayProgress = (typeof data.pdf_progress === 'number' && typeof data.pdf_total === 'number') ? data.pdf_progress : data.progress;
-      const displayTotal = (typeof data.pdf_total === 'number' && typeof data.pdf_progress === 'number') ? data.pdf_total : data.total;
-      const progressPercent = displayTotal > 0 ? Math.round((displayProgress / displayTotal) * 100) : 0;
-      const progressText = displayTotal > 0 ? `${displayProgress} of ${displayTotal} PDFs` : '0 of 0 PDFs';
-      const bar = document.querySelector('.progress-bar');
+      var displayProgress = (typeof data.pdf_progress === 'number' && typeof data.pdf_total === 'number') ? data.pdf_progress : data.progress;
+      var displayTotal = (typeof data.pdf_total === 'number' && typeof data.pdf_progress === 'number') ? data.pdf_total : data.total;
+      var progressPercent = displayTotal > 0 ? Math.round((displayProgress / displayTotal) * 100) : 0;
+      var progressText = displayTotal > 0 ? displayProgress + ' of ' + displayTotal + ' PDFs' : '0 of 0 PDFs';
+      var bar = document.querySelector('.progress-bar');
       if (bar) { bar.style.width = progressPercent + '%'; bar.textContent = progressText; }
-      const status = document.querySelector('.status');
+      var status = document.querySelector('.status');
       if (status) status.textContent = data.message || '';
     };
   `});
