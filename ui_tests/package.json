@@ -4,9 +4,11 @@
   "private": true,
   "devDependencies": {
     "jest": "^29.6.1",
-    "jest-environment-jsdom": "^29.6.1"
+    "jest-environment-jsdom": "^29.6.1",
+    "playwright": "^1.40.0"
   },
   "scripts": {
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "test:e2e": "npx playwright test ui_tests/e2e --reporter=list"
   }
 }
