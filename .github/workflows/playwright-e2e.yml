@@ -56,6 +56,7 @@ jobs:
           FAST_TEST_MODE: '1'
           SKIP_OLLAMA: '1'
         run: |
+          mkdir -p doc_processor/logs
           chmod +x ./start_app.sh
           nohup ./start_app.sh > doc_processor/logs/ci_app.log 2>&1 &
           echo $! > app.pid
