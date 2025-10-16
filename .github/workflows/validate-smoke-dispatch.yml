@@ -8,4 +8,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Print
+        run: |
+          # use block scalar to avoid parser edge-cases
+          echo 'validate-smoke-dispatch: OK'
+name: Validate Smoke Dispatch
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print
+        run: |
+          echo "validate-smoke-dispatch: OK"
+name: Validate Smoke Dispatch
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print
         run: echo "validate-smoke-dispatch: OK"
