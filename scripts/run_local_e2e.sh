@@ -35,8 +35,22 @@ fi
 # 3) Start the Flask app in background
 mkdir -p doc_processor/logs
 chmod +x ./start_app.sh
-nohup ./start_app.sh > doc_processor/logs/ci_app.log 2>&1 &
-echo $! > /tmp/run_local_e2e_app.pid
+
+# If something is already listening on :5000, do not try to start another server.
+USE_EXISTING_APP=0
+if ss -ltn "sport = :5000" >/dev/null 2>&1 || lsof -i :5000 >/dev/null 2>&1; then
+  echo "Port 5000 already in use; will reuse existing server if reachable."
+  USE_EXISTING_APP=1
+fi
+
+STARTED_BY_SCRIPT=0
+if [ "$USE_EXISTING_APP" -eq 0 ]; then
+  nohup ./start_app.sh > doc_processor/logs/ci_app.log 2>&1 &
+  echo $! > /tmp/run_local_e2e_app.pid
+  STARTED_BY_SCRIPT=1
+else
+  echo "Skipping start_app.sh because port 5000 is in use."
+fi
 
 echo "Waiting for app to respond on http://127.0.0.1:5000/ (60s timeout)"
 for i in {1..60}; do
@@ -66,9 +80,17 @@ fi
 # 5) Teardown
 echo "Tearing down the app and showing last 200 lines of log"
 tail -n 200 doc_processor/logs/ci_app.log || true
-if [ -f /tmp/run_local_e2e_app.pid ]; then
-  kill "$(cat /tmp/run_local_e2e_app.pid)" || true
-  rm -f /tmp/run_local_e2e_app.pid
+if [ "$STARTED_BY_SCRIPT" -eq 1 ] && [ -f /tmp/run_local_e2e_app.pid ]; then
+  PID=$(cat /tmp/run_local_e2e_app.pid)
+  if ps -p "$PID" >/dev/null 2>&1; then
+    echo "Killing app pid $PID"
+    kill "$PID" || true
+  else
+    echo "App pid $PID not running; nothing to kill"
+  fi
+  rm -f /tmp/run_local_e2e_app.pid || true
+else
+  echo "Did not start app in this run or no pid file present; skipping kill"
 fi
 
 echo "Done." 
