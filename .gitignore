@@ -104,3 +104,5 @@ doc_processor/doc_processor/
 Document_Scanner_*_outdated/.venv/
 Document_Scanner_*_outdated/model_cache/
 Document_Scanner_Ollama/model_cache/
+# Node deps for UI tests
+ui_tests/node_modules/

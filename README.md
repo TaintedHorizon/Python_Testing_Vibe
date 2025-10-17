@@ -40,6 +40,34 @@ This repository includes a Playwright-based end-to-end test suite that exercises
 
 The GitHub Actions workflow for running the Playwright E2E tests is at `.github/workflows/playwright-e2e.yml`.
 
+### CI & Playwright E2E — recent work (2025-10-16)
+
+Summary of the recent CI and end-to-end testing work performed to make Playwright E2E reliable and reproducible:
+
+- Canonical GitHub Actions workflow: added `.github/workflows/playwright-e2e.yml` which starts the Flask app inside the job, waits for a health-check at `http://127.0.0.1:5000/`, and runs the Playwright tests in `ui_tests/`.
+- Local reproduction helper: added `scripts/run_local_e2e.sh` — a single script that reproduces the CI steps locally (creates/activates the `doc_processor/venv`, installs Python and Node deps, starts the Flask app, waits for the health-check, runs Playwright tests, and tears down). This lets you iterate without consuming GitHub Actions minutes.
+- Deterministic Node installs: ensured `ui_tests/package.json` and `ui_tests/package-lock.json` are committed and in-sync so CI can use `npm ci` reliably. If you see `npm ci` complaining about lock mismatch, run `npm install` locally and commit the updated `package-lock.json`.
+- Test and artifact fixes applied:
+   - Replaced a corrupted Playwright test file (`ui_tests/e2e/intake_progress.spec.js`) with a clean, minimal test that runs under the Node Playwright runner.
+   - Added `@playwright/test` to `ui_tests/package.json` so the Node test runner is installed in CI.
+- Workflow hardening:
+   - Ensured the workflow creates the `doc_processor/logs` directory before starting the app so `nohup` log redirection cannot fail.
+   - Switched the runner to `ubuntu-22.04` in the workflow to ensure the Playwright system packages available via apt align with the runner image.
+- PR & CI status: all changes have been pushed to branch `chore/clean-workflows-batch-pr` and are part of PR #15. We cancelled in-progress GitHub Actions runs to avoid extra billed minutes while iterating locally.
+
+How to reproduce locally (short): use `./scripts/run_local_e2e.sh` from the repo root. It will:
+
+1. Create/activate `doc_processor/venv` and install Python deps.
+2. Install Playwright Python and attempt `python -m playwright install --with-deps`.
+3. Run `npm ci` in `ui_tests/` (falls back to instructions if lockfile needs syncing).
+4. Start the Flask app in background, wait for health-check, run `npx playwright test e2e`, and then tear down.
+
+Notes & troubleshooting tips:
+- If `npm ci` fails with a lockfile mismatch, run `npm install` locally and commit the updated `package-lock.json` before re-running locally or pushing to CI.
+- If Playwright browser install fails due to missing OS packages, run `python -m playwright install --with-deps` locally (Linux users may need to install system packages via apt for their distro).
+- For fast iteration prefer running `./scripts/run_local_e2e.sh` locally rather than triggering CI runs.
+
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A multi-purpose development repository containing various Python projects and utilities, with a focus on document processing and system administration tools.

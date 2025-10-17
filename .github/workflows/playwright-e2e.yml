@@ -1,15 +1,25 @@
-name: Playwright E2E
+name: Playwright E2E (live server)
+
 on:
+  pull_request:
+    branches: [ main, '**' ]
+  push:
+    branches: [ '**' ]
   workflow_dispatch: {}
+
 jobs:
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
+
       - name: Cache pip
         uses: actions/cache@v4
         with:
@@ -17,44 +27,72 @@ jobs:
           key: pip-cache-${{ runner.os }}-python-3.12-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             pip-cache-${{ runner.os }}-python-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-browsers-${{ runner.os }}-v1
-          restore-keys: |
-            playwright-browsers-
+
       - name: Install system deps for Playwright
         run: |
           sudo apt-get update
-          sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxss1 libgbm1 libxcomposite1 libxrandr2 libasound2
-      - name: Create venv and install deps
+          sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxss1 libgbm1 libxcomposite1 libxrandr2 libasound2 curl
+
+      - name: Create Python venv and install deps
         run: |
-          python -m venv venv
-          . venv/bin/activate
+          python -m venv doc_processor/venv
+          . doc_processor/venv/bin/activate
+          pip install --upgrade pip
           pip install -r doc_processor/requirements.txt
           pip install playwright pytest-playwright
           python -m playwright install --with-deps
-      - name: Run integration tests
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install UI deps
+        working-directory: ui_tests
+        run: npm ci
+
+      - name: Start Flask app (background)
         env:
           FAST_TEST_MODE: '1'
           SKIP_OLLAMA: '1'
         run: |
-          . venv/bin/activate
-          pytest -q doc_processor/tests/test_integration_shutdown.py doc_processor/tests/test_integration_export.py || true
+          mkdir -p doc_processor/logs
+          chmod +x ./start_app.sh
+          nohup ./start_app.sh > doc_processor/logs/ci_app.log 2>&1 &
+          echo $! > app.pid
+          for i in {1..60}; do
+            if curl -sSf http://127.0.0.1:5000/ >/dev/null 2>&1; then
+              echo "app is up"
+              break
+            fi
+            echo "waiting for app... ($i)"
+            sleep 1
+          done
+          if ! curl -sSf http://127.0.0.1:5000/ >/dev/null 2>&1; then
+            echo "ERROR: app did not start in time. Showing last 200 lines of log:" >&2
+            tail -n 200 doc_processor/logs/ci_app.log || true
+            cat doc_processor/logs/ci_app.log || true
+            exit 1
+          fi
+
       - name: Run Playwright E2E
+        working-directory: ui_tests
         env:
           PLAYWRIGHT_E2E: '1'
           FAST_TEST_MODE: '1'
           SKIP_OLLAMA: '1'
         run: |
-          . venv/bin/activate
-          mkdir -p $GITHUB_WORKSPACE/doc_processor/tests/e2e/artifacts
-          export E2E_ARTIFACTS_DIR=$GITHUB_WORKSPACE/doc_processor/tests/e2e/artifacts
-          pytest -q doc_processor/tests/e2e || true
+          npx playwright test e2e --reporter=list
+
       - name: Upload E2E artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-artifacts
           path: doc_processor/tests/e2e/artifacts/
+
+      - name: Tear down Flask app
+        if: always()
+        run: |
+          if [ -f app.pid ]; then kill "$(cat app.pid)" || true; rm -f app.pid; fi
+          tail -n 200 doc_processor/logs/ci_app.log || true
