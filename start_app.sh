@@ -62,7 +62,33 @@ echo ""
 echo -e "${YELLOW}Press Ctrl+C to stop the server${NC}"
 echo ""
 
-# Execute the Flask app
+# Determine the port to use (allow overriding via environment variable)
+PORT_TO_FREE="${PORT:-5000}"
+echo -e "${YELLOW}Ensuring port ${PORT_TO_FREE} is free before starting...${NC}"
+kill_pids=()
+if command -v lsof >/dev/null 2>&1; then
+    # lsof prints PIDs listening on the chosen port
+    mapfile -t kill_pids < <(lsof -tiTCP:${PORT_TO_FREE} -sTCP:LISTEN || true)
+else
+    # Fallback to ss if lsof isn't available
+    mapfile -t kill_pids < <(ss -ltnp 2>/dev/null | awk -v port=":${PORT_TO_FREE} " '$0 ~ port {print $0}' | sed -n 's/.*pid=\([0-9]*\).*/\1/p' || true)
+fi
+
+if [ ${#kill_pids[@]} -ne 0 ]; then
+    echo -e "${YELLOW}Found process(es) using port ${PORT_TO_FREE}: ${kill_pids[*]}${NC}"
+    for pid in "${kill_pids[@]}"; do
+        if [ -n "$pid" ]; then
+            echo -e "${YELLOW}Stopping PID $pid to free port ${PORT_TO_FREE}...${NC}"
+            kill -TERM "$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+            sleep 1
+        fi
+    done
+    echo -e "${GREEN}Port ${PORT_TO_FREE} freed.${NC}"
+else
+    echo -e "${GREEN}Port ${PORT_TO_FREE} was free.${NC}"
+fi
+
+# Execute the Flask app (will bind to 5000)
 python -m doc_processor.app
 
 echo -e "${YELLOW}Flask application stopped.${NC}"

@@ -29,6 +29,17 @@ import sys
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
+# Diagnostic: print the resolved DATABASE_PATH from the process environment
+# before importing config_manager so test harnesses can confirm the child
+# process received the intended DATABASE_PATH value. This is read-only and
+# only intended for debugging test runs; it does not change runtime behavior.
+db_env = os.getenv('DATABASE_PATH')
+if db_env:
+    # Use stdout so the existing test harness captures it in app logs
+    print(f"[DIAG] ENV DATABASE_PATH={db_env}")
+else:
+    print("[DIAG] ENV DATABASE_PATH not set")
+
 # Import configuration FIRST (needed for logging setup)
 from .config_manager import app_config
 
