@@ -63,6 +63,9 @@ class AppConfig:
     ENABLE_TAG_EXTRACTION: bool = True  # Enable LLM-powered tag extraction during export
     FAST_TEST_MODE: bool = False  # When true, bypass heavy OCR/LLM for tests
     INCLUDE_SOURCE_IMAGES_ON_EXPORT: bool = False  # When true, copy original intake images alongside exported PDFs
+    # --- Network / runtime overrides (read from env for tests/CI) ---
+    HOST: str = "0.0.0.0"
+    PORT: int = 5000
     # When True, prevent automatic deletion of batches unless originals have been
     # backed up to the `doc_processor/originals_retention/` directory. Admins can
     # still perform manual cleanup. Default is False to preserve existing test
@@ -189,6 +192,9 @@ class AppConfig:
                 OCR_RESCAN_DPI=int(get_env("RESCAN_OCR_DPI", str(cls.OCR_RESCAN_DPI))),
                 OCR_RENDER_SCALE=float(get_env("OCR_RENDER_SCALE", str(cls.OCR_RENDER_SCALE))),
                 OCR_OVERLAY_TEXT_LIMIT=int(get_env("OCR_OVERLAY_TEXT_LIMIT", str(cls.OCR_OVERLAY_TEXT_LIMIT))),
+                # Network overrides (useful for tests/CI)
+                HOST=get_env("HOST", cls.HOST),
+                PORT=int(get_env("PORT", str(cls.PORT))),
                 # Backup dir can be optionally provided by env
                 DB_BACKUP_DIR=get_optional_env("DB_BACKUP_DIR"),
 

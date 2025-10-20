@@ -106,3 +106,7 @@ Document_Scanner_*_outdated/model_cache/
 Document_Scanner_Ollama/model_cache/
 # Node deps for UI tests
 ui_tests/node_modules/
+
+# E2E test artifacts (screenshots, html, logs)
+doc_processor/tests/e2e/artifacts/
+!doc_processor/tests/e2e/artifacts/.gitkeep

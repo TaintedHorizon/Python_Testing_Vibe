@@ -16,6 +16,7 @@ import threading
 from ..database import (
     insert_grouped_document
 )
+from ..database import get_db_connection
 from ..batch_guard import get_or_create_intake_batch, create_new_batch
 from ..processing import process_batch, database_connection
 from ..config_manager import app_config
@@ -393,6 +394,147 @@ def smart_processing_progress_sse():
         'X-Accel-Buffering': 'no'
     }
     return Response(stream_with_context(event_stream()), headers=headers)
+
+
+@bp.route('/api/debug/batch_documents/<int:batch_id>')
+def api_debug_batch_documents(batch_id: int):
+    """Test-only: return single_documents rows for a batch.
+
+    This endpoint is intentionally restricted to FAST_TEST_MODE or local-only
+    requests to avoid exposing internal DB structure in production.
+    """
+    try:
+        # Allow only when tests run in FAST_TEST_MODE or from localhost
+        from ..config_manager import app_config as _cfg
+        if not getattr(_cfg, 'FAST_TEST_MODE', False):
+            if request.remote_addr not in ('127.0.0.1', '::1', None):
+                return jsonify(create_error_response('Debug API disabled')), 403
+
+        with database_connection() as conn:
+            cur = conn.cursor()
+            # single_documents (preferred)
+            try:
+                cur.execute("SELECT id, original_filename, original_pdf_path FROM single_documents WHERE batch_id = ? ORDER BY id", (batch_id,))
+                single_rows = cur.fetchall()
+            except Exception:
+                single_rows = []
+            # grouped documents table fallback
+            try:
+                cur.execute("SELECT id, document_name FROM documents WHERE batch_id = ? ORDER BY id", (batch_id,))
+                grouped_rows = cur.fetchall()
+            except Exception:
+                grouped_rows = []
+
+        single_docs = []
+        for r in single_rows:
+            try:
+                single_docs.append({'id': int(r[0]), 'original_filename': r[1], 'original_pdf_path': r[2]})
+            except Exception:
+                continue
+
+        grouped_docs = []
+        for r in grouped_rows:
+            try:
+                grouped_docs.append({'id': int(r[0]), 'document_name': r[1]})
+            except Exception:
+                continue
+
+        return jsonify(create_success_response({'single_documents': single_docs, 'grouped_documents': grouped_docs}))
+    except Exception as e:
+        logger.error(f"Debug batch_documents failed: {e}")
+        return jsonify(create_error_response(str(e)))
+
+
+@bp.route('/api/debug/latest_document')
+def api_debug_latest_document():
+    """Test-only: return the latest single_documents row (id + batch_id + filename).
+
+    This is useful for tests that start processing asynchronously and need to
+    discover which batch/document was created without relying on UI links.
+    Access restricted to FAST_TEST_MODE or localhost to avoid exposing internals.
+    """
+    try:
+        from ..config_manager import app_config as _cfg
+        if not getattr(_cfg, 'FAST_TEST_MODE', False):
+            if request.remote_addr not in ('127.0.0.1', '::1', None):
+                return jsonify(create_error_response('Debug API disabled')), 403
+
+        with database_connection() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute("SELECT id, batch_id, original_filename, original_pdf_path FROM single_documents ORDER BY id DESC LIMIT 1")
+                row = cur.fetchone()
+            except Exception:
+                row = None
+
+        if not row:
+            return jsonify(create_success_response({'latest_document': None}))
+
+        doc = {'id': int(row[0]), 'batch_id': int(row[1]) if row[1] is not None else None, 'original_filename': row[2], 'original_pdf_path': row[3]}
+        return jsonify(create_success_response({'latest_document': doc}))
+    except Exception as e:
+        logger.error(f"Debug latest_document failed: {e}")
+        return jsonify(create_error_response(str(e)))
+
+
+@bp.route('/api/debug/force_create_single_documents', methods=['POST'])
+def api_debug_force_create_single_documents():
+    """Test-only: create single_documents rows for given filenames in intake for a batch.
+
+    Payload: {"batch_id": int, "filenames": ["a.pdf", ...]} - if filenames omitted, create for all files in intake.
+    Restricted to FAST_TEST_MODE or localhost.
+    """
+    try:
+        from ..config_manager import app_config as _cfg
+        if not getattr(_cfg, 'FAST_TEST_MODE', False):
+            if request.remote_addr not in ('127.0.0.1', '::1', None):
+                return jsonify(create_error_response('Debug API disabled')), 403
+
+        data = request.get_json(silent=True) or {}
+        batch_id = data.get('batch_id')
+        filenames = data.get('filenames')
+
+        if not batch_id:
+            return jsonify(create_error_response('batch_id required')), 400
+
+        # Determine intake directory from config
+        from ..config_manager import app_config as cfg
+        intake_dir = getattr(cfg, 'INTAKE_DIR', None) or '/mnt/scans_intake'
+
+        created = []
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            if filenames and isinstance(filenames, list):
+                candidates = [os.path.join(intake_dir, f) for f in filenames]
+            else:
+                candidates = [os.path.join(intake_dir, f) for f in os.listdir(intake_dir)]
+            for path in candidates:
+                try:
+                    if not os.path.exists(path):
+                        continue
+                    fname = os.path.basename(path)
+                    size = os.path.getsize(path)
+                    # Insert a single_documents row if not exists (by original_pdf_path)
+                    cur.execute("SELECT id FROM single_documents WHERE original_pdf_path = ?", (path,))
+                    if cur.fetchone():
+                        continue
+                    cur.execute(
+                        "INSERT INTO single_documents (batch_id, original_filename, original_pdf_path, page_count, file_size_bytes, status) VALUES (?,?,?,?,?, 'completed')",
+                        (batch_id, fname, path, 1, size)
+                    )
+                    created.append({'id': cur.lastrowid, 'original_filename': fname, 'original_pdf_path': path})
+                except Exception:
+                    continue
+            conn.commit()
+        finally:
+            if conn:
+                conn.close()
+
+        return jsonify(create_success_response({'created': created}))
+    except Exception as e:
+        logger.error(f"force_create_single_documents failed: {e}")
+        return jsonify(create_error_response(str(e))), 500
 
 @bp.route('/admin/cleanup_empty_processing_batches', methods=['POST'])
 def admin_cleanup_empty_processing_batches():
