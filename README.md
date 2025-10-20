@@ -67,6 +67,17 @@ Notes & troubleshooting tips:
 - If Playwright browser install fails due to missing OS packages, run `python -m playwright install --with-deps` locally (Linux users may need to install system packages via apt for their distro).
 - For fast iteration prefer running `./scripts/run_local_e2e.sh` locally rather than triggering CI runs.
 
+Local E2E diagnostics
+---------------------
+
+If you see intermittent E2E failures related to missing database rows or analysis steps, the most common cause is a mismatch between the database file the test inspects and the database file the Flask app actually opened when started by the test harness. To help diagnose and resolve this:
+
+- Ensure tests set an explicit per-run DATABASE_PATH before starting the app. The E2E fixtures set `FAST_TEST_MODE=1` and write a per-run temp `DATABASE_PATH` by default.
+- Look at the app process log under `doc_processor/tests/e2e/artifacts/` (files named `*-app.log`) for diagnostic lines that show what `DATABASE_PATH` the server saw at startup. The app prints the environment `DATABASE_PATH` it saw and logs the resolved `app_config.DATABASE_PATH` (these diagnostics were added to help debug flakiness).
+- When reproducing locally, start the server with the same environment variables the tests use. The recommended helper `./scripts/run_local_e2e.sh` mirrors the CI/test harness environment.
+
+If you'd like me to make the server expose a guarded debug endpoint that reports the effective DB path (only enabled in FAST_TEST_MODE), say so and I will add it — that makes tests able to verify the server's DB path via HTTP instead of relying on external logs.
+
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
