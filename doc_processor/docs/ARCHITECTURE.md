@@ -90,6 +90,72 @@ Representative scripts:
 - Broader or scenario tests: root `tests/`.
 - Manual / exploratory scripts: `test_complete_workflow.py`, `test_pdf_conversion.py`.
 
+## E2E Testing (local-first, deterministic)
+
+This project requires reliable, debuggable end-to-end (E2E) tests that exercise both the frontend UX and backend processing for two canonical flows:
+
+- Single-document batches (one document per intake item).
+- Grouped/batched scans (multiple documents scanned together and grouped into a batch).
+
+The following guidance is the authoritative source for adding, running, and debugging E2E tests locally. Follow it exactly when implementing or stabilizing tests.
+
+Environment & conventions
+- Use the repository venv located at `doc_processor/venv`.
+- Always start the application with the root `./start_app.sh` script (it activates the correct venv and launches the Flask app with the right working directory).
+- Tests that run Playwright must be gated using the environment variable `PLAYWRIGHT_E2E=1`.
+- Tests that rely on deterministic, test-only behavior (skipping heavy OCR/LLM and exposing debug endpoints) must use `FAST_TEST_MODE=1` in the environment.
+
+Test-only debug endpoints
+- Implement test-only endpoints only under `routes/*` and guard them so they are only active during `FAST_TEST_MODE` or when requests come from `localhost`.
+- Recommended debug endpoints (example names already used elsewhere in this repo):
+	- `/batch/api/debug/latest_document` — returns the most recently created single-document row (id, batch_id, filename).
+	- `/batch/api/debug/batch_documents/<batch_id>` — returns `single_documents` and grouped documents for a batch.
+- Tests should prefer querying these endpoints for canonical document ids or batch ids rather than relying on brittle UI click chains.
+
+Artifact collection and diagnostics
+- All E2E tests must dump artifacts on failure to `doc_processor/tests/e2e/artifacts/` including:
+	- full-page HTML snapshot (`.html`) for DOM inspection,
+	- full-page screenshot (`.png`),
+	- tail of app process log (`app_process.log`) captured when the app is started by the test harness.
+- Tests should also save any debug API responses (JSON) that helped the test make deterministic navigation choices.
+
+How to run individual tests locally (recommended)
+1. Activate the venv and start the app from the repo root:
+```bash
+cd /home/svc-scan/Python_Testing_Vibe
+source doc_processor/venv/bin/activate
+./start_app.sh
+```
+2. In another terminal run the test you want with the flags set:
+```bash
+cd /home/svc-scan/Python_Testing_Vibe
+source doc_processor/venv/bin/activate
+FAST_TEST_MODE=1 PLAYWRIGHT_E2E=1 pytest -q doc_processor/tests/e2e/<test_file>::<test_name>
+```
+
+Acceptance criteria for test success
+- The test completes with exit code 0 under the given environment flags.
+- Artifacts are produced under `doc_processor/tests/e2e/artifacts/` when a failure or assertion occurs.
+- Backend analysis and batch creation steps are verified via the debug endpoints or app logs (look for `Document analysis SUCCESS` and `Created new processing batch <id>` messages in the app log).
+
+Design notes and best practices
+- Prefer server-driven navigation: kick off analysis via the normal intake route, poll analysis status endpoints or call `/batch/process_smart` and use debug endpoints to obtain the canonical `document_id` and `batch_id`. Use those ids to navigate directly to the manipulation or preview routes (e.g., `/manipulation/<batch_id>` or `/document/<id>/manipulate`).
+- Use robust selectors: target stable attributes such as `data-testid`, `id` attributes rendered only in `FAST_TEST_MODE`, or canonical route URLs embedded in anchor hrefs. Avoid relying solely on visual class names which are more likely to change.
+- Wait for DOM attachment over visibility when dealing with modals or rapidly updated widgets. Favor `attached`/`present` waits then assert visibility if necessary.
+- Keep timeouts conservative but reasonable for CI-less local runs: default to 10–20s for heavy backend operations when `FAST_TEST_MODE` is not set; tests running under `FAST_TEST_MODE` may use shorter timeouts because heavy processing is skipped.
+
+Where to put tests and helpers
+- Tests: `doc_processor/tests/e2e/` (pytest-playwright style). Name tests descriptively: `test_single_batch_flow.py`, `test_group_batch_flow.py`.
+- Helpers: `doc_processor/tests/e2e/playwright_helpers.py` — provide fixtures to start/stop the app, copy intake fixtures, poll debug endpoints, and dump artifacts on failure.
+
+Stabilization checklist (when a test flakes)
+1. Collect artifacts (HTML, PNG, app log) and debug endpoint JSON output.
+2. Inspect app log for `Document analysis SUCCESS` and batch creation entries.
+3. If backend processed but UI link was not present, widen selectors or prefer direct navigation using ids from debug endpoints.
+4. Add a test-only `data-testid` attribute guarded by `FAST_TEST_MODE` for particularly brittle anchors if necessary.
+
+If you change routes or templates that tests rely on, update this E2E Testing section and any helpers in `doc_processor/tests/e2e/` immediately.
+
 ## Dependency Flow (Simplified)
 ```
 [ config_manager ] ---> consumed by all layers needing configuration

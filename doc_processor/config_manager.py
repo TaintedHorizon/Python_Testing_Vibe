@@ -254,12 +254,6 @@ DEFAULT_CATEGORIES = [
 # Create a global config instance
 try:
     app_config = AppConfig.load_from_env()
-    # Diagnostic: log the resolved DATABASE_PATH so test harnesses can confirm
-    try:
-        import logging as _logging
-        _logging.getLogger(__name__).info(f"[DIAG] app_config.DATABASE_PATH={app_config.DATABASE_PATH}")
-    except Exception:
-        pass
 except Exception as e:
     logging.critical(f"Failed to load configuration: {e}")
     raise

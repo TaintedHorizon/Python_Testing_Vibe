@@ -27,17 +27,6 @@ All notable changes to this project will be documented in this file.
     - Migrated dev helper scripts to use a centralized `doc_processor.dev_tools.db_connect` helper so PRAGMAs/WAL and DB guards apply consistently.
     - Added a docs note in `doc_processor/docs/USAGE.md` to avoid starting the Flask dev server during automated tests; prefer `./start_app.sh` or the Flask test client.
 
-### Diagnostics & E2E documentation (2025-10-20)
-
-- Added lightweight diagnostics to aid end-to-end test troubleshooting:
-  - The app now prints the environment `DATABASE_PATH` it sees at process start (helpful when the app is launched by pytest fixtures or CI).
-  - `config_manager` logs the resolved `app_config.DATABASE_PATH` after loading configuration so test logs make it clear which SQLite file the app uses.
-
-- Documentation updates:
-  - `README.md` updated with local E2E troubleshooting notes and guidance for reproducing Playwright-based tests locally using `./scripts/run_local_e2e.sh`.
-
-These changes are non-invasive and intended to make intermittent DB-path-related test failures easier to diagnose when running the Playwright E2E suite locally or in CI.
-
   ### E2E & GUI testing additions (2025-10-14)
 
   - Added Playwright-based end-to-end GUI tests under `doc_processor/tests/e2e/` to exercise the full workflow (intake → analyze → smart processing → manipulate → export).
