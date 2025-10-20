@@ -78,6 +78,17 @@ If you see intermittent E2E failures related to missing database rows or analysi
 
 If you'd like me to make the server expose a guarded debug endpoint that reports the effective DB path (only enabled in FAST_TEST_MODE), say so and I will add it — that makes tests able to verify the server's DB path via HTTP instead of relying on external logs.
 
+Collecting Playwright artifacts
+-------------------------------
+
+Playwright/pytest will place debug artifacts (HTML snapshots, screenshots, and app logs) under:
+
+```
+doc_processor/tests/e2e/artifacts/
+```
+
+To collect artifacts from a remote runner or developer machine, copy that folder out of the workspace. If you want specific artifacts preserved in the repo for debugging, tell me which filenames or patterns to commit; otherwise these artifacts are intentionally ignored by `.gitignore` to keep the repository history small.
+
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
