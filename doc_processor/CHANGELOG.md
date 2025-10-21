@@ -51,6 +51,12 @@ Notes:
 
 This release entry documents safety and test-determinism work done to prepare the codebase for reliable CI runs.
 
+### CI safety note & local E2E helpers (Unreleased - 2025-10-21)
+
+- CI safety: the Playwright CI workflow (`.github/workflows/playwright-e2e.yml`) now sets `DATABASE_PATH` and `DB_BACKUP_DIR` to repository-local paths (`${{ github.workspace }}/doc_processor/...`) and enables `FAST_TEST_MODE=1` and `PLAYWRIGHT_E2E=1` in the job environment to ensure tests cannot write to developer or production DB locations.
+
+- Local helpers: added `docs/E2E_RUN.md` (runbook) and `scripts/run_e2e_wrapper.sh` (safe wrapper) to reproduce the CI sequence locally while enforcing the same DB overrides and fast-test flags. Use the wrapper's `--dry-run` to preview actions before executing.
+
 ### Local DB initialization & schema enhancements (2025-10-13)
 
 - Added an idempotent extension to `dev_tools/database_setup.py` to create modern workflow tables if missing:

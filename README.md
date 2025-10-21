@@ -44,6 +44,8 @@ The GitHub Actions workflow for running the Playwright E2E tests is at `.github/
 
 Summary of the recent CI and end-to-end testing work performed to make Playwright E2E reliable and reproducible:
 
+Note: The canonical GitHub Actions workflow (`.github/workflows/playwright-e2e.yml`) and the CI job environment explicitly set DATABASE_PATH and DB_BACKUP_DIR to repository-local paths (under `${{ github.workspace }}/doc_processor`) and enable FAST_TEST_MODE/PLAYWRIGHT_E2E in the job environment. This prevents CI runs from accidentally writing to any developer or production-local database. Local helpers were added to provide the same safe overrides when debugging tests locally: see `docs/E2E_RUN.md` and `scripts/run_e2e_wrapper.sh`.
+
 - Canonical GitHub Actions workflow: added `.github/workflows/playwright-e2e.yml` which starts the Flask app inside the job, waits for a health-check at `http://127.0.0.1:5000/`, and runs the Playwright tests in `ui_tests/`.
 - Local reproduction helper: added `scripts/run_local_e2e.sh` — a single script that reproduces the CI steps locally (creates/activates the `doc_processor/venv`, installs Python and Node deps, starts the Flask app, waits for the health-check, runs Playwright tests, and tears down). This lets you iterate without consuming GitHub Actions minutes.
 - Deterministic Node installs: ensured `ui_tests/package.json` and `ui_tests/package-lock.json` are committed and in-sync so CI can use `npm ci` reliably. If you see `npm ci` complaining about lock mismatch, run `npm install` locally and commit the updated `package-lock.json`.
