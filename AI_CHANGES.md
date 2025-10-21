@@ -59,3 +59,58 @@ What I can do next (choose one):
 - Expand this manifest to include commit SHAs and per-file diffs embedded inline.
 
 If you'd like me to generate a full repository-wide manifest (i.e., a line for every file with creation author/date), I can produce that by scanning git history — say the word and I'll produce it.
+
+---
+
+Commit details (metadata + file lists)
+
+1) Commit 3d2d2ea (docs: add E2E runbook and safe wrapper)
+Author: TaintedHorizon <brian.mccaleb@gmail.com>
+Date: 2025-10-21 22:16:55 +0000
+
+Files changed:
+- M README.md
+- M doc_processor/CHANGELOG.md
+- A docs/E2E_RUN.md
+- A scripts/run_e2e_wrapper.sh
+
+2) Commit c180871 (chore: bulk commit workspace changes)
+Author: TaintedHorizon <brian.mccaleb@gmail.com>
+Date: 2025-10-21 22:23:13 +0000
+
+Files changed (summary):
+- M .github/workflows/playwright-e2e.yml
+- A Makefile
+- A dev_tools/cleanup_test_artifacts.py
+- A dev_tools/retention_and_rotate.py
+- M doc_processor/batch_guard.py
+- M doc_processor/config_manager.py
+- M doc_processor/database.py
+- M doc_processor/processing.py
+- M doc_processor/routes/batch.py
+- M doc_processor/routes/intake.py
+- M doc_processor/routes/manipulation.py
+- M doc_processor/services/document_service.py
+- M doc_processor/templates/intake_analysis.html
+- M doc_processor/tests/e2e/conftest.py
+- M doc_processor/tests/e2e/test_full_workflow_playwright.py
+- A doc_processor/tests/e2e/test_group_batch_playwright.py
+- M doc_processor/tests/e2e/test_single_and_group_batches.py
+- A doc_processor/tests/test_finalize.py
+- A doc_processor/tests/test_fixture_naming.py
+- M doc_processor/tests/test_smart_processing_mixed.py
+- M doc_processor/tests/test_tag_database_integration.py
+- M pytest.ini
+- M start_app.sh
+
+3) Commit 1a953a7 (chore: add AI_CHANGES.md manifest of assistant-made changes)
+Author: TaintedHorizon <brian.mccaleb@gmail.com>
+Date: 2025-10-21 22:27:47 +0000
+
+Files changed:
+- A AI_CHANGES.md
+
+---
+
+If you want per-file patches included inline here, I can expand each commit's patch into the manifest (this will make `AI_CHANGES.md` considerably larger). Say "include diffs" and I'll append the full patches for each commit.
+
