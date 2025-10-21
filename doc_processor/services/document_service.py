@@ -197,14 +197,21 @@ class DocumentService:
             return create_new_batch('intake')
         except Exception:
             # Fallback to raw insert if helper unavailable for any reason
-            with database_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("INSERT INTO batches (status) VALUES ('intake')")
-                try:
-                    conn.commit()
-                except Exception:
-                    pass
-                return cursor.lastrowid or 0
+            try:
+                return create_new_batch('intake')
+            except Exception:
+                # As a last resort, perform a minimal raw insert
+                with database_connection() as conn:
+                    cursor = conn.cursor()
+                    try:
+                        cursor.execute("INSERT INTO batches (status) VALUES ('intake')")
+                        try:
+                            conn.commit()
+                        except Exception:
+                            pass
+                        return cursor.lastrowid or 0
+                    except Exception:
+                        return 0
 
     def get_batch_summary(self, batch_id: int) -> Dict[str, Any]:
         """

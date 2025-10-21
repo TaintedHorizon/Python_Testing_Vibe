@@ -19,8 +19,8 @@ def create_test_document():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO batches (status) VALUES ('testing')")
-        batch_id = cursor.lastrowid
+        from doc_processor.database import get_or_create_test_batch
+        batch_id = get_or_create_test_batch('tag_db_integration')
         cursor.execute(
             """
             INSERT INTO single_documents (
@@ -170,8 +170,8 @@ import pytest
 def test_tag_storage_and_retrieval():
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("INSERT INTO batches (status) VALUES ('testing')")
-    batch_id = cur.lastrowid
+    from doc_processor.database import get_or_create_test_batch
+    batch_id = get_or_create_test_batch('tag_db_integration')
     cur.execute("INSERT INTO single_documents (batch_id, original_filename, page_count, status) VALUES (?,?,?,?)",
                 (batch_id, 'test.pdf', 1, 'finalized'))
     doc_id = cur.lastrowid

@@ -91,8 +91,11 @@ def app_process(tmp_path_factory, e2e_artifacts_dir):
     os.environ["INTAKE_DIR"] = str(intake_dir)
     os.environ["PROCESSED_DIR"] = str(processed_dir)
     os.environ["FILING_CABINET_DIR"] = str(filing_dir)
-    os.environ["FAST_TEST_MODE"] = "1"
-    os.environ["SKIP_OLLAMA"] = "1"
+    # Respect the caller's environment but force deterministic test mode for in-process runs.
+    # Use explicit assignment (not setdefault) so the in-process import of doc_processor picks
+    # up the intended behavior even if the environment was previously set to a different value.
+    os.environ["FAST_TEST_MODE"] = os.getenv("FAST_TEST_MODE", "1")
+    os.environ["SKIP_OLLAMA"] = os.getenv("SKIP_OLLAMA", "1")
     os.environ["PYTHONUNBUFFERED"] = "1"
     os.environ["HOST"] = host
     os.environ["PORT"] = str(port)
@@ -227,6 +230,13 @@ def app_process(tmp_path_factory, e2e_artifacts_dir):
     try:
         if os.path.exists(tmp_db):
             os.remove(tmp_db)
+    except Exception:
+        pass
+    # Cleanup temporary directories created for this in-process run
+    try:
+        import shutil as _sh
+        if tmp_root and os.path.exists(str(tmp_root)):
+            _sh.rmtree(str(tmp_root), ignore_errors=True)
     except Exception:
         pass
 

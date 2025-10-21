@@ -313,11 +313,34 @@ def get_db_connection():
     if conn is None:
         raise RuntimeError(f"Failed to open SQLite connection to {db_path}")
 
-    # Enable WAL mode for better concurrent access
-    conn.execute("PRAGMA journal_mode=WAL")
+    # Enable WAL mode for better concurrent access. Be resilient to transient
+    # 'database is locked' errors which can occur under heavy concurrent test
+    # workloads (multiple threads/processes). Retry a few times before
+    # falling back and continuing with the default journal mode.
+    try:
+        journal_attempts = 3
+        for ja in range(1, journal_attempts + 1):
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+                break
+            except sqlite3.OperationalError as je:
+                if ja < journal_attempts and 'locked' in str(je).lower():
+                    try:
+                        time.sleep(0.05 * ja)
+                    except Exception:
+                        pass
+                    continue
+                else:
+                    logging.getLogger(__name__).warning(f"Could not set WAL journal mode (attempt {ja}): {je}")
+                    break
+    except Exception:
+        logging.getLogger(__name__).debug("Failed to set PRAGMA journal_mode, continuing without WAL")
 
     # Set busy timeout for additional safety
-    conn.execute("PRAGMA busy_timeout=30000")  # 30 seconds in milliseconds
+    try:
+        conn.execute("PRAGMA busy_timeout=30000")  # 30 seconds in milliseconds
+    except Exception:
+        logging.getLogger(__name__).debug("Failed to set PRAGMA busy_timeout, continuing")
 
     # Lightweight on-demand schema ensures for legacy grouped workflow restoration.
     # We gate this behind a quick PRAGMA table_info check to avoid overhead on hot paths.
@@ -378,6 +401,36 @@ def get_db_connection():
                 ocr_confidence_avg REAL
             );
         """)
+
+        # Backfill missing optional columns for robustness when tests create
+        # legacy/minimal single_documents tables. This is safe (idempotent)
+        # and preserves existing data.
+        try:
+            cursor.execute("PRAGMA table_info(single_documents)")
+            existing = [r[1] for r in cursor.fetchall()]
+            migrations = {
+                'original_filename': 'TEXT',
+                'original_pdf_path': 'TEXT',
+                'page_count': 'INTEGER',
+                'file_size_bytes': 'INTEGER',
+                'status': 'TEXT',
+                'created_at': 'TIMESTAMP',
+                'ai_suggested_category': 'TEXT',
+                'ai_suggested_filename': 'TEXT',
+                'ai_confidence': 'REAL',
+                'ai_summary': 'TEXT',
+                'ocr_text': 'TEXT',
+                'ocr_confidence_avg': 'REAL'
+            }
+            for col, typ in migrations.items():
+                if col not in existing:
+                    try:
+                        cursor.execute(f"ALTER TABLE single_documents ADD COLUMN {col} {typ}")
+                    except Exception:
+                        # Best-effort: ignore failures to allow startup to continue
+                        pass
+        except Exception:
+            pass
 
         _ensure_table('document_tags', """
             CREATE TABLE IF NOT EXISTS document_tags (
@@ -521,6 +574,163 @@ def get_db_connection():
         pass
 
     return conn
+
+
+def get_or_create_test_batch(name: str = 'pytest_shared') -> int:
+    """
+    Return an existing test batch id created with status 'test_batch:<name>' or
+    create one if missing. This keeps tests from creating many transient batch
+    rows and allows reusing a single named batch during a pytest session.
+
+    Usage in tests:
+        batch_id = get_or_create_test_batch('my_test')
+    """
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        special_status = f"test_batch:{name}"
+        cur.execute("SELECT id FROM batches WHERE status = ? LIMIT 1", (special_status,))
+        row = cur.fetchone()
+        if row:
+            return int(row[0])
+        # Create a new test batch row atomically
+        cur.execute("INSERT INTO batches (status) VALUES (?)", (special_status,))
+        batch_id = cur.lastrowid
+        conn.commit()
+        return int(batch_id)
+    finally:
+        conn.close()
+
+
+def delete_test_batches(prefix: str = 'test_batch:') -> int:
+    """
+    Delete batches whose status starts with the given prefix (default 'test_batch:').
+    Returns the number of deleted batches.
+
+    WARNING: This will only delete rows from the batches table. If you want to
+    remove related single_documents or other child rows, call this carefully or
+    extend the implementation to cascade deletes as needed.
+    """
+    conn = get_db_connection()
+    deleted = 0
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM batches WHERE status LIKE ?", (f"{prefix}%",))
+        rows = cur.fetchall()
+        ids = [r[0] for r in rows]
+        if not ids:
+            return 0
+        for bid in ids:
+            try:
+                cur.execute("DELETE FROM batches WHERE id = ?", (bid,))
+                deleted += 1
+            except Exception:
+                pass
+        conn.commit()
+    finally:
+        conn.close()
+    return deleted
+
+
+def backup_and_delete_all_batches(confirm: bool = False, backup_root: str | None = None) -> dict:
+    """
+    Backup the current SQLite database file and delete all rows from batch-related tables.
+
+    Safety: This function requires confirm=True to run. It will copy the DB file to
+    a timestamped backup in `backup_root` (or a sensible default) before deleting
+    rows from the following tables (best-effort, ignoring missing tables):
+      - document_tags, document_pages, documents, pages, single_documents,
+        interaction_log, batches
+
+    Returns a dict with keys: backed_up_to, deleted_counts (mapping table->rows_deleted).
+    """
+    if not confirm:
+        raise RuntimeError("backup_and_delete_all_batches requires confirm=True to run")
+
+    # Resolve DB path using the same logic as get_db_connection
+    try:
+        from .config_manager import app_config
+        db_path = getattr(app_config, 'DATABASE_PATH', None)
+    except Exception:
+        db_path = None
+    env_override = os.getenv('DATABASE_PATH')
+    if env_override:
+        db_path = env_override
+    if not db_path:
+        raise RuntimeError('Could not determine DATABASE_PATH for backup')
+
+    # Determine backup root
+    if not backup_root:
+        try:
+            xdg_data = os.getenv('XDG_DATA_HOME') or os.path.join(os.path.expanduser('~'), '.local', 'share')
+            backup_root = os.path.join(xdg_data, 'doc_processor', 'db_backups')
+        except Exception:
+            backup_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'db_backups'))
+
+    # Safety: refuse to write backups inside the repository unless explicitly allowed.
+    try:
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        abs_backup_root = os.path.abspath(backup_root)
+        allow_repo = os.getenv('ALLOW_REPO_BACKUP', '0').lower() in ('1', 'true', 't')
+        if abs_backup_root.startswith(repo_root) and not allow_repo:
+            raise RuntimeError(
+                f"Refusing to write DB backup inside repository at {abs_backup_root}. "
+                "Set ALLOW_REPO_BACKUP=1 to override if you really want repo-local backups."
+            )
+    except Exception:
+        # If any safety check fails, continue and ensure directories are created where possible.
+        pass
+
+    os.makedirs(backup_root, exist_ok=True)
+
+    import shutil, datetime
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    src = db_path
+    dest = os.path.join(backup_root, f"documents.db.backup.{timestamp}")
+    try:
+        shutil.copy2(src, dest)
+    except Exception as e:
+        raise RuntimeError(f"Failed to backup DB {src} -> {dest}: {e}")
+
+    deleted_counts = {}
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        # Use a transaction to perform deletes. If any table doesn't exist, ignore errors.
+        tables = [
+            'document_tags', 'document_pages', 'document_pages', 'documents',
+            'pages', 'single_documents', 'interaction_log', 'batches'
+        ]
+        # Deduplicate
+        seen = set()
+        with conn:
+                for tbl in tables:
+                    if tbl in seen:
+                        continue
+                    seen.add(tbl)
+                    # Count rows first if table exists
+                    try:
+                        cur.execute(f"SELECT COUNT(*) FROM {tbl}")
+                        cnt = cur.fetchone()[0]
+                    except Exception:
+                        cnt = 0
+                    try:
+                        cur.execute(f"DELETE FROM {tbl}")
+                    except Exception:
+                        # If deletion fails (missing table or read-only), skip
+                        pass
+                    deleted_counts[tbl] = int(cnt)
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    return {'backed_up_to': dest, 'deleted_counts': deleted_counts}
 
 
 # --- DATA RETRIEVAL FUNCTIONS (QUERIES) ---

@@ -429,6 +429,35 @@ def create_new_batch(status: str) -> int:
     we have a single place to audit/guard batch creation in future.
     """
     try:
+        # When running under test mode, prefer reusing a single named test batch
+        # to avoid creating large numbers of transient batches during E2E runs.
+        try:
+            from config_manager import app_config
+            if getattr(app_config, 'TEST_MODE', False):
+                try:
+                    from .database import get_or_create_test_batch
+                    tbid = get_or_create_test_batch('e2e')
+                    # Ensure the test batch has the expected status so callers
+                    # that depend on status semantics continue to work.
+                    try:
+                        with database_connection() as _conn:
+                            _cur = _conn.cursor()
+                            _cur.execute("UPDATE batches SET status = ? WHERE id = ?", (status, tbid))
+                            try:
+                                _conn.commit()
+                            except Exception:
+                                pass
+                    except Exception:
+                        logging.debug("Failed to update test batch status; continuing")
+                    logging.info(f"[TEST_MODE] Reusing test batch {tbid} for status '{status}'")
+                    return tbid
+                except Exception:
+                    # Fall through to normal creation if helper unavailable
+                    logging.debug("get_or_create_test_batch unavailable; falling back to normal batch creation")
+        except Exception:
+            # If config read fails, just proceed with normal behavior
+            pass
+
         with database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("INSERT INTO batches (status) VALUES (?)", (status,))

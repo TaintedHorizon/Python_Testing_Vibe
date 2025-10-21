@@ -1325,7 +1325,7 @@ function startAnalysis() {
                 eventSource.close();
                 resetStartButtons();
                 if (loadingState) loadingState.style.display = 'none';
-                
+
                 if (data.analyses && data.analyses.length === 0) {
                     if (noFilesState) noFilesState.style.display = 'block';
                 } else {
@@ -1335,8 +1335,11 @@ function startAnalysis() {
                         setTimeout(() => { window.location.href = data.redirect; }, 800);
                         return;
                     }
-                    // Optionally update the DOM in place; skip auto-reload to preserve rotations
-                    showSuccess('Analysis Complete', 'Results are ready. Refresh if needed.');
+                    // No redirect provided: the server cached analyses to disk. Reload the page
+                    // so the GET handler can render `analyses` from the cache. This avoids
+                    // fragile client-side DOM injection and preserves persisted rotations.
+                    showSuccess('Analysis Complete', 'Results are ready — loading view...');
+                    setTimeout(() => { window.location.reload(); }, 800);
                 }
             } else {
                 // Progress update

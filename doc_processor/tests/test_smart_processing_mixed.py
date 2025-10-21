@@ -35,12 +35,9 @@ def test_orchestrate_mixed(tmp_path, monkeypatch):
     # Point config intake dir to temp
     monkeypatch.setattr(app_config, 'INTAKE_DIR', str(intake))
 
-    # Pre-create a staging batch (status ready)
-    with database_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("INSERT INTO batches (status) VALUES ('ready')")
-        staging_batch = cur.lastrowid
-        conn.commit()
+    # Pre-create or reuse a staging batch (status test_batch:ready)
+    from doc_processor.database import get_or_create_test_batch
+    staging_batch = get_or_create_test_batch('smart_processing')
 
     overrides = {
         's1.pdf': 'single_document',

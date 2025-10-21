@@ -55,6 +55,12 @@ jobs:
         env:
           FAST_TEST_MODE: '1'
           SKIP_OLLAMA: '1'
+          # Force tests to use an ephemeral, repo-local SQLite file to avoid
+          # accidentally touching any external/production database paths.
+          DATABASE_PATH: '${{ github.workspace }}/doc_processor/documents.db'
+          # Keep DB backups inside the runner workspace so they aren't written to
+          # /home or other external mounts during CI runs.
+          DB_BACKUP_DIR: '${{ github.workspace }}/doc_processor/db_backups'
         run: |
           mkdir -p doc_processor/logs
           chmod +x ./start_app.sh
@@ -81,6 +87,9 @@ jobs:
           PLAYWRIGHT_E2E: '1'
           FAST_TEST_MODE: '1'
           SKIP_OLLAMA: '1'
+          # Ensure the Playwright test-runner and the app use the same test DB
+          DATABASE_PATH: '${{ github.workspace }}/doc_processor/documents.db'
+          DB_BACKUP_DIR: '${{ github.workspace }}/doc_processor/db_backups'
         run: |
           npx playwright test e2e --reporter=list
 

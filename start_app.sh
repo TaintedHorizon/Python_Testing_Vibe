@@ -55,9 +55,11 @@ echo -e "${GREEN}Python version: $(python --version)${NC}"
 
 # Run the Flask app as a module (the correct way!)
 echo -e "${YELLOW}Starting Flask application...${NC}"
+HOST_TO_BIND="${HOST:-127.0.0.1}"
+PORT_TO_BIND="${PORT:-5000}"
 echo -e "${GREEN}Application will be available at:${NC}"
-echo -e "  ${GREEN}http://127.0.0.1:5000${NC}"
-echo -e "  ${GREEN}http://192.168.10.11:5000${NC}"
+echo -e "  ${GREEN}http://${HOST_TO_BIND}:${PORT_TO_BIND}${NC}"
+echo -e "  ${GREEN}http://192.168.10.11:${PORT_TO_BIND}${NC}"
 echo ""
 echo -e "${YELLOW}Press Ctrl+C to stop the server${NC}"
 echo ""
@@ -88,7 +90,9 @@ else
     echo -e "${GREEN}Port ${PORT_TO_FREE} was free.${NC}"
 fi
 
-# Execute the Flask app (will bind to 5000)
+# Export HOST/PORT for the app and run it
+export HOST="$HOST_TO_BIND"
+export PORT="$PORT_TO_BIND"
 python -m doc_processor.app
 
 echo -e "${YELLOW}Flask application stopped.${NC}"

@@ -50,7 +50,12 @@ def _copy_fixture_into_intake(fixture_name):
     for d in candidates:
         try:
             os.makedirs(d, exist_ok=True)
-            dst = os.path.join(d, fixture_name)
+            # Ensure unique destination filename to avoid overwriting when tests copy
+            # the same fixture multiple times into the same intake directory.
+            base, ext = os.path.splitext(fixture_name)
+            unique_suffix = f"-{int(time.time()*1000)}-{os.getpid()}"
+            dst_name = f"{base}{unique_suffix}{ext}"
+            dst = os.path.join(d, dst_name)
             shutil.copyfile(src, dst)
             last_dst = dst
         except Exception:

@@ -62,6 +62,9 @@ class AppConfig:
     DEBUG_SKIP_OCR: bool = False
     ENABLE_TAG_EXTRACTION: bool = True  # Enable LLM-powered tag extraction during export
     FAST_TEST_MODE: bool = False  # When true, bypass heavy OCR/LLM for tests
+    # A clear test-mode flag for code to use instead of inspecting pytest env vars.
+    # Set via TEST_MODE=1 in the environment for deterministic test behavior.
+    TEST_MODE: bool = False
     INCLUDE_SOURCE_IMAGES_ON_EXPORT: bool = False  # When true, copy original intake images alongside exported PDFs
     # --- Network / runtime overrides (read from env for tests/CI) ---
     HOST: str = "0.0.0.0"
@@ -144,6 +147,9 @@ class AppConfig:
             # an isolated temporary database under the system temp directory.
             db_env = os.getenv('DATABASE_PATH')
             fast_mode_flag = os.getenv('FAST_TEST_MODE', str(cls.FAST_TEST_MODE)).lower() in ('true', '1', 't')
+            # TEST_MODE provides an explicit way to enable test-friendly behavior
+            # (serving files outside allowed dirs, skipping heavy external ops, etc.)
+            test_mode_env = os.getenv('TEST_MODE', str(cls.TEST_MODE)).lower() in ('true', '1', 't')
             if fast_mode_flag and not db_env:
                 import tempfile
                 test_db_default = os.path.join(tempfile.gettempdir(), f'doc_processor_test_{os.getpid()}.db')
@@ -188,6 +194,7 @@ class AppConfig:
                 DEBUG_SKIP_OCR=get_env("DEBUG_SKIP_OCR", str(cls.DEBUG_SKIP_OCR)).lower() in ("true", "1", "t"),
                 ENABLE_TAG_EXTRACTION=get_env("ENABLE_TAG_EXTRACTION", str(cls.ENABLE_TAG_EXTRACTION)).lower() in ("true", "1", "t"),
                 FAST_TEST_MODE=get_env("FAST_TEST_MODE", str(cls.FAST_TEST_MODE)).lower() in ("true", "1", "t"),
+                TEST_MODE = (test_mode_env or fast_mode_flag),
                 INCLUDE_SOURCE_IMAGES_ON_EXPORT=get_env("INCLUDE_SOURCE_IMAGES_ON_EXPORT", str(cls.INCLUDE_SOURCE_IMAGES_ON_EXPORT)).lower() in ("true", "1", "t"),
                 OCR_RESCAN_DPI=int(get_env("RESCAN_OCR_DPI", str(cls.OCR_RESCAN_DPI))),
                 OCR_RENDER_SCALE=float(get_env("OCR_RENDER_SCALE", str(cls.OCR_RENDER_SCALE))),
@@ -281,4 +288,16 @@ try:
         )
 except Exception:
     # Best-effort only; don't fail startup for odd environments
+    pass
+
+# Provide a top-level module alias so callers doing `from config_manager import app_config`
+# (unqualified import used in many tests) receive the same module object as
+# `doc_processor.config_manager`. This prevents duplicate module instances and
+# keeps `app_config` modifications in tests in sync with the application code.
+try:
+    import sys
+    # Overwrite any existing top-level module entry so that imports like
+    # `from config_manager import app_config` refer to this module object.
+    sys.modules['config_manager'] = sys.modules.get(__name__)
+except Exception:
     pass
