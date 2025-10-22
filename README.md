@@ -30,6 +30,24 @@ Update (2025-10-13): Local DB schema extensions and initialization added; the `d
 For development and running tests, see `doc_processor/.github/copilot-instructions.md`
 and the `doc_processor/README.md` for project-specific startup instructions.
 
+Updating docs and changelog
+---------------------------
+
+When you edit `README.md` or `doc_processor/CHANGELOG.md` locally, follow this minimal workflow to commit and push changes to both local and remote branches:
+
+```bash
+# 1. Stage changes
+git add README.md doc_processor/CHANGELOG.md
+
+# 2. Commit locally with a concise message
+git commit -m "docs: update README and add temp-dir hardening changelog entry"
+
+# 3. Push to the current branch (remote must be configured)
+git push origin $(git rev-parse --abbrev-ref HEAD)
+```
+
+If you prefer to open a PR, push to a feature branch and create the PR using the GitHub UI or hub/gh CLIs.
+
 ## End-to-end testing
 
 This repository includes a Playwright-based end-to-end test suite that exercises the full GUI workflow (intake → analyze → smart processing → manipulate → export).

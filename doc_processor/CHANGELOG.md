@@ -68,6 +68,16 @@ This release entry documents safety and test-determinism work done to prepare th
 
 Note: If you prefer the DB on a network share, remount the share with Unix extension/locking support; otherwise keep the runtime DB local and use the network share for periodic backups only.
 
+### Test & temp-dir hardening (2025-10-22)
+
+- Standardized temporary directory selection across runtime and dev tools to prefer explicit configuration and test-scoped locations:
+  - Precedence: `INTAKE_CACHE_DIR` / `app_config` -> `TEST_TMPDIR` -> `TMPDIR` -> `tempfile.gettempdir()` -> `cwd` (last resort).
+  - Added best-effort `os.makedirs(..., exist_ok=True)` guards where the application writes cache or export files to avoid permission errors in CI.
+  - Updated `doc_processor/app_monolithic_backup.py` and multiple dev tools to use the new conservative fallback chain and safe mkdir behavior.
+
+- Rationale: avoid writing to repository-local paths during tests and CI, reduce flakiness, and ensure deterministic temporary storage for test artifacts.
+
+
 ### Status update (2025-10-12)
 
 - Final lint pass: resolved remaining unused-import and whitespace issues flagged by ruff for the selected rule set (F401/F821/W291/W293). See commit history for details.
