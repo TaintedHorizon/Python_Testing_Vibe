@@ -46,14 +46,14 @@ def test_inprocess_analyze_and_start_batch(tmp_path, monkeypatch):
     r = client.get('/health')
     assert r.status_code == 200
 
-    # Place a dummy sample file into intake
+    # Place a dummy sample file into intake using fixtures or a generated placeholder
     sample_path = Path(__file__).parents[1] / 'tests' / 'fixtures' / 'sample_small.pdf'
+    dest = intake / 'sample_small.pdf'
     if sample_path.exists():
-        dest = intake / 'sample_small.pdf'
         dest.write_bytes(sample_path.read_bytes())
     else:
         # create a tiny placeholder file
-        (intake / 'sample_small.pdf').write_text('PDF-PLACEHOLDER')
+        dest.write_text('PDF-PLACEHOLDER')
 
     # Call analyze endpoint (GET the page to ensure no template errors), then POST analyze
     r = client.get('/analyze_intake')

@@ -27,14 +27,18 @@ import tarfile
 from pathlib import Path
 import os
 import sys
+import tempfile
 
 
 def load_env():
     env = {}
-    env['DB_BACKUP_DIR'] = os.environ.get('DB_BACKUP_DIR', '/mnt/scans_processed/db/backup')
-    # default logs path inside repo
+    # Prefer explicit env var; fall back to system temp to avoid operating inside the repo by default
+    env['DB_BACKUP_DIR'] = os.environ.get('DB_BACKUP_DIR') or tempfile.gettempdir()
+    # default logs path inside repo, but fall back to temp if not configured
     repo_root = Path(__file__).resolve().parents[1]
-    env['LOG_DIR'] = os.environ.get('LOG_FILE_PATH', str(repo_root / 'doc_processor' / 'logs'))
+    env['LOG_DIR'] = os.environ.get('LOG_FILE_PATH') or str(repo_root / 'doc_processor' / 'logs')
+    if not env['LOG_DIR']:
+        env['LOG_DIR'] = tempfile.gettempdir()
     return env
 
 

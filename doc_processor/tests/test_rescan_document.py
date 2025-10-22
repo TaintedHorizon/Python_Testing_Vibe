@@ -36,12 +36,12 @@ def sample_pdf_bytes():
     return (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/Contents 4 0 R>>endobj\n4 0 obj<</Length 8>>stream\nBT ET\nendstream endobj\nxref\n0 5\n0000000000 65535 f \n0000000010 00000 n \n0000000053 00000 n \n0000000104 00000 n \n0000000203 00000 n \ntrailer<</Size 5/Root 1 0 R>>\nstartxref\n281\n%%EOF")
 
 @pytest.fixture()
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
     """Provide a Flask test client with isolated temp DB.
 
     Key: set DATABASE_PATH before importing doc_processor modules so config_manager picks it up.
     """
-    tmp = tempfile.mkdtemp()
+    tmp = str(tmp_path)
     db_path = os.path.join(tmp, 'test.db')
     pdf_path = os.path.join(tmp, 'sample.pdf')
     with open(pdf_path, 'wb') as f:
@@ -58,7 +58,8 @@ def client(monkeypatch):
         # Ensure database file exists
         if not os.path.exists(db_path):
             make_min_db(db_path, pdf_path)
-        c = sqlite3.connect(db_path)
+        # Increase timeout to reduce 'database is locked' errors under CI/concurrent access
+        c = sqlite3.connect(db_path, timeout=30)
         c.row_factory = sqlite3.Row
         return c
 
@@ -71,7 +72,7 @@ def client(monkeypatch):
 
     app = app_module.create_app()
     yield app.test_client()
-    shutil.rmtree(tmp)
+    # tmp_path fixture handles cleanup
 
 def j(resp):
     return json.loads(resp.data.decode('utf-8'))

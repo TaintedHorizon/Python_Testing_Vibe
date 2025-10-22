@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import os
 from urllib.parse import urljoin, urlparse, unquote
 import time # Import time for sleep functionality
+import tempfile
 
 def download_files_from_url(url, download_dir, max_retries=3, retry_delay=5):
     """
@@ -109,9 +110,11 @@ if __name__ == "__main__":
         print("URL cannot be empty. Exiting.")
     else:
         # Get download directory from user
-        download_location = input("Please enter the local directory to save files (e.g., downloads or C:\\Users\\YourUser\\Downloads): ").strip()
+        download_location = input("Please enter the local directory to save files (e.g., downloads or C:\\Users\\YourUser\\Downloads). Leave empty to use safe default: ").strip()
         if not download_location:
-            print("Download directory cannot be empty. Exiting.")
+            # Prefer explicit env var for CI or user control; otherwise use system temp directory
+            download_location = os.environ.get('DOWNLOAD_MANAGER_DIR') or tempfile.gettempdir()
+            print(f"No directory specified. Using safe default: {download_location}")
         else:
             # Extract subdirectory name from the URL
             parsed_url = urlparse(target_url)

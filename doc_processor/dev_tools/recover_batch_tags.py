@@ -91,7 +91,12 @@ def ensure_ocr_text(conn: sqlite3.Connection, doc_id: int, original_pdf: str) ->
             if doc.page_count == 0:
                 return None
             page = doc[0]
-            pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+            # Some versions of PyMuPDF expose get_pixmap; others use getPixmap.
+            # Use a safe getattr to satisfy static analyzers and maintain runtime compatibility.
+            pix_getter = getattr(page, 'get_pixmap', None) or getattr(page, 'getPixmap', None)
+            if pix_getter is None:
+                raise RuntimeError('Cannot rasterize PDF page: missing get_pixmap/getPixmap on Page')
+            pix = pix_getter(matrix=fitz.Matrix(1.5, 1.5))
             img_bytes = pix.tobytes('png')
         from io import BytesIO
         with Image.open(BytesIO(img_bytes)) as im:
@@ -151,6 +156,10 @@ def store_tags(conn: sqlite3.Connection, doc_id: int, tags: dict) -> int:
 
 
 def regenerate_markdown(filing_base: str, category: str, filename_base: str, markdown_content: str):
+    import tempfile
+    # Ensure filing_base is configured; if not, fall back to system tempdir
+    if not filing_base:
+        filing_base = os.environ.get('FILING_CABINET_DIR') or tempfile.gettempdir()
     category_dir = os.path.join(filing_base, category)
     os.makedirs(category_dir, exist_ok=True)
     path = os.path.join(category_dir, f"{filename_base}.md")

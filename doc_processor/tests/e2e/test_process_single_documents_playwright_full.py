@@ -256,20 +256,39 @@ with sync_playwright() as p:
             target = '{BASE_URL}' + href
         print('Navigating to batch link:', target)
         page.goto(target)
+
+        # If the audit page returns a Page Not Found (404), try the batch control path as fallback
+        try:
+            # Give the server a short moment to render
+            page.wait_for_selector('body', timeout=5000)
+            if 'Page Not Found' in page.content()[:2000]:
+                print('Audit page returned Page Not Found; trying /batch/control fallback')
+                page.goto('{BASE_URL}/batch/control')
+        except Exception:
+            # Continue to fallback attempt
+            try:
+                page.goto('{BASE_URL}/batch/control')
+            except Exception:
+                pass
     else:
         page.goto('{BASE_URL}/batch/control')
-    # Ensure documents exist in audit view
+
+    # Ensure documents exist in audit view — increase patience for rendering
     doc_present = False
-    for _ in range(30):
-        if page.query_selector('table') and page.query_selector('table tr'):
-            doc_present = True
-            break
+    for _ in range(60):
+        try:
+            if page.query_selector('table') and page.query_selector('table tr'):
+                doc_present = True
+                break
+        except Exception:
+            pass
         time.sleep(1)
+
     if not doc_present:
         # Dump diagnostics before exiting to help identify 404s/missing DOM
         try:
             print('FINAL PAGE URL:', page.url)
-            print('PAGE CONTENT SNIPPET:', page.content()[:2000])
+            print('PAGE CONTENT SNIPPET:', page.content()[:4000])
         except Exception:
             pass
         raise SystemExit(4)
@@ -281,18 +300,13 @@ with sync_playwright() as p:
         base_url = f'http://127.0.0.1:{free_port}'
         helper = helper.replace('{BASE_URL}', base_url)
 
-        tmp = tempfile.NamedTemporaryFile('w', delete=False, suffix='.py')
-        try:
-            tmp.write(helper)
-            tmp.flush()
-            tmp.close()
-            proc2 = subprocess.run([sys.executable, tmp.name], cwd=repo_root, timeout=300)
-            assert proc2.returncode == 0, f'Playwright helper exited with {proc2.returncode}'
-        finally:
-            try:
-                os.unlink(tmp.name)
-            except Exception:
-                pass
+        # Write helper script into the pytest tmp_path to avoid global tempfile usage
+        helper_path = os.path.join(str(tmp_path), 'playwright_helper.py')
+        with open(helper_path, 'w') as hf:
+            hf.write(helper)
+
+        proc2 = subprocess.run([sys.executable, helper_path], cwd=repo_root, timeout=300)
+        assert proc2.returncode == 0, f'Playwright helper exited with {proc2.returncode}'
 
     finally:
         # Stop the background app

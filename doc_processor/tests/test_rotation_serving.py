@@ -6,8 +6,9 @@ import sys
 from pathlib import Path
 
 # Establish a placeholder DATABASE_PATH early so config_manager uses an isolated temp DB
-_TEST_DB_PLACEHOLDER = os.path.join(tempfile.gettempdir(), 'rotation_test_placeholder.db')
-os.environ.setdefault('DATABASE_PATH', _TEST_DB_PLACEHOLDER)
+def _set_placeholder_db(tmp_path):
+    _TEST_DB_PLACEHOLDER = os.path.join(str(tmp_path), 'rotation_test_placeholder.db')
+    os.environ.setdefault('DATABASE_PATH', _TEST_DB_PLACEHOLDER)
 
 # Ensure project root on path when running test directly/isolated
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -45,7 +46,7 @@ def _ensure_tables(conn):
     conn.commit()
 
 
-def test_rotation_serving():
+def test_rotation_serving(tmp_path):
     """Integration test for /document/serve_single_pdf/<id> rotation caching.
 
     Flow:
@@ -59,6 +60,8 @@ def test_rotation_serving():
     import fitz
 
     # Ensure INTAKE_DIR exists and create PDF there (path validation requires allowed dirs)
+    # Use tmp_path to avoid writing into repo paths
+    os.environ.setdefault('INTAKE_DIR', str(tmp_path / 'intake'))
     intake_dir = Path(app_config.INTAKE_DIR)
     intake_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = intake_dir / "orig.pdf"

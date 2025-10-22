@@ -92,6 +92,7 @@ def test_export_respects_cached_searchable(client):
     else:
         pytest.fail('Export timeout')
 
+    # use filing cabinet path from base fixture
     reports = base / 'filing_cabinet' / 'Reports'
     assert reports.exists()
     artifacts = {p.name: p for p in reports.iterdir()}

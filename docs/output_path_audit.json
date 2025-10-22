@@ -1,0 +1,357 @@
+[
+  {
+    "file": "tools/sdcard_imager/SDCardImager.py",
+    "write_type": "log file",
+    "statement": "LOG_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), \"sd_card_imager_error.log\")",
+    "writes": [
+      "with open(LOG_FILE_PATH, \"a\") as log_f: log_f.write(...)",
+      "with open(LOG_FILE_PATH, \"a\") as log_f: (initialization)"
+    ],
+    "uses_app_config": false,
+    "recommendation": "Read LOG_FILE_PATH from config/env or allow override; avoid writing logs into repo tree by default."
+  },
+  {
+    "file": "doc_processor/routes/admin.py",
+    "write_type": "cache dir / log path",
+    "statement": "cache_dir = '/tmp/analysis_cache'  # literal; log_file = '/path/to/app.log'  # placeholder",
+    "writes": [
+      "shutil.rmtree(cache_dir); os.makedirs(cache_dir)",
+      "open(log_file, 'r') (reading logs)"
+    ],
+    "uses_app_config": false,
+    "recommendation": "Use app_config.LOG_FILE_PATH and a configurable cache dir (app_config.EXPORT_DIR or tempfile.gettempdir())."
+  },
+  {
+    "file": "doc_processor/services/export_service.py",
+    "write_type": "export files (placeholders)",
+    "statement": "pdf_path = f\"/tmp/export/batch_{batch_id}_doc_{i+1}.pdf\" (and similar '/tmp/exports' fallbacks)",
+    "writes": [
+      "pdf_path and image_path placeholders are used as created file paths",
+      "export_dir = '/tmp/exports'  # Placeholder"
+    ],
+    "uses_app_config": false,
+    "recommendation": "Use app_config.EXPORT_DIR or an explicit parameter; create export_dir if missing."
+  },
+  {
+    "file": "doc_processor/app_original_backup.py",
+    "write_type": "cache file",
+    "statement": "cache_file = \"/tmp/intake_analysis_cache.pkl\"",
+    "writes": [
+      "open(cache_file, 'rb'/'wb') and related tarfile operations"
+    ],
+    "uses_app_config": false,
+    "recommendation": "Prefer tempfile.gettempdir() or a configurable BACKUP/CACHE_DIR from app_config."
+  },
+  {
+    "file": "doc_processor/routes/batch.py",
+    "write_type": "cache file",
+    "statement": "cache_file = \"/tmp/intake_analysis_cache.pkl\"",
+    "writes": ["open(cache_file, 'rb')"],
+    "uses_app_config": false,
+    "recommendation": "Use tempfile or app_config to locate caches."
+  },
+  {
+    "file": "doc_processor/routes/export.py",
+    "write_type": "export/processed placeholders",
+    "statement": "export_dir = '/tmp/exports'; processed_dir = '/tmp/processed'",
+    "writes": ["Image.save(converted_pdf_path, 'PDF', resolution=150.0, quality=95)"] ,
+    "uses_app_config": false,
+    "recommendation": "Replace with app_config.EXPORT_DIR and app_config.PROCESSED_DIR or pass dirs as params."
+  },
+  {
+    "file": "doc_processor/dev_tools/reset_environment.py",
+    "write_type": "categories backup file",
+    "statement": "CATEGORIES_BACKUP_FILE = \"custom_categories_backup.json\"",
+    "writes": ["with open(CATEGORIES_BACKUP_FILE, 'w') as f: json.dump(...)"],
+    "uses_app_config": false,
+    "recommendation": "Allow backup path to be configured (e.g., via env or app_config.BACKUP_DIR)."
+  },
+  {
+    "file": "archive/legacy/Document_Scanner_Ollama_outdated/document_processor_gem.py",
+    "write_type": "output files created in parent_category_path",
+    "statement": "os.makedirs(ARCHIVE_DIR, exist_ok=True) and os.path.join(destination_dir, f\"{new_name_base}.pdf\")",
+    "writes": ["shutil.copy2(source_pdf_path, original_copy_path)", "ocr_doc_obj.save(ocr_copy_path, garbage=4, deflate=True)", "open(markdown_path, 'w')"],
+    "uses_app_config": false,
+    "recommendation": "This legacy script uses a local legacy config.py (not app_config). Consider migrating to `doc_processor/config_manager` or marking it archival."
+  },
+  {
+    "file": "doc_processor/app_monolithic_backup.py",
+    "write_type": "cache file",
+    "statement": "cache_file = \"/tmp/intake_analysis_cache.pkl\"",
+    "writes": ["open(cache_file, 'rb'/'wb')"],
+    "uses_app_config": false,
+    "recommendation": "Use tempfile or config for cache path."
+  },
+  {
+    "file": "scripts/run_local_e2e.sh",
+    "write_type": "pid file",
+    "statement": "echo $! > /tmp/run_local_e2e_app.pid",
+    "writes": ["write pid file to /tmp"],
+    "uses_app_config": false,
+    "recommendation": "It's OK for scripts to use /tmp, but document it or make path configurable."
+  }
+  ,
+  {
+    "file": "doc_processor/dev_tools/recover_source_images.py",
+    "write_type": "copy to filing cabinet or fallback base",
+    "statement": "shutil.copy2(src, dest) where dest defaults to filing cabinet category dir",
+    "writes": ["shutil.copy2(src, dest)"],
+    "uses_app_config": true,
+    "recommendation": "Already patched to fall back to RECOVER_SOURCE_BASE environment variable or tempfile.gettempdir() if category dir not writable."
+  },
+  {
+    "file": "doc_processor/dev_tools/cleanup_orphaned_wip.py",
+    "write_type": "backup directory / remove",
+    "statement": "shutil.copytree(batch_wip_dir, backup_batch_dir); shutil.rmtree(batch_wip_dir)",
+    "writes": ["shutil.copytree(...)", "shutil.rmtree(...)", "os.makedirs(backup_dir)"] ,
+    "uses_app_config": true,
+    "recommendation": "Backups now go to WIP_CLEANUP_BACKUP_BASE env or tempfile.gettempdir() to avoid writing inside repo by default."
+  },
+  {
+    "file": "doc_processor/dev_tools/restore_categories.py",
+    "write_type": "read backup JSON and DB inserts",
+    "statement": "with open(CATEGORIES_BACKUP_FILE, 'r') as f: json.load(f)",
+    "writes": ["open(CATEGORIES_BACKUP_FILE, 'r')"],
+    "uses_app_config": false,
+    "recommendation": "Now reads CATEGORIES_BACKUP_FILE from CATEGORIES_BACKUP_DIR env or tempfile.gettempdir() to avoid repo-root dependency."
+  },
+  {
+    "file": "doc_processor/dev_tools/recover_batch_tags.py",
+    "write_type": "markdown regen + optional DB updates",
+    "statement": "with open(path, 'w', encoding='utf-8') as f: f.write(markdown_content)",
+    "writes": ["open(path, 'w')"],
+    "uses_app_config": true,
+    "recommendation": "regenerate_markdown() now falls back to FILING_CABINET_DIR env or tempfile.gettempdir() when needed."
+  },
+  {
+    "file": "doc_processor/dev_tools/fetch_pdfjs.py",
+    "write_type": "static asset download",
+    "statement": "static_dir = ...; dest.write_bytes(data)",
+    "writes": ["Path.write_bytes(...)"],
+    "uses_app_config": false,
+    "recommendation": "Supports PDFJS_DEST env override to write assets to an alternate location (helpful for CI)."
+  }
+  ,
+  {
+    "file": "doc_processor/processing.py",
+    "write_type": "document processing outputs (processed, searchable, originals, archive)",
+    "statement": "shutil.copy2(..., dest); open(markdown_path, 'w'); os.makedirs(...); shutil.rmtree(batch_dir)",
+    "writes": [
+      "shutil.copy2(src, dest)",
+      "open(markdown_path, 'w', encoding='utf-8')",
+      "os.makedirs(path, exist_ok=True)",
+      "shutil.rmtree(path)"
+    ],
+    "uses_app_config": true,
+    "recommendation": "processing.py already uses app_config in places; ensure all output directories are derived from app_config or injected paths and validated."
+  },
+  {
+    "file": "doc_processor/database.py",
+    "write_type": "database backups and file removals",
+    "statement": "shutil.copy2(src, dest); os.makedirs(backup_root, exist_ok=True); os.remove(image_path)",
+    "writes": ["shutil.copy2(src, dest)", "os.makedirs(backup_root, exist_ok=True)", "os.remove(path)", "shutil.copy2(...) (DB backups)"] ,
+    "uses_app_config": true,
+    "recommendation": "Use configuration-controlled backup directories (config_manager.app_config) and avoid implicit writes to repo tree."
+  },
+  {
+    "file": "doc_processor/routes/intake.py",
+    "write_type": "intake temp copies and removals",
+    "statement": "shutil.copy2(pdf_path, temp_pdf_path); os.remove(old_pdf)",
+    "writes": ["shutil.copy2(pdf_path, temp_pdf_path)", "os.remove(old_pdf)", "os.makedirs(..., exist_ok=True)"],
+    "uses_app_config": true,
+    "recommendation": "Ensure temporary copy locations use tempfile or app_config-managed temp dirs; validate permissions before writing."
+  },
+  {
+    "file": "doc_processor/routes/manipulation.py",
+    "write_type": "serve/preview cached PDFs",
+    "statement": "return send_file(pdf_abs, mimetype='application/pdf', as_attachment=False); return send_file(cache_path)",
+    "writes": ["send_file(path, ...) (serves files from processed/cache locations)"],
+    "uses_app_config": true,
+    "recommendation": "Routes serve files from processed/cache locations; confirm those locations come from app_config and are not arbitrary paths."
+  },
+  {
+    "file": "doc_processor/batch_guard.py",
+    "write_type": "backup/copy operations",
+    "statement": "shutil.copy2(path, dest_dir); os.makedirs(dest_dir, exist_ok=True)",
+    "writes": ["shutil.copy2(...)", "os.makedirs(..., exist_ok=True)", "shutil.rmtree(...)"] ,
+    "uses_app_config": true,
+    "recommendation": "Use app_config paths for retention and backup directories and allow overrides for CI/tests."
+  },
+  {
+    "file": "doc_processor/app.py",
+    "write_type": "application log directory",
+    "statement": "os.makedirs(log_dir, exist_ok=True); open(log_file, 'a')",
+    "writes": ["os.makedirs(log_dir, exist_ok=True)", "open(log_file, 'a')"],
+    "uses_app_config": true,
+    "recommendation": "Log directory should be controlled by app_config.LOG_FILE_PATH/LOG_DIR and default to a safe system location if unset."
+  },
+  {
+    "file": "tools/file_utils/file_copy_regex.py",
+    "write_type": "file copy to destination paths",
+    "statement": "shutil.copy2(source_file_path, destination_file_path) with os.makedirs(os.path.dirname(destination), exist_ok=True)",
+    "writes": ["shutil.copy2(source, dest)", "os.makedirs(destination_parent, exist_ok=True)"],
+    "uses_app_config": false,
+    "recommendation": "Make destination base configurable and document that the tool will write to disk; consider using a tempdir for unsafe defaults."
+  },
+  {
+    "file": "dev_tools/retention_and_rotate.py",
+    "write_type": "archive (tar.gz) and deletions",
+    "statement": "with tarfile.open(dest, 'w:gz') as tar: tar.add(...); shutil.rmtree(src)",
+    "writes": ["tarfile.open(dest, 'w:gz')", "shutil.rmtree(path)", "os.remove(...)"],
+    "uses_app_config": false,
+    "recommendation": "Allow archive destination to be set via env var and avoid hard-coded paths."
+  },
+  {
+    "file": "dev_tools/cleanup_test_artifacts.py",
+    "write_type": "archive and copy artifacts",
+    "statement": "with tarfile.open(target_tar, 'w:gz') as tar: ...; shutil.copy2(src, dst)",
+    "writes": ["tarfile.open(...)", "shutil.copy2(...)", "shutil.copytree(...)"] ,
+    "uses_app_config": false,
+    "recommendation": "Prefer configurable artifact output dir (use .env.test for CI)."
+  },
+  {
+    "file": "doc_processor/tests/e2e/conftest.py",
+    "write_type": "e2e artifacts and logs",
+    "statement": "os.makedirs(artifacts_dir, exist_ok=True); shutil.copy2(app_log, os.path.join(artifacts_dir, ...))",
+    "writes": ["os.makedirs(artifacts_dir)", "shutil.copy2(..., artifacts_dir)", "write artifact files"],
+    "uses_app_config": false,
+    "recommendation": "E2E tests should use `doc_processor/.env.test` and write artifacts to /tmp or CI-configured artifacts dir."
+  },
+  {
+    "file": "doc_processor/tests/test_db_backup.py",
+    "write_type": "test helper file writes",
+    "statement": "db_file.write_bytes(b'')  # create empty file",
+    "writes": ["Path.write_bytes(...)", "os.makedirs(...)"],
+    "uses_app_config": false,
+    "recommendation": "Tests may write files; prefer using tmp_path fixtures or configure via .env.test."
+  },
+  {
+    "file": "doc_processor/tests/test_gui_inprocess.py",
+    "write_type": "sample data writes",
+    "statement": "dest.write_bytes(sample_path.read_bytes())",
+    "writes": ["Path.write_bytes(...)", "os.makedirs(...)"] ,
+    "uses_app_config": false,
+    "recommendation": "Use pytest tmp_path for test artifacts or .env.test override."
+  },
+  {
+    "file": "doc_processor/dev_tools/cleanup_filing_cabinet_names.py",
+    "write_type": "backup and rename operations",
+    "statement": "shutil.copytree(self.filing_cabinet_path, self.backup_dir); shutil.copy2(src, dst); os.remove(item_path)",
+    "writes": ["shutil.copytree(...)", "shutil.copy2(...)", "shutil.rmtree(...)", "os.remove(...)"],
+    "uses_app_config": true,
+    "recommendation": "Backups should go to a configurable backup base (DEV_TOOL_BACKUP_DIR) or tempfile to avoid repo modifications."
+  },
+  {
+    "file": "doc_processor/dev_tools/database_setup.py",
+    "write_type": "database bootstrap (create directories)",
+    "statement": "os.makedirs(db_dir, exist_ok=True); create database files",
+    "writes": ["os.makedirs(db_dir)", "open(dbfile, 'wb')", "sqlite3 operations that modify databases"],
+    "uses_app_config": false,
+    "recommendation": "Allow DB output location to be configured via .env or app_config for safe test runs."
+  },
+  {
+    "file": "doc_processor/dev_tools/manual_tests/complete_workflow_demo.py",
+    "write_type": "cleanup/teardown artifacts",
+    "statement": "if base.exists(): shutil.rmtree(base); shutil.rmtree(base, ignore_errors=True)",
+    "writes": ["shutil.rmtree(...)", "os.remove(...)"],
+    "uses_app_config": false,
+    "recommendation": "Manual demo scripts should document where they write and offer configurable artifact locations."
+  }
+  ,
+  {
+    "file": "Document_Scanner_Ollama_outdated/document_processor_gca.py",
+    "write_type": "legacy processing outputs",
+    "statement": "shutil.copy2(source_pdf_path, original_copy_path); with open(markdown_path, 'w', encoding='utf-8')",
+    "writes": ["shutil.copy2(...)", "ocr_doc_obj.save(...)", "open(markdown_path, 'w')"],
+    "uses_app_config": false,
+    "recommendation": "Legacy script — treat as archival or migrate to `doc_processor/config_manager` before making it write into modern paths."
+  },
+  {
+    "file": "Document_Scanner_Ollama_outdated/document_processor_gem.py",
+    "write_type": "legacy processing outputs",
+    "statement": "shutil.copy2(source_pdf_path, original_copy_path); open(markdown_path, 'w')",
+    "writes": ["shutil.copy2(...)", "open(markdown_path, 'w')"],
+    "uses_app_config": false,
+    "recommendation": "Legacy script; do not auto-modify without a migration plan."
+  },
+  {
+    "file": "archive/legacy/Document_Scanner_Gemini_outdated/document_processor.py",
+    "write_type": "legacy processing outputs",
+    "statement": "with open(markdown_path, 'w', encoding='utf-8') and fitz/pyMuPDF image saves",
+    "writes": ["open(markdown_path, 'w')", "pix.tobytes(...)", "Image.save(...)"],
+    "uses_app_config": false,
+    "recommendation": "Mark as legacy/archival; migrate if needed."
+  },
+  {
+    "file": "archive/legacy/Document_Scanner_Ollama_outdated/document_processor_gca.py",
+    "write_type": "legacy processing outputs",
+    "statement": "shutil.copy2(source_pdf_path, original_copy_path); with open(markdown_path, 'w', encoding='utf-8')",
+    "writes": ["shutil.copy2(...)", "open(markdown_path, 'w')"],
+    "uses_app_config": false,
+    "recommendation": "Legacy script; treat as archive or migrate to new config_manager."
+  },
+  {
+    "file": "doc_processor/document_detector.py",
+    "write_type": "temporary image/pdf files and removals",
+    "statement": "os.makedirs(norm_root, exist_ok=True); os.remove(fpath)",
+    "writes": ["os.makedirs(...)", "os.remove(...)", "temporary file writes via tempfile"],
+    "uses_app_config": true,
+    "recommendation": "Ensure temp outputs use tempfile or app_config paths and are cleaned up."
+  },
+  {
+    "file": "doc_processor/routes/api.py",
+    "write_type": "API helpers that rasterize/serve images",
+    "statement": "pix_method = getattr(page, 'get_pixmap', None) ...; send_file(...)",
+    "writes": ["pix.tobytes(...)", "send_file(...)", "temporary image generation"],
+    "uses_app_config": true,
+    "recommendation": "Confirm rasterization uses safe temp locations and served files are from configured processed/original dirs."
+  },
+  {
+    "file": "doc_processor/services/rotation_service.py",
+    "write_type": "rotation cache / modified images",
+    "statement": "open(..., 'wb'); Image.save(...)",
+    "writes": ["Image.save(...)", "open(..., 'wb')", "os.remove(...)"] ,
+    "uses_app_config": true,
+    "recommendation": "Use app_config-managed cache directories and validate permissions before writing."
+  },
+  {
+    "file": "doc_processor/static/pdfjs/*",
+    "write_type": "static pdfjs assets (bundle)",
+    "statement": "static_dir = ...; Path.write_bytes(data) on many files",
+    "writes": ["Path.write_bytes(...)", "static asset files (pdf.min.js, maps, bundles)"],
+    "uses_app_config": false,
+    "recommendation": "Treat pdfjs as an asset bundle; allow PDFJS_DEST override for CI."
+  },
+  {
+    "file": "doc_processor/tests/e2e/**",
+    "write_type": "e2e artifacts and logs",
+    "statement": "os.makedirs(artifacts_dir, exist_ok=True); shutil.copy2(..., artifacts_dir)",
+    "writes": ["os.makedirs(...)", "shutil.copy2(...)", "write artifact files to artifacts dir"],
+    "uses_app_config": false,
+    "recommendation": "E2E tests should be annotated and write to CI-configured artifacts dir or /tmp; register playwright mark in pytest.ini if used."
+  },
+  {
+    "file": "doc_processor/tests/**",
+    "write_type": "unit/integration test artifacts",
+    "statement": "Path.write_bytes(...); open(..., 'wb'); os.makedirs(...)",
+    "writes": ["Path.write_bytes(...)", "open(..., 'wb')", "os.makedirs(...)"] ,
+    "uses_app_config": false,
+    "recommendation": "Tests should use pytest tmp_path or .env.test to avoid writing into repo tree (most tests already do)."
+  },
+  {
+    "file": "tools/download_manager/download_manager.py",
+    "write_type": "downloaded file writes",
+    "statement": "with open(file_path, 'wb') as f: f.write(...) ; os.remove(file_path) on failures",
+    "writes": ["open(..., 'wb')", "os.remove(...)", "os.makedirs(download_dir)"],
+    "uses_app_config": false,
+    "recommendation": "Make download destination configurable; avoid hard-coded directories."
+  },
+  {
+    "file": "tools/download_manager/download_manager_gui.py",
+    "write_type": "downloaded file writes (GUI)",
+    "statement": "with open(file_path, 'wb') as f: ...; os.remove(file_path)",
+    "writes": ["open(..., 'wb')", "os.remove(...)", "os.makedirs(download_dir)"],
+    "uses_app_config": false,
+    "recommendation": "Make download destination configurable for safety."
+  }
+]

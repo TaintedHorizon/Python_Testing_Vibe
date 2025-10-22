@@ -798,7 +798,9 @@ def api_smart_processing_progress():
             try:
                 # Try to load cached analysis results
                 import pickle
-                cache_file = "/tmp/intake_analysis_cache.pkl"
+                import tempfile
+                cache_dir = os.environ.get('INTAKE_CACHE_DIR') or tempfile.gettempdir()
+                cache_file = os.path.join(cache_dir, 'intake_analysis_cache.pkl')
                 cached_analyses = {}
                 if _os.path.exists(cache_file):
                     with open(cache_file, 'rb') as f:
@@ -1123,9 +1125,11 @@ def api_smart_processing_start():
                 _processing_state['redirect'] = '/batch_control'
                 return
 
-            # Load cached analysis
+                # Load cached analysis
             import pickle
-            cache_file = "/tmp/intake_analysis_cache.pkl"
+            import tempfile
+            cache_dir = os.environ.get('INTAKE_CACHE_DIR') or tempfile.gettempdir()
+            cache_file = os.path.join(cache_dir, 'intake_analysis_cache.pkl')
             cached_analyses = {}
             if _os.path.exists(cache_file):
                 with open(cache_file, 'rb') as f:
@@ -1307,7 +1311,9 @@ def api_smart_processing_progress_with_strategy(force_strategy=None):
                 # Smart mode - load cached analysis results
                 try:
                     import pickle
-                    cache_file = "/tmp/intake_analysis_cache.pkl"
+                    import tempfile
+                    cache_dir = os.environ.get('INTAKE_CACHE_DIR') or tempfile.gettempdir()
+                    cache_file = os.path.join(cache_dir, 'intake_analysis_cache.pkl')
                     if _os.path.exists(cache_file):
                         with open(cache_file, 'rb') as f:
                             cached_analyses_list = pickle.load(f)

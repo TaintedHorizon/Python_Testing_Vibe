@@ -42,16 +42,21 @@ class FilingCabinetCleanup:
         self.filing_cabinet_path = filing_cabinet_path or app_config.FILING_CABINET_DIR
         if not self.filing_cabinet_path:
             raise ValueError("FILING_CABINET_DIR not configured in .env file")
+        # Backup and log locations may be overridden via environment variable
+        import tempfile
+        cleanup_base = os.environ.get('FILING_CABINET_CLEANUP_DIR') or tempfile.gettempdir()
 
-        self.backup_dir = os.path.join(self.filing_cabinet_path, ".cleanup_backup")
-        self.log_file = os.path.join(self.filing_cabinet_path, "cleanup_log.json")
+        # Backup location: prefer an off-tree location by default
+        self.backup_dir = os.path.join(cleanup_base, os.path.basename(self.filing_cabinet_path) + ".cleanup_backup")
+        # Log file: put logs in cleanup_base to avoid polluting filing cabinet
+        self.log_file = os.path.join(cleanup_base, f"cleanup_{os.path.basename(self.filing_cabinet_path)}.log")
 
-        # Setup logging
+        # Setup logging to file + console
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(os.path.join(self.filing_cabinet_path, "cleanup.log")),
+                logging.FileHandler(self.log_file),
                 logging.StreamHandler()
             ]
         )

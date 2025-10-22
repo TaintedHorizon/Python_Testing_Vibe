@@ -7,6 +7,7 @@ import re   # Provides support for regular expressions
 import shutil  # Provides high-level file operations
 import argparse  # For command-line argument parsing
 from typing import List, Tuple # For type hinting
+import tempfile
 
 def find_matching_files(source: str, pattern: str) -> List[Tuple[str, str, str]]:
     """
@@ -44,14 +45,19 @@ def main() -> None:  # Main function where the program starts execution
 
     # Add command-line arguments for source directory, destination directory, and regex pattern
     parser.add_argument('-s', '--source', help='Source directory', required=True)
-    parser.add_argument('-d', '--destination', help='Destination directory', required=True)
+    parser.add_argument('-d', '--destination', help='Destination directory (optional). If omitted, uses FILE_UTILS_DEST env var or system temp directory.', required=False)
     parser.add_argument('-p', '--pattern', help='Regex pattern for file names', required=True)
 
     # Parse the command-line arguments
     args = parser.parse_args()
 
     source_path = os.path.abspath(args.source)  # Get absolute path of source directory
-    destination_path = os.path.abspath(args.destination)  # Get absolute path of destination directory
+    # Determine destination path: prefer provided arg, then env var, then system temp
+    destination_arg = args.destination
+    if not destination_arg:
+        destination_arg = os.environ.get('FILE_UTILS_DEST') or tempfile.gettempdir()
+        print(f"No destination provided; using safe default: {destination_arg}")
+    destination_path = os.path.abspath(destination_arg)
 
     if not os.path.exists(source_path):
         print(f"Error: Source directory '{source_path}' does not exist.") # Using f-string for formatted output

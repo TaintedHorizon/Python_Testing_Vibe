@@ -4,21 +4,20 @@ Test script to verify image-to-PDF conversion functionality
 """
 
 import os
-import tempfile
 from PIL import Image
 from document_detector import DocumentTypeDetector
 
-def test_image_to_pdf_conversion():
+def test_image_to_pdf_conversion(tmp_path):
     """Test the image to PDF conversion functionality"""
     print("🧪 Testing image-to-PDF conversion...")
 
-    # Create a test image
-    test_image_path = os.path.join(tempfile.gettempdir(), "test_conversion.png")
+    # Create a test image under tmp_path
+    test_image_path = os.path.join(str(tmp_path), "test_conversion.png")
     print(f"📝 Creating test image: {test_image_path}")
-
     try:
         # Create a simple test image
-        img = Image.new('RGB', (800, 600), color='lightblue')
+        from typing import Any, cast
+        img = Image.new('RGB', (800, 600), color=cast(Any, 'lightblue'))
         img.save(test_image_path, 'PNG')
         print(f"✅ Test image created: {os.path.getsize(test_image_path)} bytes")
 
@@ -51,14 +50,5 @@ def test_image_to_pdf_conversion():
         traceback.print_exc()
 
     finally:
-        # Clean up test files
-        for file_path in [test_image_path]:
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                    print(f"🧹 Cleaned up: {file_path}")
-                except:
-                    pass
-
-if __name__ == "__main__":
-    test_image_to_pdf_conversion()
+        # tmp_path fixture handles cleanup
+        pass

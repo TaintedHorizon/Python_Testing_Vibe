@@ -9,22 +9,18 @@ import tempfile
 import shutil
 from pathlib import Path
 from PIL import Image
+from typing import Any, cast
 
 # Add the doc_processor directory to the Python path
 sys.path.insert(0, '/home/svc-scan/Python_Testing_Vibe/doc_processor')
 
-def create_test_environment():
+def create_test_environment(tmp_path):
     """Create a test environment with sample files"""
     print("🔧 Setting up test environment...")
 
-    # Create test directories
-    test_base = os.path.join(tempfile.gettempdir(), 'pdf_workflow_test')
+    # Create test directories under the pytest tmp_path fixture
+    test_base = os.path.join(str(tmp_path), 'pdf_workflow_test')
     test_intake = os.path.join(test_base, 'intake')
-
-    # Clean up any existing test directory
-    if os.path.exists(test_base):
-        shutil.rmtree(test_base)
-
     os.makedirs(test_intake, exist_ok=True)
 
     # Create test files
@@ -32,14 +28,14 @@ def create_test_environment():
 
     # 1. Create a test PNG image
     png_path = os.path.join(test_intake, 'test_document.png')
-    img = Image.new('RGB', (800, 600), color='lightblue')
+    img = Image.new('RGB', (800, 600), color=cast(Any, 'lightblue'))
     img.save(png_path, 'PNG')
     test_files.append(('test_document.png', 'image'))
     print(f"   📄 Created test PNG: {png_path}")
 
     # 2. Create a test JPG image
     jpg_path = os.path.join(test_intake, 'test_invoice.jpg')
-    img = Image.new('RGB', (600, 800), color='lightgreen')
+    img = Image.new('RGB', (600, 800), color=cast(Any, 'lightgreen'))
     img.save(jpg_path, 'JPEG')
     test_files.append(('test_invoice.jpg', 'image'))
     print(f"   📄 Created test JPG: {jpg_path}")
@@ -48,7 +44,7 @@ def create_test_environment():
     pdf_path = os.path.join(test_intake, 'test_existing.pdf')
     try:
         # Try to create a simple PDF using PIL
-        img = Image.new('RGB', (600, 800), color='white')
+        img = Image.new('RGB', (600, 800), color=cast(Any, 'white'))
         img.save(pdf_path, 'PDF')
         test_files.append(('test_existing.pdf', 'pdf'))
         print(f"   📄 Created test PDF: {pdf_path}")
@@ -57,11 +53,11 @@ def create_test_environment():
 
     return test_base, test_intake, test_files
 
-def test_document_analysis_with_conversion():
+def test_document_analysis_with_conversion(tmp_path):
     """Test the document analysis with PDF conversion"""
     print("\n🧪 Testing document analysis with PDF conversion...")
 
-    test_base, test_intake, test_files = create_test_environment()
+    test_base, test_intake, test_files = create_test_environment(tmp_path)
 
     try:
         from document_detector import DocumentTypeDetector
@@ -129,14 +125,14 @@ def test_document_analysis_with_conversion():
         except:
             pass
 
-def test_export_route_logic():
+def test_export_route_logic(tmp_path):
     """Test the export route logic for serving files"""
     print("\n🌐 Testing export route logic...")
 
     # This would require setting up a Flask test client
     # For now, we'll test the core logic
 
-    test_base, test_intake, test_files = create_test_environment()
+    test_base, test_intake, test_files = create_test_environment(tmp_path)
 
     try:
         # Test the file serving logic
@@ -149,8 +145,10 @@ def test_export_route_logic():
             if file_ext == '.pdf':
                 print(f"      📄 PDF file - would serve directly from {file_path}")
             elif file_ext in ['.png', '.jpg', '.jpeg']:
-                # Simulate the conversion and route logic
-                temp_dir = tempfile.gettempdir()
+                # Simulate the conversion and route logic; use tmp_path provided by pytest
+                # place converted PDFs under the test tmp directory so we don't touch global temp dirs
+                temp_dir = os.path.join(str(tmp_path), 'converted')
+                os.makedirs(temp_dir, exist_ok=True)
                 image_name = Path(filename).stem
                 converted_pdf_path = os.path.join(temp_dir, f"{image_name}_converted.pdf")
 
@@ -170,37 +168,4 @@ def test_export_route_logic():
         except:
             pass
 
-def main():
-    """Run comprehensive workflow tests"""
-    print("🚀 Starting comprehensive PDF workflow tests...\n")
-
-    # Test 1: Document Analysis with Conversion
-    analysis_results = test_document_analysis_with_conversion()
-
-    # Test 2: Export Route Logic
-    test_export_route_logic()
-
-    # Summary
-    print("\n📊 Test Summary:")
-    print("=" * 50)
-
-    if analysis_results:
-        for result in analysis_results:
-            if 'error' in result:
-                print(f"❌ {result['filename']}: {result['error']}")
-            else:
-                status = "✅" if result['pdf_exists'] or result['file_type'] == 'pdf' else "⚠️"
-                print(f"{status} {result['filename']} ({result['file_type']}) -> Strategy: {result['strategy']}")
-                if result['file_type'] == 'image':
-                    conversion_status = "✅ Converted" if result['pdf_exists'] else "❌ Not converted"
-                    print(f"   {conversion_status}")
-
-    print("\n🎯 Workflow Status:")
-    print("✅ Image-to-PDF conversion: Implemented and tested")
-    print("✅ DocumentAnalysis tracking: Updated with pdf_path field")
-    print("✅ Template standardization: All templates use iframe approach")
-    print("✅ Export route intelligence: Serves converted PDFs for images")
-    print("\n🚀 The PDF standardization workflow is ready!")
-
-if __name__ == "__main__":
-    main()
+# Note: This module contains pytest-style tests and does not execute as a script.

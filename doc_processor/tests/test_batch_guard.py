@@ -31,7 +31,9 @@ def test_create_and_reuse_intake_batch(tmp_path, monkeypatch):
         conn.commit()
     # Ensure batch_guard uses the same database_connection (avoid fallback to local-file DB)
     import doc_processor.processing as proc_mod
-    monkeypatch.setattr('doc_processor.batch_guard.database_connection', proc_mod.database_connection)
+    # Ensure batch_guard uses the same database_connection helper by patching the module object
+    import doc_processor.batch_guard as batch_guard_mod
+    monkeypatch.setattr(batch_guard_mod, 'database_connection', proc_mod.database_connection)
     # Ensure no processing batches exist by cleaning up
     cleaned = cleanup_empty_processing_batches()
 

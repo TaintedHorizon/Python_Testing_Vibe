@@ -53,7 +53,13 @@ def try_download(urls: list[str], dest: Path) -> None:
 
 def main() -> int:
     here = Path(__file__).resolve()
-    static_dir = here.parent.parent / "static" / "pdfjs"
+    # Allow overriding destination (useful in CI or when static dir is not writable)
+    import tempfile
+    pdfjs_dest = os.environ.get('PDFJS_DEST')
+    if pdfjs_dest:
+        static_dir = Path(pdfjs_dest)
+    else:
+        static_dir = here.parent.parent / "static" / "pdfjs"
     static_dir.mkdir(parents=True, exist_ok=True)
     try:
         for name, urls in URL_CANDIDATES.items():

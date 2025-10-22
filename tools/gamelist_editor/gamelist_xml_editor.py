@@ -3,6 +3,7 @@ from tkinter import filedialog, messagebox
 import xml.etree.ElementTree as ET
 import os
 import shutil # For file operations like renaming and moving
+import tempfile
 
 # Define the main application class.
 # This class encapsulates all the GUI elements and their associated logic for modifying gamelist XML files.
@@ -148,8 +149,17 @@ class GamelistProcessorApp:
 
         try:
             # --- Safe Backup of Original Gamelist ---
-            # Get the exact path for the backup right before moving
-            actual_orig_backup_path = self._generate_orig_backup_path(input_path)
+            # Get the exact path for the backup right before moving. Prefer a separate backup directory
+            # controlled by GAMELIST_BACKUP_DIR env var or use system temp directory to avoid polluting the repo.
+            backup_base = os.environ.get('GAMELIST_BACKUP_DIR') or tempfile.gettempdir()
+            orig_backup_filename = os.path.basename(self._generate_orig_backup_path(input_path))
+            actual_orig_backup_path = os.path.join(backup_base, orig_backup_filename)
+            # Ensure unique filename in the backup base dir
+            counter = 1
+            base_name, ext = os.path.splitext(actual_orig_backup_path)
+            while os.path.exists(actual_orig_backup_path):
+                actual_orig_backup_path = f"{base_name}.{counter}{ext}"
+                counter += 1
 
             if not os.path.exists(input_path):
                 raise FileNotFoundError(f"The selected gamelist file '{input_path}' does not exist. It might have been moved or deleted.")
@@ -251,7 +261,10 @@ class GamelistProcessorApp:
             ET.indent(tree, space="  ")
 
             # Determine the path for the new gamelist.xml (gamelist_new.xml in the same directory as original).
-            new_gamelist_output_path = os.path.join(gamelist_dir, "gamelist_new.xml")
+            # New gamelist file: prefer to write next to the original in the gamelist_dir but
+            # allow redirecting to a safe output dir via GAMELIST_OUTPUT_DIR env var.
+            safe_output_base = os.environ.get('GAMELIST_OUTPUT_DIR') or gamelist_dir
+            new_gamelist_output_path = os.path.join(safe_output_base, "gamelist_new.xml")
 
             # Write the modified ElementTree to the new gamelist.xml file (overwrites if exists).
             tree.write(new_gamelist_output_path, encoding='utf-8', xml_declaration=True)

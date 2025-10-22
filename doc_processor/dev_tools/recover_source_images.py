@@ -20,8 +20,12 @@ import os
 import logging
 import shutil
 import sqlite3
+import tempfile
 
 from config_manager import app_config
+
+# Allow overriding where recovered source images are written for safety
+RECOVER_SOURCE_BASE = os.environ.get('RECOVER_SOURCE_BASE') or os.environ.get('DEV_TOOL_BACKUP_DIR') or tempfile.gettempdir()
 
 SUPPORTED_IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp', '.gif', '.webp', '.heic']
 
@@ -89,7 +93,13 @@ def recover(batch_id: int, dry_run: bool = False) -> int:
             for fname in index[key]:
                 ext = os.path.splitext(fname)[1].lower()
                 src = os.path.join(archive_dir, fname)
-                dest = os.path.join(category_dir, f"{(final_name or cand)}_source{ext}")
+                # Primary destination is the filing cabinet category directory. If that is unwritable
+                # or not desired, a fallback base can be set via RECOVER_SOURCE_BASE env var.
+                dest_primary = os.path.join(category_dir, f"{(final_name or cand)}_source{ext}")
+                dest = dest_primary
+                if not os.access(category_dir, os.W_OK):
+                    # fallback location under RECOVER_SOURCE_BASE
+                    dest = os.path.join(RECOVER_SOURCE_BASE, f"{(final_name or cand)}_source{ext}")
                 if os.path.exists(dest):
                     logging.info(f"Skip (exists): {dest}")
                     restored = True

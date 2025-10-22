@@ -13,7 +13,11 @@ from config_manager import DEFAULT_CATEGORIES
 
 # --- CONFIGURATION ---
 TABLES_TO_CLEAR = ["document_pages", "documents", "pages", "batches"]
-CATEGORIES_BACKUP_FILE = "custom_categories_backup.json"
+import tempfile
+
+# Use env override for backup dir when set, otherwise system tempdir
+CATEGORIES_BACKUP_DIR = os.environ.get('CATEGORIES_BACKUP_DIR') or tempfile.gettempdir()
+CATEGORIES_BACKUP_FILE = os.path.join(CATEGORIES_BACKUP_DIR, "custom_categories_backup.json")
 
 def get_db_connection():
     """Establishes a connection to the SQLite database."""

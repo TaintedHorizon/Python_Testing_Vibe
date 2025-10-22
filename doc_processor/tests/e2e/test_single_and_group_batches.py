@@ -89,22 +89,11 @@ def test_single_document_batch_flow(page):
         batch_id = proc.get("batch_id")
 
         if not batch_id:
-            for _ in range(20):
-                try:
-                    r = requests.get(f"{BASE}/batch/api/debug/latest_document", timeout=1)
-                    if r.status_code == 200 and r.json():
-                        js = r.json()
-                        if isinstance(js, dict) and "data" in js and "latest_document" in js["data"]:
-                            batch_id = js["data"]["latest_document"].get("batch_id")
-                        elif isinstance(js, dict) and "latest_document" in js:
-                            batch_id = js["latest_document"].get("batch_id")
-                        else:
-                            batch_id = js.get("batch_id") if isinstance(js, dict) else None
-                        if batch_id:
-                            break
-                except Exception:
-                    pass
-                time.sleep(1)
+            from doc_processor.tests.e2e.conftest import resolve_final_batch_id
+            try:
+                batch_id = resolve_final_batch_id(BASE, None, timeout=20)
+            except Exception:
+                batch_id = None
 
         assert batch_id, "batch_id not found after processing"
 
@@ -259,25 +248,11 @@ def test_grouped_batch_flow(page):
             # Poll latest_document until it reports a batch_id, then query that
             # batch via batch_documents to get all documents for the processing batch.
             processing_batch = None
-            for _ in range(30):
-                try:
-                    r = requests.get(f"{BASE}/batch/api/debug/latest_document", timeout=2)
-                    if r.status_code != 200:
-                        time.sleep(0.5)
-                        continue
-                    js = r.json()
-                    if isinstance(js, dict) and "data" in js and "latest_document" in js["data"]:
-                        d = js["data"]["latest_document"]
-                    elif isinstance(js, dict) and "latest_document" in js:
-                        d = js["latest_document"]
-                    else:
-                        d = js
-                    if isinstance(d, dict) and d.get('batch_id'):
-                        processing_batch = d.get('batch_id')
-                        break
-                except Exception:
-                    pass
-                time.sleep(1)
+            from doc_processor.tests.e2e.conftest import resolve_final_batch_id
+            try:
+                processing_batch = resolve_final_batch_id(BASE, None, timeout=30)
+            except Exception:
+                processing_batch = None
 
             if processing_batch:
                 for _ in range(8):

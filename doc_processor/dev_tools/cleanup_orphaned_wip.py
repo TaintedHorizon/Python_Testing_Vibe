@@ -16,6 +16,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import argparse
 import sys
 from config_manager import app_config
+import tempfile
+
+# Backup base for destructive cleanup operations. Use env var or system tempdir by default.
+WIP_CLEANUP_BACKUP_BASE = os.environ.get('WIP_CLEANUP_BACKUP_BASE') or os.environ.get('DEV_TOOL_BACKUP_DIR') or tempfile.gettempdir()
 
 parser = argparse.ArgumentParser(description='Cleanup orphaned WIP batch directories (destructive)')
 parser.add_argument('--dry-run', action='store_true', help='Show what would be done without applying changes')
@@ -35,7 +39,8 @@ def cleanup_orphaned_wip_batches():
 
     # Use config manager for paths
     wip_base = app_config.PROCESSED_DIR
-    backup_dir = f"{os.path.dirname(wip_base)}/wip_cleanup_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    # place backups in configured base (outside repo by default) to avoid writing into repo
+    backup_dir = os.path.join(WIP_CLEANUP_BACKUP_BASE, f"wip_cleanup_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
 
     # These are the orphaned batch directories we identified
     orphaned_batches = [4, 5, 6, 8, 9]

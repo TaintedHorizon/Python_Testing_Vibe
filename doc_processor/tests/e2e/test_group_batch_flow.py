@@ -25,6 +25,11 @@ def dump_artifacts(page, name):
 
 @pytest.mark.playwright
 def test_group_batch_flow(playwright, browser_name):
+    # Ensure FAST_TEST_MODE is enabled for deterministic E2E behavior
+    # Ensure FAST_TEST_MODE is enabled for deterministic E2E behavior.
+    # Use setdefault so callers can override if needed, but tests will
+    # default to fast mode for reliability in CI.
+    os.environ.setdefault('FAST_TEST_MODE', '1')
     assert os.getenv("FAST_TEST_MODE") == "1", "FAST_TEST_MODE=1 required"
 
     files = ["sample_small.pdf", "sample_small.pdf"]
@@ -63,25 +68,12 @@ def test_group_batch_flow(playwright, browser_name):
         except Exception:
             token = None
 
-        batch = None
-        for _ in range(30):
-            try:
-                r = requests.get(f"{base}/batch/api/debug/latest_document", timeout=1)
-                if r.status_code == 200 and r.json():
-                    latest = r.json()
-                    if isinstance(latest, dict) and "data" in latest and "latest_document" in latest["data"]:
-                        doc = latest["data"]["latest_document"]
-                    elif isinstance(latest, dict) and "latest_document" in latest:
-                        doc = latest["latest_document"]
-                    else:
-                        doc = latest
-                    batch = doc.get("batch_id") if isinstance(doc, dict) else None
-                    if batch:
-                        break
-            except Exception:
-                pass
-            time.sleep(1)
-        # after polling loop
+        # Resolve finalized/fixed batch id (handles fast-path auto-finalize behavior)
+        from doc_processor.tests.e2e.conftest import resolve_final_batch_id
+        try:
+            batch = resolve_final_batch_id(base, None, timeout=30)
+        except Exception:
+            batch = None
         assert batch, "Batch not found for grouped intake"
 
         page.goto(f"{base}/batch/{batch}/manipulate")

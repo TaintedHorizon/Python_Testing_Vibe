@@ -5,12 +5,23 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-ARTIFACTS = Path(__file__).resolve().parent / "artifacts"
 
 
 @pytest.fixture(scope="session", autouse=True)
 def ensure_artifacts_dir():
-    ARTIFACTS.mkdir(parents=True, exist_ok=True)
+    """Ensure artifacts directory exists if the env overrides it; otherwise do nothing.
+
+    We intentionally avoid creating the repo's artifacts directory by default so E2E
+    runs that are not explicitly requested don't pollute the repository. Use the
+    E2E_ARTIFACTS_DIR or E2E_ARTIFACTS env var to force artifact collection in CI.
+    """
+    env_dir = os.getenv("E2E_ARTIFACTS_DIR") or os.getenv("E2E_ARTIFACTS")
+    if env_dir:
+        Path(env_dir).mkdir(parents=True, exist_ok=True)
+    # Ensure deterministic fast test mode is set for the entire E2E session
+    # This runs very early (session autouse) so any test or subprocess will
+    # inherit FAST_TEST_MODE unless explicitly overridden by the caller.
+    os.environ.setdefault("FAST_TEST_MODE", os.getenv("FAST_TEST_MODE", "1"))
     yield
 """Canonical conftest for Playwright E2E tests (compact).
 
@@ -41,6 +52,7 @@ def _find_free_port(start=5000, end=5600):
 
 
 def _wait_for_url(url, timeout=30.0):
+    # Increase polling window slightly for CI where startup can be slow.
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -49,7 +61,7 @@ def _wait_for_url(url, timeout=30.0):
                 return True
         except Exception:
             pass
-        time.sleep(0.25)
+        time.sleep(0.5)
     return False
 
 
@@ -59,11 +71,10 @@ def e2e_artifacts_dir(tmp_path_factory):
     if env_dir:
         os.makedirs(env_dir, exist_ok=True)
         return str(env_dir)
-
-    repo_root = Path(__file__).resolve().parents[3]
-    artifacts = repo_root / "doc_processor" / "tests" / "e2e" / "artifacts"
-    artifacts.mkdir(parents=True, exist_ok=True)
-    return str(artifacts)
+    # Default to a session-scoped temporary artifacts directory to avoid
+    # polluting the repository during local test runs.
+    tmp_artifacts = tmp_path_factory.mktemp("e2e_artifacts")
+    return str(tmp_artifacts)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -208,8 +219,9 @@ def app_process(tmp_path_factory, e2e_artifacts_dir):
     # expose base url for tests that previously hardcoded 127.0.0.1:5000
     os.environ["BASE_URL"] = base
     # wait for health endpoint then fallback to /
-    if not _wait_for_url(f"{base}/health", timeout=30):
-        if not _wait_for_url(f"{base}/", timeout=15):
+    # Increase timeouts here to be tolerant of slower CI hosts.
+    if not _wait_for_url(f"{base}/health", timeout=60):
+        if not _wait_for_url(f"{base}/", timeout=30):
             try:
                 server.shutdown()
             except Exception:
@@ -284,4 +296,67 @@ def e2e_page(playwright, request):
 def pytest_runtest_makereport(item, call):
     if call.when == "call" and call.excinfo is not None:
         setattr(item, "failed", True)
+
+
+def resolve_final_batch_id(base_url, initial_batch_id, timeout=10):
+    """Resolve the finalized/fixed batch id for a recently processed intake batch.
+
+    Strategy:
+    1. If the process_smart response returned a 'single_batch_id' use that (test callers
+       should pass it when available).
+    2. Poll the debug/latest_document endpoint to discover the most-recent finalized
+       single document and use its batch id. This helps tests survive the fast-path
+       auto-finalize behavior where intake batch ids differ from finalized batch ids.
+
+    Returns an integer batch id or the original initial_batch_id on timeout.
+    """
+    import requests as _requests
+    import time as _time
+
+    deadline = _time.time() + float(timeout)
+    # First quick check: try debug/latest_document if available
+    while _time.time() < deadline:
+        try:
+            r = _requests.get(f"{base_url}/batch/api/debug/latest_document", timeout=2)
+            if r.status_code == 200:
+                j = r.json()
+                # Some debug endpoints wrap payloads as {'data': {...}}
+                if isinstance(j, dict) and 'data' in j and isinstance(j['data'], dict):
+                    payload = j['data']
+                else:
+                    payload = j if isinstance(j, dict) else {}
+
+                # Try multiple common shapes to find a batch id
+                bid = None
+                # top-level batch_id or single_batch_id
+                bid = payload.get('batch_id') or payload.get('single_batch_id')
+                # handle payloads that include a 'latest_document' wrapper
+                if not bid:
+                    if isinstance(payload, dict) and 'latest_document' in payload:
+                        latest = payload.get('latest_document')
+                        if isinstance(latest, dict):
+                            bid = latest.get('batch_id') or latest.get('single_batch_id')
+                if not bid and isinstance(payload, dict) and 'data' in payload and isinstance(payload['data'], dict) and 'latest_document' in payload['data']:
+                    latest = payload['data'].get('latest_document')
+                    if isinstance(latest, dict):
+                        bid = latest.get('batch_id') or latest.get('single_batch_id')
+                # nested document -> batch_id
+                if not bid:
+                    doc = payload.get('document') if isinstance(payload, dict) else None
+                    if isinstance(doc, dict):
+                        bid = doc.get('batch_id') or doc.get('single_batch_id')
+                # defensive: sometimes payload contains nested 'data' again
+                if not bid and isinstance(payload, dict) and 'data' in payload and isinstance(payload['data'], dict):
+                    inner = payload['data']
+                    bid = inner.get('batch_id') or inner.get('single_batch_id')
+
+                if bid:
+                    try:
+                        return int(bid)
+                    except Exception:
+                        return initial_batch_id
+        except Exception:
+            pass
+        _time.sleep(0.25)
+    return initial_batch_id
 

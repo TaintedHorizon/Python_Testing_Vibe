@@ -95,20 +95,29 @@ def test_preview_rotation_persists(app_process, e2e_page, e2e_artifacts_dir):
                     # navigate to first grouped document manipulator (doc_num=1)
                     page.goto(f"{base}/batch/{batch_id}/manipulate/1")
                 else:
-                    # Fallback: try debug endpoint for latest document across batches
+                    # Fallback: resolve finalized batch id via helper and navigate accordingly
+                    from doc_processor.tests.e2e.conftest import resolve_final_batch_id
                     try:
-                        latest = requests.get(f"{base}/batch/api/debug/latest_document", timeout=3)
-                        if latest.ok:
-                            lj = latest.json().get('data') if isinstance(latest.json(), dict) else None
-                            if lj and lj.get('latest_document'):
-                                latest_doc = lj.get('latest_document')
-                                doc_id = latest_doc.get('id')
-                                latest_batch = latest_doc.get('batch_id')
-                                if doc_id and latest_batch:
-                                    page.goto(f"{base}/document/batch/{latest_batch}/manipulate/{doc_id}")
+                        latest_batch = resolve_final_batch_id(base, batch_id, timeout=10)
+                        if latest_batch:
+                            # try to query batch_documents to pick a doc
+                            try:
+                                dbg = requests.get(f"{base}/batch/api/debug/batch_documents/{latest_batch}", timeout=3)
+                                if dbg.ok:
+                                    dj = dbg.json()
+                                    payload = (dj.get('data') or {}) if isinstance(dj, dict) else {}
+                                    single_docs = payload.get('single_documents', [])
+                                    grouped_docs = payload.get('grouped_documents', [])
+                                    if isinstance(single_docs, list) and len(single_docs) > 0:
+                                        doc_id = single_docs[0].get('id')
+                                        page.goto(f"{base}/document/batch/{latest_batch}/manipulate/{doc_id}")
+                                    elif isinstance(grouped_docs, list) and len(grouped_docs) > 0:
+                                        page.goto(f"{base}/batch/{latest_batch}/manipulate/1")
+                                    else:
+                                        page.goto(f"{base}/batch/{batch_id}/manipulate")
                                 else:
                                     page.goto(f"{base}/batch/{batch_id}/manipulate")
-                            else:
+                            except Exception:
                                 page.goto(f"{base}/batch/{batch_id}/manipulate")
                         else:
                             page.goto(f"{base}/batch/{batch_id}/manipulate")

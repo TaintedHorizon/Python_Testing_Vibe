@@ -9,7 +9,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- CONFIGURATION ---
-CATEGORIES_BACKUP_FILE = "custom_categories_backup.json"
+import tempfile
+CATEGORIES_BACKUP_DIR = os.environ.get('CATEGORIES_BACKUP_DIR') or os.environ.get('DEV_TOOL_BACKUP_DIR') or tempfile.gettempdir()
+CATEGORIES_BACKUP_FILE = os.path.join(CATEGORIES_BACKUP_DIR, "custom_categories_backup.json")
 DUMMY_BATCH_STATUS = "template_batch"
 
 import argparse
