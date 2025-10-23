@@ -8,6 +8,14 @@ import shutil  # Provides high-level file operations
 import argparse  # For command-line argument parsing
 from typing import List, Tuple # For type hinting
 import tempfile
+def _select_tmp_dir():
+    """Select a safe temporary directory with precedence:
+    1. FILE_UTILS_DEST env
+    2. TEST_TMPDIR
+    3. TMPDIR
+    4. system tempdir
+    """
+    return os.environ.get('FILE_UTILS_DEST') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
 
 def find_matching_files(source: str, pattern: str) -> List[Tuple[str, str, str]]:
     """
@@ -52,10 +60,10 @@ def main() -> None:  # Main function where the program starts execution
     args = parser.parse_args()
 
     source_path = os.path.abspath(args.source)  # Get absolute path of source directory
-    # Determine destination path: prefer provided arg, then env var, then system temp
+    # Determine destination path: prefer provided arg, then env var, then TEST_TMPDIR/TMPDIR, then system temp
     destination_arg = args.destination
     if not destination_arg:
-        destination_arg = os.environ.get('FILE_UTILS_DEST') or tempfile.gettempdir()
+        destination_arg = _select_tmp_dir()
         print(f"No destination provided; using safe default: {destination_arg}")
     destination_path = os.path.abspath(destination_arg)
 
@@ -64,7 +72,10 @@ def main() -> None:  # Main function where the program starts execution
         return
 
     # Create the destination directory if it doesn't exist for a better user experience.
-    os.makedirs(destination_path, exist_ok=True)
+    try:
+        os.makedirs(destination_path, exist_ok=True)
+    except OSError as e:
+        print(f"Warning: could not create destination directory {destination_path}: {e}")
 
     pattern = args.pattern  # Get regex pattern from command-line argument
 

@@ -25,7 +25,11 @@ import tempfile
 from config_manager import app_config
 
 # Allow overriding where recovered source images are written for safety
-RECOVER_SOURCE_BASE = os.environ.get('RECOVER_SOURCE_BASE') or os.environ.get('DEV_TOOL_BACKUP_DIR') or tempfile.gettempdir()
+try:
+    import tempfile as _temp
+    RECOVER_SOURCE_BASE = os.environ.get('RECOVER_SOURCE_BASE') or os.environ.get('DEV_TOOL_BACKUP_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
+except Exception:
+    RECOVER_SOURCE_BASE = os.environ.get('RECOVER_SOURCE_BASE') or os.environ.get('DEV_TOOL_BACKUP_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
 
 SUPPORTED_IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp', '.gif', '.webp', '.heic']
 

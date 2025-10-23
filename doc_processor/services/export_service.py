@@ -23,6 +23,59 @@ from ..config_manager import app_config, SHUTDOWN_EVENT
 
 logger = logging.getLogger(__name__)
 
+
+def _select_tmp_dir() -> str:
+    """Select a temporary directory with test-friendly precedence.
+
+    Precedence: TEST_TMPDIR -> TMPDIR -> system tempfile.gettempdir() -> cwd
+    """
+    try:
+        import tempfile as _temp
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
+    except Exception:
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+
+
+def _resolve_export_dir() -> str:
+    """Return an absolute export directory path, preferring app_config.EXPORT_DIR,
+    then app_config.FILING_CABINET_DIR, then the EXPORT_DIR env var, then a
+    test/system tempdir. Ensures the directory exists.
+    """
+    # Prefer explicit config keys first
+    export_dir = getattr(app_config, 'EXPORT_DIR', None) or getattr(app_config, 'FILING_CABINET_DIR', None)
+
+    # If not configured, prefer CI/test temp dirs then environment, then system temp
+    if not export_dir:
+        env_export = os.getenv('EXPORT_DIR')
+        tmp_candidate = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _select_tmp_dir()
+        if env_export:
+            export_dir = env_export
+        elif tmp_candidate:
+            export_dir = os.path.join(tmp_candidate, 'exports')
+        else:
+            # Prefer system tempdir as last-resort
+            export_dir = os.path.join(_select_tmp_dir(), 'exports')
+
+    export_dir = os.path.abspath(export_dir)
+    # Ensure export directory exists; prefer test-scoped tmp on failure
+    try:
+        os.makedirs(export_dir, exist_ok=True)
+    except Exception:
+        try:
+            tmp_candidate = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _select_tmp_dir()
+            fallback = os.path.join(tmp_candidate, 'exports') if tmp_candidate else os.path.join(_select_tmp_dir(), 'exports')
+            export_dir = os.path.abspath(fallback)
+            os.makedirs(export_dir, exist_ok=True)
+        except Exception:
+            # As an absolute last resort, try creating an 'exports' folder in cwd
+            try:
+                export_dir = os.path.abspath(os.path.join(os.getcwd(), 'exports'))
+                os.makedirs(export_dir, exist_ok=True)
+            except Exception:
+                # If we still can't create a directory, fall back to tmpdir without creating
+                export_dir = os.path.abspath(os.path.join(_select_tmp_dir(), 'exports'))
+    return export_dir
+
 class ExportService:
     """Service class for export and finalization operations."""
 
@@ -169,7 +222,8 @@ class ExportService:
                         return {'success': False, 'error': 'Export aborted', 'files_created': files_created}
 
                     # pdf_path = create_single_document_pdf(doc)
-                    pdf_path = f"/tmp/export/batch_{batch_id}_doc_{i+1}.pdf"  # Placeholder
+                    export_base = _resolve_export_dir()
+                    pdf_path = os.path.join(export_base, f"batch_{batch_id}_doc_{i+1}.pdf")
                     files_created.append(pdf_path)
 
             elif grouping_method == 'ai_suggested':
@@ -191,7 +245,8 @@ class ExportService:
                         return {'success': False, 'error': 'Export aborted', 'files_created': files_created}
 
                     # pdf_path = create_grouped_pdf(group, f"Group_{i+1}")
-                    pdf_path = f"/tmp/export/batch_{batch_id}_group_{i+1}.pdf"  # Placeholder
+                    export_base = _resolve_export_dir()
+                    pdf_path = os.path.join(export_base, f"batch_{batch_id}_group_{i+1}.pdf")
                     files_created.append(pdf_path)
 
             elif grouping_method == 'combined':
@@ -208,7 +263,8 @@ class ExportService:
                     return {'success': False, 'error': 'Export aborted', 'files_created': files_created}
 
                 # pdf_path = create_combined_pdf(documents, f"Batch_{batch_id}")
-                pdf_path = f"/tmp/export/batch_{batch_id}_combined.pdf"  # Placeholder
+                export_base = _resolve_export_dir()
+                pdf_path = os.path.join(export_base, f"batch_{batch_id}_combined.pdf")
                 files_created.append(pdf_path)
 
             return {
@@ -244,7 +300,8 @@ class ExportService:
 
                 # Copy or convert document to image
                 # image_path = export_document_as_image(doc)
-                image_path = f"/tmp/export/batch_{batch_id}_doc_{i+1}.png"  # Placeholder
+                export_base = _resolve_export_dir()
+                image_path = os.path.join(export_base, f"batch_{batch_id}_doc_{i+1}.png")
                 files_created.append(image_path)
 
             return {
@@ -436,7 +493,7 @@ class ExportService:
             conn = get_db_connection()
             cur = conn.cursor()
             docs = cur.execute("SELECT id, final_filename_base, document_name FROM documents WHERE batch_id = ? ORDER BY id", (batch_id,)).fetchall()
-            cabinet = app_config.FILING_CABINET_DIR
+            cabinet = _resolve_export_dir()
             os.makedirs(cabinet, exist_ok=True)
             total = len(docs) or 1
             for idx, d in enumerate(docs):
@@ -602,8 +659,7 @@ class ExportService:
         """Get list of available export files."""
         try:
             if not export_dir:
-                # export_dir = app_config.get('EXPORT_DIR', '/tmp/exports')
-                export_dir = '/tmp/exports'  # Placeholder
+                export_dir = _resolve_export_dir()
 
             if not os.path.exists(export_dir):
                 return {'success': True, 'exports': []}
@@ -641,8 +697,7 @@ class ExportService:
     def cleanup_old_exports(self, days_old: int = 30) -> Dict[str, Any]:
         """Clean up export files older than specified days."""
         try:
-            # export_dir = app_config.get('EXPORT_DIR', '/tmp/exports')
-            export_dir = '/tmp/exports'  # Placeholder
+            export_dir = _resolve_export_dir()
 
             if not os.path.exists(export_dir):
                 return {'success': True, 'deleted_files': 0, 'freed_space': 0}

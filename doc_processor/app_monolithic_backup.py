@@ -84,9 +84,45 @@ import logging
 import json
 from logging.handlers import RotatingFileHandler
 # --- LOGGING CONFIGURATION ---
-LOG_DIR = os.getenv("LOG_DIR", os.path.join(os.path.dirname(__file__), "logs"))
-os.makedirs(LOG_DIR, exist_ok=True)
-LOG_FILE = os.path.join(LOG_DIR, "app.log")
+# Prefer configured log file path from app_config or environment, then TEST_TMPDIR for tests
+from .config_manager import app_config as _app_cfg
+_env_log = os.getenv('LOG_DIR')
+if getattr(_app_cfg, 'LOG_FILE_PATH', None):
+    LOG_FILE = getattr(_app_cfg, 'LOG_FILE_PATH')
+elif _env_log:
+    LOG_DIR = _env_log
+elif os.getenv('TEST_TMPDIR'):
+    _tt = os.getenv('TEST_TMPDIR')
+    if _tt:
+        LOG_DIR = os.path.join(_tt, 'logs')
+    else:
+        LOG_DIR = os.path.join(os.path.dirname(__file__), 'logs')
+else:
+    LOG_DIR = os.path.join(os.path.dirname(__file__), 'logs')
+
+# Best-effort directory creation; don't raise if filesystem prevents it
+try:
+    os.makedirs(LOG_DIR, exist_ok=True)
+except Exception:
+    pass
+
+# Resolve final log file path
+if os.path.isdir(LOG_DIR):
+    LOG_FILE = os.path.join(LOG_DIR, 'app.log')
+else:
+    try:
+        import tempfile as _temp
+        # Prefer TEST_TMPDIR when set, else use system tempdir
+        fallback_tmp = os.getenv('TEST_TMPDIR') or _temp.gettempdir()
+    except Exception:
+        # On unexpected errors, fall back to the system tempdir
+        try:
+            import tempfile as _temp2
+            fallback_tmp = os.getenv('TEST_TMPDIR') or _temp2.gettempdir()
+        except Exception:
+            # Extremely conservative final fallback: current working directory
+            fallback_tmp = os.getcwd()
+    LOG_FILE = os.path.join(fallback_tmp, 'app.log')
 
 # Rotating file handler: 5MB per file, keep 5 backups
 file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5*1024*1024, backupCount=5, encoding="utf-8")
@@ -112,6 +148,18 @@ def log_uncaught_exceptions(exc_type, exc_value, exc_traceback):
 import sys
 sys.excepthook = log_uncaught_exceptions
 import logging
+
+
+def _select_tmp_dir() -> str:
+    """Select a temporary directory with test-friendly precedence.
+
+    Precedence: TEST_TMPDIR -> TMPDIR -> system tempfile.gettempdir() -> cwd
+    """
+    try:
+        import tempfile as _temp
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
+    except Exception:
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
 
 # Third-party imports
 from flask import (
@@ -438,7 +486,22 @@ def clear_analysis_cache():
     """Clear the cached analysis results to force re-analysis."""
     try:
         import tempfile
-        cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+        # Prefer explicit intake cache config, then app_config, then test/ci tmp vars
+        cache_dir = (
+            os.environ.get('INTAKE_CACHE_DIR')
+            or getattr(app_config, 'INTAKE_CACHE_DIR', None)
+            or os.environ.get('TEST_TMPDIR')
+            or os.environ.get('TMPDIR')
+            or tempfile.gettempdir()
+        )
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+        except Exception:
+            try:
+                cache_dir = tempfile.gettempdir()
+            except Exception:
+                cache_dir = os.getcwd()
+        cache_file = os.path.join(cache_dir, 'intake_analysis_cache.pkl')
         if os.path.exists(cache_file):
             os.remove(cache_file)
             logging.info("Cleared analysis cache")
@@ -458,7 +521,21 @@ def analyze_intake_page():
     try:
         import tempfile
         import pickle
-        cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+        cache_dir = (
+            os.environ.get('INTAKE_CACHE_DIR')
+            or getattr(app_config, 'INTAKE_CACHE_DIR', None)
+            or os.environ.get('TEST_TMPDIR')
+            or os.environ.get('TMPDIR')
+            or tempfile.gettempdir()
+        )
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+        except Exception:
+            try:
+                cache_dir = tempfile.gettempdir()
+            except Exception:
+                cache_dir = os.getcwd()
+        cache_file = os.path.join(cache_dir, 'intake_analysis_cache.pkl')
         if os.path.exists(cache_file):
             with open(cache_file, 'rb') as f:
                 cached_analyses = pickle.load(f)
@@ -558,7 +635,23 @@ def analyze_intake_progress():
             # Cache the results for future use to avoid re-analysis
             import tempfile
             import pickle
-            cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+            # Prefer explicit intake cache config, then app_config, then test/ci tmp vars
+            cache_dir = (
+                os.environ.get('INTAKE_CACHE_DIR')
+                or getattr(app_config, 'INTAKE_CACHE_DIR', None)
+                or os.environ.get('TEST_TMPDIR')
+                or os.environ.get('TMPDIR')
+                or tempfile.gettempdir()
+            )
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+            except Exception:
+                # If creation fails, fallback to system tempdir
+                try:
+                    cache_dir = tempfile.gettempdir()
+                except Exception:
+                    cache_dir = os.getcwd()
+            cache_file = os.path.join(cache_dir, 'intake_analysis_cache.pkl')
             try:
                 with open(cache_file, 'wb') as f:
                     pickle.dump(analyses, f)
@@ -799,7 +892,20 @@ def api_smart_processing_progress():
                 # Try to load cached analysis results
                 import pickle
                 import tempfile
-                cache_dir = os.environ.get('INTAKE_CACHE_DIR') or tempfile.gettempdir()
+                cache_dir = (
+                    os.environ.get('INTAKE_CACHE_DIR')
+                    or getattr(app_config, 'INTAKE_CACHE_DIR', None)
+                    or os.environ.get('TEST_TMPDIR')
+                    or os.environ.get('TMPDIR')
+                    or tempfile.gettempdir()
+                )
+                try:
+                    os.makedirs(cache_dir, exist_ok=True)
+                except Exception:
+                    try:
+                        cache_dir = tempfile.gettempdir()
+                    except Exception:
+                        cache_dir = os.getcwd()
                 cache_file = os.path.join(cache_dir, 'intake_analysis_cache.pkl')
                 cached_analyses = {}
                 if _os.path.exists(cache_file):
@@ -1128,7 +1234,20 @@ def api_smart_processing_start():
                 # Load cached analysis
             import pickle
             import tempfile
-            cache_dir = os.environ.get('INTAKE_CACHE_DIR') or tempfile.gettempdir()
+            cache_dir = (
+                os.environ.get('INTAKE_CACHE_DIR')
+                or getattr(app_config, 'INTAKE_CACHE_DIR', None)
+                or os.environ.get('TEST_TMPDIR')
+                or os.environ.get('TMPDIR')
+                or tempfile.gettempdir()
+            )
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+            except Exception:
+                try:
+                    cache_dir = tempfile.gettempdir()
+                except Exception:
+                    cache_dir = os.getcwd()
             cache_file = os.path.join(cache_dir, 'intake_analysis_cache.pkl')
             cached_analyses = {}
             if _os.path.exists(cache_file):
@@ -1312,7 +1431,11 @@ def api_smart_processing_progress_with_strategy(force_strategy=None):
                 try:
                     import pickle
                     import tempfile
-                    cache_dir = os.environ.get('INTAKE_CACHE_DIR') or tempfile.gettempdir()
+                    cache_dir = os.environ.get('INTAKE_CACHE_DIR') or getattr(app_config, 'INTAKE_CACHE_DIR', None) or os.environ.get('TEST_TMPDIR') or os.environ.get('TMPDIR') or tempfile.gettempdir()
+                    try:
+                        os.makedirs(cache_dir, exist_ok=True)
+                    except Exception:
+                        pass
                     cache_file = os.path.join(cache_dir, 'intake_analysis_cache.pkl')
                     if _os.path.exists(cache_file):
                         with open(cache_file, 'rb') as f:
@@ -2216,8 +2339,19 @@ def serve_original_pdf(filename):
             import tempfile
 
             # Create temporary PDF for preview
-            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_pdf:
-                convert_image_to_pdf(full_path, temp_pdf.name)
+            # Prefer TEST_TMPDIR/TMPDIR for ephemeral files when available
+            _tmp_dir_choice = os.environ.get('TEST_TMPDIR') or os.environ.get('TMPDIR')
+            try:
+                if _tmp_dir_choice:
+                    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False, dir=_tmp_dir_choice) as temp_pdf:
+                        convert_image_to_pdf(full_path, temp_pdf.name)
+                else:
+                    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_pdf:
+                        convert_image_to_pdf(full_path, temp_pdf.name)
+            except Exception:
+                # Fallback to system tmp creation if dir isn't writable
+                with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_pdf:
+                    convert_image_to_pdf(full_path, temp_pdf.name)
 
                 # Read the PDF data
                 with open(temp_pdf.name, 'rb') as pdf_file:

@@ -44,9 +44,20 @@ if ss -ltn "sport = :5000" >/dev/null 2>&1 || lsof -i :5000 >/dev/null 2>&1; the
 fi
 
 STARTED_BY_SCRIPT=0
+# PID file location (can be overridden by E2E_PID_FILE env var)
+TMP_CANDIDATE="${TEST_TMPDIR:-${TMPDIR:-}}"
+if [ -z "$TMP_CANDIDATE" ]; then
+  # Fallback to system tempdir discovered by python
+  TMP_CANDIDATE=$(python -c "import tempfile; print(tempfile.gettempdir())")
+fi
+E2E_PID_FILE="${E2E_PID_FILE:-${TMP_CANDIDATE}/run_local_e2e_app.pid}"
+# Ensure PID file parent dir exists (honor TEST_TMPDIR if set)
+E2E_PID_DIR=$(dirname "$E2E_PID_FILE")
+mkdir -p "$E2E_PID_DIR" || true
 if [ "$USE_EXISTING_APP" -eq 0 ]; then
   nohup ./start_app.sh > doc_processor/logs/ci_app.log 2>&1 &
-  echo $! > /tmp/run_local_e2e_app.pid
+  # Use overridable PID file location to avoid writing into repo-root temporary directories
+  echo $! > "$E2E_PID_FILE"
   STARTED_BY_SCRIPT=1
 else
   echo "Skipping start_app.sh because port 5000 is in use."
@@ -80,15 +91,15 @@ fi
 # 5) Teardown
 echo "Tearing down the app and showing last 200 lines of log"
 tail -n 200 doc_processor/logs/ci_app.log || true
-if [ "$STARTED_BY_SCRIPT" -eq 1 ] && [ -f /tmp/run_local_e2e_app.pid ]; then
-  PID=$(cat /tmp/run_local_e2e_app.pid)
+if [ "$STARTED_BY_SCRIPT" -eq 1 ] && [ -f "$E2E_PID_FILE" ]; then
+  PID=$(cat "$E2E_PID_FILE")
   if ps -p "$PID" >/dev/null 2>&1; then
     echo "Killing app pid $PID"
     kill "$PID" || true
   else
     echo "App pid $PID not running; nothing to kill"
   fi
-  rm -f /tmp/run_local_e2e_app.pid || true
+  rm -f "$E2E_PID_FILE" || true
 else
   echo "Did not start app in this run or no pid file present; skipping kill"
 fi

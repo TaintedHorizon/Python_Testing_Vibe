@@ -64,16 +64,10 @@ def test_document_detector_with_images(tmp_path):
     # tmp_path fixture will clean up
 
 
-def test_supported_file_detection():
+def test_supported_file_detection(tmp_path):
     """Test that the system detects supported file types correctly."""
-    # Create test directory with various file types using tmp_path
     from pathlib import Path
-    temp_dir = Path(os.environ.get('TEST_SUPPORTED_DIR') or os.getenv('TMPDIR') or '/tmp')
-    # If pytest provided tmp_path via env (preferred), use it; otherwise use system tempdir
-    # For focused runs, callers can set TEST_SUPPORTED_DIR to a tmp_path location.
-
-    # Create a dedicated subdir to avoid collisions
-    temp_dir = Path(temp_dir) / f"test_supported_{os.getpid()}"
+    temp_dir = Path(tmp_path) / 'supported_files'
     temp_dir.mkdir(parents=True, exist_ok=True)
 
     # Create test files

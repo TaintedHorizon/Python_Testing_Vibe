@@ -168,8 +168,26 @@ class DocumentTypeDetector:
                 from .config_manager import app_config
             except ImportError:
                 from config_manager import app_config
-            norm_root = app_config.NORMALIZED_DIR
-            os.makedirs(norm_root, exist_ok=True)
+
+            # Prefer configured normalized dir; fall back to TEST_TMPDIR/TMPDIR/system tmp
+            norm_root = getattr(app_config, 'NORMALIZED_DIR', None)
+            if not norm_root:
+                try:
+                    import tempfile as _temp
+                    norm_root = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
+                except Exception:
+                    norm_root = os.getcwd()
+
+            # Best-effort directory creation; if creation fails, continue using the resolved path
+            try:
+                os.makedirs(norm_root, exist_ok=True)
+            except Exception:
+                try:
+                    # Fallback to system tempdir if permission prevents creation
+                    import tempfile as _temp
+                    norm_root = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
+                except Exception:
+                    norm_root = os.getcwd()
             # Hash image contents for stable identity
             import hashlib
             h = hashlib.sha256()

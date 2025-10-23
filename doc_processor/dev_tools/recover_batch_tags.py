@@ -156,16 +156,26 @@ def store_tags(conn: sqlite3.Connection, doc_id: int, tags: dict) -> int:
 
 
 def regenerate_markdown(filing_base: str, category: str, filename_base: str, markdown_content: str):
-    import tempfile
-    # Ensure filing_base is configured; if not, fall back to system tempdir
-    if not filing_base:
-        filing_base = os.environ.get('FILING_CABINET_DIR') or tempfile.gettempdir()
+    # Prefer configured filing cabinet base, then TEST_TMPDIR/TMPDIR, then system tempdir
+    try:
+        import tempfile as _temp
+        filing_base = filing_base or getattr(app_config, 'FILING_CABINET_DIR', None) or os.environ.get('FILING_CABINET_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
+    except Exception:
+        filing_base = filing_base or getattr(app_config, 'FILING_CABINET_DIR', None) or os.environ.get('FILING_CABINET_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+
     category_dir = os.path.join(filing_base, category)
-    os.makedirs(category_dir, exist_ok=True)
+    try:
+        os.makedirs(category_dir, exist_ok=True)
+    except Exception as e:
+        logging.debug(f"Could not create category dir {category_dir}: {e}")
+
     path = os.path.join(category_dir, f"{filename_base}.md")
-    with open(path, 'w', encoding='utf-8') as f:
-        f.write(markdown_content)
-    logging.info(f"📝 Regenerated markdown: {path}")
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(markdown_content)
+        logging.info(f"📝 Regenerated markdown: {path}")
+    except Exception as e:
+        logging.error(f"Failed to write regenerated markdown {path}: {e}")
 
 
 def main():

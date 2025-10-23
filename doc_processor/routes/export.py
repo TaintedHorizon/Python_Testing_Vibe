@@ -28,7 +28,7 @@ from ..processing import (
 )
 from ..config_manager import app_config
 from ..utils.helpers import create_error_response, create_success_response
-from ..services.export_service import ExportService
+from ..services.export_service import ExportService, _resolve_export_dir
 
 # Create Blueprint
 bp = Blueprint('export', __name__, url_prefix='/export')
@@ -269,6 +269,15 @@ def _asset_hash(path: str) -> str:
     except Exception:
         return ''
 
+
+def _select_tmp_dir() -> str:
+    """Select a temporary directory: TEST_TMPDIR -> TMPDIR -> system tempdir -> cwd."""
+    try:
+        import tempfile
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+    except Exception:
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+
 @bp.route('/viewer_health')
 def viewer_health():
     """Lightweight health endpoint reporting local pdf.js asset availability and hash."""
@@ -324,10 +333,8 @@ def reset_export_state():
 def download_export(filepath: str):
     """Download exported files."""
     try:
-        # Get export directory from config
-        # export_dir = app_config.get('EXPORT_DIR', '/tmp/exports')
-        export_dir = '/tmp/exports'  # Placeholder
-
+        # Resolve export directory using centralized resolver (test-aware)
+        export_dir = _resolve_export_dir()
         full_path = os.path.join(export_dir, filepath)
 
         if not os.path.exists(full_path):
@@ -335,7 +342,7 @@ def download_export(filepath: str):
             return redirect(url_for('batch.batch_control'))
 
         # Security check - ensure file is within export directory
-        if not os.path.abspath(full_path).startswith(os.path.abspath(export_dir)):
+        if not os.path.abspath(full_path).startswith(export_dir):
             flash("Invalid file path", "error")
             return redirect(url_for('batch.batch_control'))
 
@@ -350,17 +357,22 @@ def download_export(filepath: str):
 def serve_processed_file(filepath: str):
     """Serve processed files for preview."""
     try:
-        # Get processed files directory from config
-        # processed_dir = app_config.get('PROCESSED_DIR', '/tmp/processed')
-        processed_dir = '/tmp/processed'  # Placeholder
-
+        # Get processed files directory from config or fallback to PROCESSED_DIR env/tmp
+        tmpdir = _select_tmp_dir()
+        processed_dir = getattr(app_config, 'PROCESSED_DIR', None) or os.getenv('PROCESSED_DIR') or os.path.join(tmpdir, 'processed')
+        processed_dir = os.path.abspath(processed_dir)
+        # Best-effort mkdir
+        try:
+            os.makedirs(processed_dir, exist_ok=True)
+        except Exception:
+            processed_dir = os.path.abspath(os.path.join(_select_tmp_dir(), 'processed'))
         full_path = os.path.join(processed_dir, filepath)
 
         if not os.path.exists(full_path):
             return jsonify(create_error_response("File not found")), 404
 
         # Security check
-        if not os.path.abspath(full_path).startswith(os.path.abspath(processed_dir)):
+        if not os.path.abspath(full_path).startswith(processed_dir):
             return jsonify(create_error_response("Invalid file path")), 403
 
         return send_file(full_path)
@@ -424,9 +436,16 @@ def serve_original_pdf(filename: str):
 
         # If the file is an image, ensure we serve a PDF (convert on-demand if needed)
         if file_ext in ['.png', '.jpg', '.jpeg']:
-            temp_dir = tempfile.gettempdir()
+            # Prefer test-scoped tempdir when available
+            tmpdir = _select_tmp_dir()
+            try:
+                os.makedirs(tmpdir, exist_ok=True)
+            except Exception:
+                # fallback to system temp
+                import tempfile as _temp
+                tmpdir = _temp.gettempdir()
             image_name = Path(filename).stem
-            converted_pdf_path = os.path.join(temp_dir, f"{image_name}_converted.pdf")
+            converted_pdf_path = os.path.join(tmpdir, f"{image_name}_converted.pdf")
 
             if not os.path.exists(converted_pdf_path):
                 try:
@@ -576,8 +595,8 @@ def _create_json_sidecars_for_batch(batch_id: int, force: bool = False):
 def get_available_exports():
     """Get list of available export files."""
     try:
-        # export_dir = app_config.get('EXPORT_DIR', '/tmp/exports')
-        export_dir = '/tmp/exports'  # Placeholder
+
+        export_dir = _resolve_export_dir()
 
         if not os.path.exists(export_dir):
             return jsonify(create_success_response({'exports': []}))

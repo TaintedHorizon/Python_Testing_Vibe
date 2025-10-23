@@ -4,6 +4,8 @@ import xml.etree.ElementTree as ET
 import os
 import shutil # For file operations like renaming and moving
 import tempfile
+def _select_tmp_dir():
+    return os.environ.get('GAMELIST_BACKUP_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
 
 # Define the main application class.
 # This class encapsulates all the GUI elements and their associated logic for modifying gamelist XML files.
@@ -150,11 +152,16 @@ class GamelistProcessorApp:
         try:
             # --- Safe Backup of Original Gamelist ---
             # Get the exact path for the backup right before moving. Prefer a separate backup directory
-            # controlled by GAMELIST_BACKUP_DIR env var or use system temp directory to avoid polluting the repo.
-            backup_base = os.environ.get('GAMELIST_BACKUP_DIR') or tempfile.gettempdir()
+            # controlled by GAMELIST_BACKUP_DIR env var or use TEST_TMPDIR/TMPDIR then system temp directory
+            backup_base = _select_tmp_dir()
             orig_backup_filename = os.path.basename(self._generate_orig_backup_path(input_path))
             actual_orig_backup_path = os.path.join(backup_base, orig_backup_filename)
-            # Ensure unique filename in the backup base dir
+            # Ensure backup base directory exists and unique filename in the backup base dir
+            try:
+                os.makedirs(backup_base, exist_ok=True)
+            except OSError as e:
+                # Best-effort: continue and let later file ops surface errors if the dir is unusable
+                print(f"Warning: could not create backup base directory {backup_base}: {e}")
             counter = 1
             base_name, ext = os.path.splitext(actual_orig_backup_path)
             while os.path.exists(actual_orig_backup_path):
@@ -187,6 +194,8 @@ class GamelistProcessorApp:
             modifications = []
 
             # --- Iterate Through Game Entries and Apply Logic ---
+            if root is None:
+                raise ET.ParseError('Parsed XML root is None')
             for game in root.findall('.//game'):
                 path_element = game.find('path')
 

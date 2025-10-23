@@ -32,13 +32,65 @@ import tempfile
 
 def load_env():
     env = {}
-    # Prefer explicit env var; fall back to system temp to avoid operating inside the repo by default
-    env['DB_BACKUP_DIR'] = os.environ.get('DB_BACKUP_DIR') or tempfile.gettempdir()
-    # default logs path inside repo, but fall back to temp if not configured
+    # Prefer explicit env var; then prefer TEST_TMPDIR/TMPDIR when present to make CI/test runs safe,
+    # otherwise fall back to system tempdir to avoid operating inside the repo by default.
+    # Allow app_config to override when running from the processor context
+    try:
+        from doc_processor.config_manager import app_config
+        app_db_backup = getattr(app_config, 'DB_BACKUP_DIR', None)
+    except Exception:
+        app_db_backup = None
+
+    env['DB_BACKUP_DIR'] = (
+        os.environ.get('DB_BACKUP_DIR')
+        or app_db_backup
+        or os.environ.get('TEST_TMPDIR')
+        or os.environ.get('TMPDIR')
+        or tempfile.gettempdir()
+    )
+
+    # Default logs path is inside the repo. However, when TEST_TMPDIR is set (tests/CI), prefer
+    # using that to keep test artifacts out of the repo. If LOG_FILE_PATH is explicitly set, honor it.
     repo_root = Path(__file__).resolve().parents[1]
-    env['LOG_DIR'] = os.environ.get('LOG_FILE_PATH') or str(repo_root / 'doc_processor' / 'logs')
-    if not env['LOG_DIR']:
-        env['LOG_DIR'] = tempfile.gettempdir()
+    explicit_log = os.environ.get('LOG_FILE_PATH')
+    try:
+        app_log_dir = getattr(app_config, 'LOG_FILE_PATH', None)
+    except Exception:
+        app_log_dir = None
+
+    if explicit_log:
+        env['LOG_DIR'] = explicit_log
+    elif app_log_dir:
+        env['LOG_DIR'] = app_log_dir
+    elif os.environ.get('TEST_TMPDIR'):
+        _tmp = os.environ['TEST_TMPDIR']
+        env['LOG_DIR'] = os.path.join(_tmp, 'logs')
+    else:
+        env['LOG_DIR'] = str(repo_root / 'doc_processor' / 'logs')
+    # Best-effort: create these directories when possible so CI/tests have places to write
+    try:
+        dbd = Path(env['DB_BACKUP_DIR'])
+        dbd.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        try:
+            env['DB_BACKUP_DIR'] = tempfile.gettempdir()
+            Path(env['DB_BACKUP_DIR']).mkdir(parents=True, exist_ok=True)
+        except Exception:
+            env['DB_BACKUP_DIR'] = os.getcwd()
+
+    try:
+        logd = Path(env['LOG_DIR'])
+        # If LOG_DIR looks like a file path, ensure parent exists
+        if logd.suffix:
+            logd.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            logd.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        try:
+            env['LOG_DIR'] = tempfile.gettempdir()
+            Path(env['LOG_DIR']).mkdir(parents=True, exist_ok=True)
+        except Exception:
+            env['LOG_DIR'] = os.getcwd()
     return env
 
 

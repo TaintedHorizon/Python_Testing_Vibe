@@ -19,7 +19,11 @@ from config_manager import app_config
 import tempfile
 
 # Backup base for destructive cleanup operations. Use env var or system tempdir by default.
-WIP_CLEANUP_BACKUP_BASE = os.environ.get('WIP_CLEANUP_BACKUP_BASE') or os.environ.get('DEV_TOOL_BACKUP_DIR') or tempfile.gettempdir()
+try:
+    import tempfile as _temp
+    WIP_CLEANUP_BACKUP_BASE = os.environ.get('WIP_CLEANUP_BACKUP_BASE') or os.environ.get('DEV_TOOL_BACKUP_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
+except Exception:
+    WIP_CLEANUP_BACKUP_BASE = os.environ.get('WIP_CLEANUP_BACKUP_BASE') or os.environ.get('DEV_TOOL_BACKUP_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
 
 parser = argparse.ArgumentParser(description='Cleanup orphaned WIP batch directories (destructive)')
 parser.add_argument('--dry-run', action='store_true', help='Show what would be done without applying changes')

@@ -4,6 +4,14 @@ import os
 from urllib.parse import urljoin, urlparse, unquote
 import time # Import time for sleep functionality
 import tempfile
+def _select_tmp_dir():
+    """Select a safe temporary directory with precedence:
+    1. Explicit DOWNLOAD_MANAGER_DIR env
+    2. TEST_TMPDIR
+    3. TMPDIR
+    4. system tempdir
+    """
+    return os.environ.get('DOWNLOAD_MANAGER_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
 
 def download_files_from_url(url, download_dir, max_retries=3, retry_delay=5):
     """
@@ -109,11 +117,11 @@ if __name__ == "__main__":
     if not target_url:
         print("URL cannot be empty. Exiting.")
     else:
-        # Get download directory from user
+            # Get download directory from user
         download_location = input("Please enter the local directory to save files (e.g., downloads or C:\\Users\\YourUser\\Downloads). Leave empty to use safe default: ").strip()
         if not download_location:
-            # Prefer explicit env var for CI or user control; otherwise use system temp directory
-            download_location = os.environ.get('DOWNLOAD_MANAGER_DIR') or tempfile.gettempdir()
+            # Prefer explicit env var for CI or user control; otherwise use TEST_TMPDIR/TMPDIR then system tempdir
+            download_location = _select_tmp_dir()
             print(f"No directory specified. Using safe default: {download_location}")
         else:
             # Extract subdirectory name from the URL
@@ -131,5 +139,10 @@ if __name__ == "__main__":
 
             # Construct the full path for the new subdirectory
             final_download_path = os.path.join(download_location, subdirectory_name)
+            # Ensure directory exists (best-effort in restricted CI)
+            try:
+                os.makedirs(final_download_path, exist_ok=True)
+            except OSError as e:
+                print(f"Warning: could not create download directory {final_download_path}: {e}")
 
             download_files_from_url(target_url, final_download_path)

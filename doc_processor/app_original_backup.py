@@ -113,6 +113,18 @@ import sys
 sys.excepthook = log_uncaught_exceptions
 import logging
 
+
+def _select_tmp_dir() -> str:
+    """Select a temporary directory with test-friendly precedence.
+
+    Precedence: TEST_TMPDIR -> TMPDIR -> system tempfile.gettempdir() -> cwd
+    """
+    try:
+        import tempfile as _temp
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
+    except Exception:
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+
 # Third-party imports
 from flask import (
     Flask,
@@ -437,8 +449,13 @@ def index():
 def clear_analysis_cache():
     """Clear the cached analysis results to force re-analysis."""
     try:
-        import tempfile
-        cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+        # Prefer test-scoped tmpdir helper
+        tmpdir = _select_tmp_dir()
+        try:
+            os.makedirs(tmpdir, exist_ok=True)
+        except Exception:
+            pass
+        cache_file = os.path.join(tmpdir, 'intake_analysis_cache.pkl')
         if os.path.exists(cache_file):
             os.remove(cache_file)
             logging.info("Cleared analysis cache")
@@ -456,9 +473,14 @@ def analyze_intake_page():
     # Check if we have cached analysis results to avoid re-analyzing
     cached_analyses = None
     try:
-        import tempfile
+        # Prefer TEST_TMPDIR -> TMPDIR -> system tempdir
+        try:
+            import tempfile as _temp
+            tmpdir = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
+        except Exception:
+            tmpdir = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
         import pickle
-        cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+        cache_file = os.path.join(tmpdir, 'intake_analysis_cache.pkl')
         if os.path.exists(cache_file):
             with open(cache_file, 'rb') as f:
                 cached_analyses = pickle.load(f)
@@ -556,9 +578,13 @@ def analyze_intake_progress():
                 yield f"data: {json.dumps({'progress': i + 1, 'total': total_files, 'current_file': None, 'message': progress_msg})}\n\n"
 
             # Cache the results for future use to avoid re-analysis
-            import tempfile
             import pickle
-            cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+            tmpdir = _select_tmp_dir()
+            try:
+                os.makedirs(tmpdir, exist_ok=True)
+            except Exception:
+                pass
+            cache_file = os.path.join(tmpdir, 'intake_analysis_cache.pkl')
             try:
                 with open(cache_file, 'wb') as f:
                     pickle.dump(analyses, f)
@@ -798,9 +824,12 @@ def api_smart_processing_progress():
             try:
                 # Try to load cached analysis results
                 import pickle
-                import tempfile
-                # Cache file: prefer INTAKE_CACHE_DIR env var, otherwise use system tempdir
-                cache_dir = os.environ.get('INTAKE_CACHE_DIR') or tempfile.gettempdir()
+                # Cache file: prefer INTAKE_CACHE_DIR env var, otherwise use test-aware tmpdir
+                cache_dir = os.environ.get('INTAKE_CACHE_DIR') or _select_tmp_dir()
+                try:
+                    os.makedirs(cache_dir, exist_ok=True)
+                except Exception:
+                    pass
                 cache_file = os.path.join(cache_dir, 'intake_analysis_cache.pkl')
                 cached_analyses = {}
                 if _os.path.exists(cache_file):
@@ -1128,8 +1157,11 @@ def api_smart_processing_start():
 
             # Load cached analysis
             import pickle
-            import tempfile
-            cache_dir = os.environ.get('INTAKE_CACHE_DIR') or tempfile.gettempdir()
+            cache_dir = os.environ.get('INTAKE_CACHE_DIR') or _select_tmp_dir()
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+            except Exception:
+                pass
             cache_file = os.path.join(cache_dir, 'intake_analysis_cache.pkl')
             cached_analyses = {}
             if _os.path.exists(cache_file):
@@ -1312,8 +1344,11 @@ def api_smart_processing_progress_with_strategy(force_strategy=None):
                 # Smart mode - load cached analysis results
                 try:
                     import pickle
-                    import tempfile
-                    cache_dir = os.environ.get('INTAKE_CACHE_DIR') or tempfile.gettempdir()
+                    cache_dir = os.environ.get('INTAKE_CACHE_DIR') or _select_tmp_dir()
+                    try:
+                        os.makedirs(cache_dir, exist_ok=True)
+                    except Exception:
+                        pass
                     cache_file = os.path.join(cache_dir, 'intake_analysis_cache.pkl')
                     if _os.path.exists(cache_file):
                         with open(cache_file, 'rb') as f:

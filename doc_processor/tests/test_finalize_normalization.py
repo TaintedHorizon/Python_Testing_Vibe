@@ -27,15 +27,22 @@ def client(tmp_path, monkeypatch):
         status TEXT DEFAULT 'processing'
     );
     CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY, is_active INTEGER DEFAULT 1);
-    INSERT INTO categories(name,is_active) VALUES ('Reports',1);
-    INSERT INTO batches(id,status) VALUES (1,'processing');
-    INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, page_count, ai_suggested_category, ai_suggested_filename)
-    VALUES (1,'alpha.pdf','/tmp/alpha.pdf',1,'Reports','alpha_ai');
-    INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, page_count, ai_suggested_category, ai_suggested_filename)
-    VALUES (1,'beta.pdf','/tmp/beta.pdf',1,'Reports','beta_ai');
-    INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, page_count, ai_suggested_category, ai_suggested_filename)
-    VALUES (1,'gamma.pdf','/tmp/gamma.pdf',1,'Reports','gamma_ai');
     """)
+    # Insert rows using tmp_path-based sample PDFs
+    cur.execute("INSERT INTO categories(name,is_active) VALUES (?,?)", ('Reports', 1))
+    cur.execute("INSERT INTO batches(id,status) VALUES (?,?)", (1, 'processing'))
+    alpha = tmp_path / 'alpha.pdf'
+    beta = tmp_path / 'beta.pdf'
+    gamma = tmp_path / 'gamma.pdf'
+    alpha.write_bytes(b'%PDF-1.4 ALPHA')
+    beta.write_bytes(b'%PDF-1.4 BETA')
+    gamma.write_bytes(b'%PDF-1.4 GAMMA')
+    cur.execute("INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, page_count, ai_suggested_category, ai_suggested_filename) VALUES (?,?,?,?,?,?)",
+                (1, 'alpha.pdf', str(alpha), 1, 'Reports', 'alpha_ai'))
+    cur.execute("INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, page_count, ai_suggested_category, ai_suggested_filename) VALUES (?,?,?,?,?,?)",
+                (1, 'beta.pdf', str(beta), 1, 'Reports', 'beta_ai'))
+    cur.execute("INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, page_count, ai_suggested_category, ai_suggested_filename) VALUES (?,?,?,?,?,?)",
+                (1, 'gamma.pdf', str(gamma), 1, 'Reports', 'gamma_ai'))
     conn.commit(); conn.close()
     app = create_app(); app.config['TESTING']=True
     with app.test_client() as c:

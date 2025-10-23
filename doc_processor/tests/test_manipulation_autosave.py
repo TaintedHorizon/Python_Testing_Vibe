@@ -29,9 +29,14 @@ def client(tmp_path, monkeypatch):
     CREATE TABLE categories (name TEXT PRIMARY KEY, is_active INTEGER DEFAULT 1);
     INSERT INTO categories(name,is_active) VALUES ('Reports',1);
     INSERT INTO batches(id,status) VALUES (1,'processing');
-    INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, page_count, ocr_text, ocr_confidence_avg, ai_suggested_category, ai_suggested_filename, ai_confidence)
-    VALUES (1,'alpha.pdf','/tmp/alpha.pdf',1,'OCR BODY',81.2,'Reports','alpha_ai',0.91);
     """)
+
+    alpha = tmp_path / 'alpha.pdf'
+    alpha.write_bytes(b'%PDF-1.4 ALPHA')
+    cur.execute(
+        "INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, page_count, ocr_text, ocr_confidence_avg, ai_suggested_category, ai_suggested_filename, ai_confidence) VALUES (?,?,?,?,?,?,?,?,?)",
+        (1, 'alpha.pdf', str(alpha), 1, 'OCR BODY', 81.2, 'Reports', 'alpha_ai', 0.91)
+    )
     conn.commit(); conn.close()
     app = create_app(); app.config['TESTING'] = True
     with app.test_client() as c:

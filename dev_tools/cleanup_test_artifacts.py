@@ -28,6 +28,7 @@ import shutil
 import tarfile
 from pathlib import Path
 import os
+import tempfile
 import sys
 
 
@@ -49,6 +50,15 @@ def load_env_paths() -> dict:
     if not keys['DB_BACKUP_DIR']:
         keys['DB_BACKUP_DIR'] = str(repo_root / 'db_backups')
     return keys
+
+
+def _select_tmp_dir() -> str:
+    """Select a temporary directory: TEST_TMPDIR -> TMPDIR -> system tempdir -> cwd."""
+    try:
+        import tempfile
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+    except Exception:
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
 
 
 def find_candidates(env_paths: dict, allow_tmp: bool=False) -> list[Path]:
@@ -77,7 +87,8 @@ def find_candidates(env_paths: dict, allow_tmp: bool=False) -> list[Path]:
             candidates.append(p)
 
     # canonical backup dir
-    db_backup_dir = Path(env_paths.get('DB_BACKUP_DIR'))
+    db_backup_dir_val = env_paths.get('DB_BACKUP_DIR') or str(repo_root / 'db_backups')
+    db_backup_dir = Path(db_backup_dir_val)
     if db_backup_dir.exists():
         # include its contents so we can archive them in one place if needed
         candidates.append(db_backup_dir)
@@ -85,7 +96,9 @@ def find_candidates(env_paths: dict, allow_tmp: bool=False) -> list[Path]:
     # optional tmp pytest dirs
     if allow_tmp:
         import glob
-        for p in glob.glob('/tmp/pytest-of-*'):
+        tmpdir = _select_tmp_dir()
+        pattern = os.path.join(tmpdir, 'pytest-of-*')
+        for p in glob.glob(pattern):
             candidates.append(Path(p))
 
     # dedupe and return
@@ -159,14 +172,16 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description='Safe cleanup for test artifacts (dry-run default).')
     p.add_argument('--confirm', action='store_true', help='Perform moves (destructive). Default is dry-run (no moves).')
     p.add_argument('--tar', action='store_true', help='Create tar.gz of the collected backup in DB_BACKUP_DIR.')
-    p.add_argument('--allow-tmp', action='store_true', help='Allow including /tmp pytest dirs for cleanup.')
+    p.add_argument('--allow-tmp', action='store_true', help='Allow including temporary pytest dirs for cleanup (resolved via TEST_TMPDIR/TMPDIR/system tmpdir).')
     p.add_argument('--force', action='store_true', help='Force operations on paths outside allowed bases (use with care).')
     p.add_argument('--dest', type=str, default=None, help='Optional destination backup dir (overrides env DB_BACKUP_DIR).')
     p.add_argument('--list', action='store_true', help='List discovered candidate paths and exit.')
     args = p.parse_args(argv)
 
     env_paths = load_env_paths()
-    dest_root = Path(args.dest) if args.dest else Path(env_paths.get('DB_BACKUP_DIR'))
+    repo_root = Path(__file__).resolve().parents[1]
+    dest_root_val = args.dest if args.dest else env_paths.get('DB_BACKUP_DIR') or str(repo_root / 'db_backups')
+    dest_root = Path(str(dest_root_val))
     if not dest_root.exists():
         try:
             dest_root.mkdir(parents=True, exist_ok=True)

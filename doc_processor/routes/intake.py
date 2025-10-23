@@ -24,6 +24,15 @@ from pathlib import Path
 intake_bp = Blueprint('intake', __name__)
 
 
+def _select_tmp_dir() -> str:
+    """Select a temporary directory: TEST_TMPDIR -> TMPDIR -> system tempdir -> cwd."""
+    try:
+        import tempfile
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+    except Exception:
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+
+
 def _resolve_working_pdf_path(original_filename: str) -> str:
     """Given an original intake filename (jpg/png/pdf), return the standardized/converted PDF path to use for analysis.
 
@@ -32,20 +41,22 @@ def _resolve_working_pdf_path(original_filename: str) -> str:
     - If original is a PDF: prefer /tmp/{stem}_standardized.pdf if it exists; otherwise return the original PDF path
     """
     try:
-        import tempfile
         # PIL.Image is only conditionally used; import inside try and set to None if unavailable
         try:
             from PIL import Image
         except Exception:
             Image = None
     except Exception:
-        tempfile = None
         Image = None
 
     orig_path = os.path.join(app_config.INTAKE_DIR, original_filename)
     stem = Path(original_filename).stem
     ext = Path(original_filename).suffix.lower()
-    tmp_dir = tempfile.gettempdir() if tempfile else '/tmp'
+    tmp_dir = _select_tmp_dir()
+    try:
+        os.makedirs(tmp_dir, exist_ok=True)
+    except Exception:
+        pass
 
     # First, try to resolve from durable DB mapping if available
     mapped_path = None
@@ -169,12 +180,12 @@ def analyze_intake_page():
             # during tests. Only purge when no cache is present.
             import tempfile
             import os as _os
-            cache_file = _os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+            cache_file = _os.path.join(_select_tmp_dir(), 'intake_analysis_cache.pkl')
             if _os.path.exists(cache_file):
                 logging.info("Skipping cache purge because analysis cache exists (avoids race)")
             else:
                 try:
-                    # No cache file present and DB indicates all batches exported — safe to purge
+                    # No cache file present and DB indicates all batches exported - safe to purge
                     # (this branch effectively is a no-op since cache missing)
                     logging.info("No analysis cache present to purge")
                 except Exception:
@@ -186,7 +197,7 @@ def analyze_intake_page():
     try:
         import tempfile
         import pickle
-        cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+        cache_file = os.path.join(_select_tmp_dir(), 'intake_analysis_cache.pkl')
         if os.path.exists(cache_file):
             with open(cache_file, 'rb') as f:
                 cached_analyses = pickle.load(f)
@@ -268,7 +279,7 @@ def analyze_intake_progress():
             # Clean up any old converted PDFs to ensure fresh start
             import tempfile
             import glob
-            temp_dir = tempfile.gettempdir()
+            temp_dir = _select_tmp_dir()
             old_converted_pdfs = glob.glob(os.path.join(temp_dir, "*_converted.pdf"))
             for old_pdf in old_converted_pdfs:
                 try:
@@ -596,7 +607,7 @@ def intake_viewer_ready():
         import tempfile
         import os
         import pickle
-        cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+        cache_file = os.path.join(_select_tmp_dir(), 'intake_analysis_cache.pkl')
         if os.path.exists(cache_file):
             try:
                 with open(cache_file, 'rb') as f:

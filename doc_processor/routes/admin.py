@@ -29,6 +29,15 @@ from ..utils.helpers import create_error_response, create_success_response
 bp = Blueprint('admin', __name__, url_prefix='/admin')
 logger = logging.getLogger(__name__)
 
+
+def _select_tmp_dir() -> str:
+    """Select a temporary directory: TEST_TMPDIR -> TMPDIR -> system tempdir -> cwd."""
+    try:
+        import tempfile
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+    except Exception:
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+
 @bp.route('/db_diagnostics')
 def db_diagnostics():
     """Human-friendly diagnostics page for the active SQLite database.
@@ -320,19 +329,23 @@ def restore_category(cat_id: int):
 def clear_analysis_cache():
     """Clear the cached analysis results to force re-analysis."""
     try:
-        import tempfile
-        # Clear the same cache file that the original used
-        cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+        # Clear the same cache file that the original used (prefer test tmpdir when available)
+        tmpdir = _select_tmp_dir()
+        cache_file = os.path.join(tmpdir, 'intake_analysis_cache.pkl')
         if os.path.exists(cache_file):
             os.remove(cache_file)
             logger.info("Cleared analysis cache")
 
         # Also clear any other cache directories that might exist
-        cache_dir = '/tmp/analysis_cache'
-        if os.path.exists(cache_dir):
-            import shutil
-            shutil.rmtree(cache_dir)
-            os.makedirs(cache_dir)
+        cache_dir = os.path.join(tmpdir, 'analysis_cache')
+        try:
+            if os.path.exists(cache_dir):
+                import shutil
+                shutil.rmtree(cache_dir)
+            os.makedirs(cache_dir, exist_ok=True)
+        except Exception:
+            # Best-effort; don't fail admin action on inability to recreate cache dir
+            logger.debug(f"Could not recreate analysis cache dir: {cache_dir}")
 
         # Redirect back to the intake analysis page like the original
         return redirect(url_for('intake.analyze_intake_page'))
@@ -450,15 +463,41 @@ def api_system_health():
 def view_logs():
     """Display application logs."""
     try:
-        # Get recent log entries
-        log_file = '/path/to/app.log'  # This should come from config
+        # Get recent log entries. Prefer configured path, then TEST_TMPDIR/logs,
+        # then env LOG_FILE_PATH, then fall back to system path.
+        from ..config_manager import app_config as _cfg
         logs = []
 
+        if getattr(_cfg, 'LOG_FILE_PATH', None):
+            log_file = _cfg.LOG_FILE_PATH
+        elif os.getenv('TEST_TMPDIR'):
+            _test_tmp = os.getenv('TEST_TMPDIR')
+            if _test_tmp:
+                log_file = os.path.join(_test_tmp, 'logs', 'app.log')
+            else:
+                log_file = os.path.join(os.getcwd(), 'logs', 'app.log')
+        elif os.getenv('LOG_FILE_PATH'):
+            log_file = os.getenv('LOG_FILE_PATH')
+        else:
+            log_file = '/var/log/doc_processor/app.log'
+
+        # Ensure we have a valid string path before calling abspath
+        if not log_file:
+            log_file = os.path.join(os.getcwd(), 'logs', 'app.log')
+        try:
+            log_file = os.path.abspath(str(log_file))
+        except Exception:
+            log_file = os.path.abspath(os.path.join(os.getcwd(), 'logs', 'app.log'))
+
+        # Read logs if present. Do NOT create missing directories here.
         if os.path.exists(log_file):
-            with open(log_file, 'r') as f:
-                # Get last 100 lines
-                lines = f.readlines()
-                logs = lines[-100:] if len(lines) > 100 else lines
+            try:
+                with open(log_file, 'r') as f:
+                    # Get last 100 lines
+                    lines = f.readlines()
+                    logs = lines[-100:] if len(lines) > 100 else lines
+            except Exception as read_err:
+                logger.warning(f"Could not read log file {log_file}: {read_err}")
 
         return render_template('logs.html', logs=logs)
 

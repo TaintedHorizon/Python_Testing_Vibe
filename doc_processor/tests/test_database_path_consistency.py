@@ -1,4 +1,5 @@
 import os
+import tempfile
 from doc_processor.config_manager import app_config
 
 def test_database_path_consistency(tmp_path):
@@ -7,7 +8,7 @@ def test_database_path_consistency(tmp_path):
     test_dirs = [
         os.getcwd(),
         os.path.join(repo_root, 'doc_processor'),
-        '/tmp'
+        tempfile.gettempdir()
     ]
     abs_paths = set()
     for d in test_dirs:

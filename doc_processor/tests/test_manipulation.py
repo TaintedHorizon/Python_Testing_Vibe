@@ -12,6 +12,7 @@ def client(tmp_path, monkeypatch):
     # Initialize minimal schema for batches + single_documents
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
+    # Create schema using executescript and then insert rows with parameterized values
     cur.executescript("""
     CREATE TABLE batches (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,11 +35,17 @@ def client(tmp_path, monkeypatch):
         status TEXT DEFAULT 'processing'
     );
     CREATE TABLE categories (name TEXT PRIMARY KEY, is_active INTEGER DEFAULT 1);
-    INSERT INTO categories(name,is_active) VALUES ('Invoices',1);
-    INSERT INTO batches(id,status) VALUES (1,'processing');
-    INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, ai_suggested_category, ai_suggested_filename, ai_confidence, ai_summary, ocr_text, ocr_confidence_avg)
-    VALUES (1,'sample.pdf','/tmp/sample.pdf','Invoices','invoice_sample',0.87,'Summary','OCR TEXT',78.5);
     """)
+
+    # Insert initial data with temp paths
+    cur.execute("INSERT INTO categories(name,is_active) VALUES (?,?)", ('Invoices', 1))
+    cur.execute("INSERT INTO batches(id,status) VALUES (?,?)", (1, 'processing'))
+    sample_pdf = tmp_path / 'sample.pdf'
+    sample_pdf.write_bytes(b"%PDF-1.4 sample")
+    cur.execute(
+        "INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, ai_suggested_category, ai_suggested_filename, ai_confidence, ai_summary, ocr_text, ocr_confidence_avg) VALUES (?,?,?,?,?,?,?,?,?)",
+        (1, 'sample.pdf', str(sample_pdf), 'Invoices', 'invoice_sample', 0.87, 'Summary', 'OCR TEXT', 78.5)
+    )
     conn.commit()
     conn.close()
 

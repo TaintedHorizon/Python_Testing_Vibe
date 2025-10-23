@@ -73,12 +73,29 @@ def _start_smart_token_cleanup_thread():
     threading.Thread(target=_cleanup_loop, daemon=True, name='SmartTokenCleanup').start()
 
 
+def _select_tmp_dir() -> str:
+    """Select a temporary directory: TEST_TMPDIR -> TMPDIR -> system tempdir -> cwd."""
+    try:
+        import tempfile
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+    except Exception:
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+
+
 def _load_cached_intake_analyses(intake_dir: str) -> dict:
     """Attempt to load cached intake analyses from pickle, return mapping path->DocumentAnalysis."""
     import os
     import pickle
     import logging as _logging
-    cache_file = "/tmp/intake_analysis_cache.pkl"
+    # Prefer a test-scoped tmp dir when present (TEST_TMPDIR), then TMPDIR, then system temp
+    tmpdir = _select_tmp_dir()
+    # Ensure tmpdir exists when possible (best-effort): tests often provision TEST_TMPDIR
+    try:
+        os.makedirs(tmpdir, exist_ok=True)
+    except Exception:
+        # If creation fails, continue and attempt to read existing cache if present
+        pass
+    cache_file = os.path.join(tmpdir, 'intake_analysis_cache.pkl')
     if not os.path.exists(cache_file):
         return {}
     try:
@@ -499,7 +516,7 @@ def api_debug_force_create_single_documents():
 
         # Determine intake directory from config
         from ..config_manager import app_config as cfg
-        intake_dir = getattr(cfg, 'INTAKE_DIR', None) or '/mnt/scans_intake'
+        intake_dir = getattr(cfg, 'INTAKE_DIR', None) or os.getenv('INTAKE_DIR') or '/mnt/scans_intake'
 
         created = []
         conn = get_db_connection()
