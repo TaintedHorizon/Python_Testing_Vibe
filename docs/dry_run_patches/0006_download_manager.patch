@@ -1,0 +1,13 @@
+*** Dry-run patch for tools/download_manager/download_manager.py
+- Goal: ensure download manager uses `select_tmp_dir()` (already present) and document fallback behavior for clarity.
+
+Note: `download_manager.py` already imports `select_tmp_dir()` from `doc_processor.utils.path_utils`.
+
+Suggested documentation snippet (dry-run):
+    # Prefer explicit env var (DOWNLOAD_DIR) if provided, otherwise use select_tmp_dir()
+    download_location = os.environ.get('DOWNLOAD_DIR') or select_tmp_dir()
+    os.makedirs(download_location, exist_ok=True)
+
+Keep behavior unchanged; just document and ensure makedirs.
+
+*** End dry-run patch

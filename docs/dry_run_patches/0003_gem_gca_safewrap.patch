@@ -1,0 +1,30 @@
+*** Dry-run patch for Document_Scanner_Ollama_outdated/document_processor_gca.py
+- Goal: make legacy GCA script write operations test-safe by mapping archive/cache dirs to a test-scoped base.
+
+Guidance (dry-run; do not modify source):
+
+1) Add import fallback near top if not present:
+    try:
+        from doc_processor.utils.path_utils import select_tmp_dir
+    except Exception:
+        import tempfile, os
+        def select_tmp_dir():
+            return os.environ.get('GCA_CACHE_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+
+2) Replace direct os.makedirs(PATH, exist_ok=True) with mapped destination:
+    safe_base = os.environ.get('ARCHIVE_DIR') or select_tmp_dir()
+    mapped_dest = os.path.join(safe_base, os.path.basename(PATH))
+    try:
+        os.makedirs(mapped_dest, exist_ok=True)
+    except Exception:
+        mapped_dest = PATH
+        os.makedirs(mapped_dest, exist_ok=True)
+    # use mapped_dest for subsequent writes
+
+3) For file copies/moves and file writes, prefer mapping to mapped_dest. If the script expects a specific layout under ARCHIVE, preserve subpath mapping (e.g., join with original relative path).
+
+Notes:
+- Preserve behavior if explicit ARCHIVE_DIR or GCA_CACHE_DIR env var is set.
+- This patch is intentionally conservative and only remaps top-level destinations to avoid writing into repo tree during tests.
+
+*** End dry-run patch

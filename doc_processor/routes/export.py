@@ -29,6 +29,7 @@ from ..processing import (
 from ..config_manager import app_config
 from ..utils.helpers import create_error_response, create_success_response
 from ..services.export_service import ExportService, _resolve_export_dir
+from ..utils.path_utils import select_tmp_dir, resolve_filing_cabinet_dir
 
 # Create Blueprint
 bp = Blueprint('export', __name__, url_prefix='/export')
@@ -270,13 +271,41 @@ def _asset_hash(path: str) -> str:
         return ''
 
 
-def _select_tmp_dir() -> str:
-    """Select a temporary directory: TEST_TMPDIR -> TMPDIR -> system tempdir -> cwd."""
+def _resolve_filing_cabinet_dir(category: str | None = None) -> str:
+    """Resolve a safe filing cabinet directory for exports/sidecars.
+
+    Precedence: app_config.FILING_CABINET_DIR -> FILING_CABINET_DIR env -> TEST_TMPDIR -> TMPDIR -> system tempdir -> cwd
+    If category is provided, returns the category subdirectory (sanitized with spaces replaced by '_') and ensures it exists.
+    """
     try:
-        import tempfile
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+        import tempfile as _temp
+        base = getattr(app_config, 'FILING_CABINET_DIR', None) or os.environ.get('FILING_CABINET_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
     except Exception:
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+        base = getattr(app_config, 'FILING_CABINET_DIR', None) or os.environ.get('FILING_CABINET_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+
+    if category:
+        safe_category = category.replace(' ', '_')
+        path = os.path.join(base, safe_category)
+    else:
+        path = base
+
+    path = os.path.abspath(path)
+    try:
+        os.makedirs(path, exist_ok=True)
+    except Exception:
+        # Fallback to tempdir when creation fails
+        try:
+            import tempfile as _temp
+            fallback = os.path.join(os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir(), category.replace(' ', '_') if category else 'filing_cabinet')
+            os.makedirs(fallback, exist_ok=True)
+            return os.path.abspath(fallback)
+        except Exception:
+            return path
+
+    return path
+
+
+# local selection helpers replaced by shared `doc_processor.utils.path_utils`
 
 @bp.route('/viewer_health')
 def viewer_health():
@@ -358,14 +387,14 @@ def serve_processed_file(filepath: str):
     """Serve processed files for preview."""
     try:
         # Get processed files directory from config or fallback to PROCESSED_DIR env/tmp
-        tmpdir = _select_tmp_dir()
+        tmpdir = select_tmp_dir()
         processed_dir = getattr(app_config, 'PROCESSED_DIR', None) or os.getenv('PROCESSED_DIR') or os.path.join(tmpdir, 'processed')
         processed_dir = os.path.abspath(processed_dir)
         # Best-effort mkdir
         try:
             os.makedirs(processed_dir, exist_ok=True)
         except Exception:
-            processed_dir = os.path.abspath(os.path.join(_select_tmp_dir(), 'processed'))
+            processed_dir = os.path.abspath(os.path.join(select_tmp_dir(), 'processed'))
         full_path = os.path.join(processed_dir, filepath)
 
         if not os.path.exists(full_path):
@@ -437,7 +466,7 @@ def serve_original_pdf(filename: str):
         # If the file is an image, ensure we serve a PDF (convert on-demand if needed)
         if file_ext in ['.png', '.jpg', '.jpeg']:
             # Prefer test-scoped tempdir when available
-            tmpdir = _select_tmp_dir()
+            tmpdir = select_tmp_dir()
             try:
                 os.makedirs(tmpdir, exist_ok=True)
             except Exception:
@@ -535,7 +564,7 @@ def _create_json_sidecars_for_batch(batch_id: int, force: bool = False):
             doc_id = r[0]
             final_category = r[1] or r[3] or 'Uncategorized'
             filename_base = r[2] or r[4] or f'document_{doc_id}'
-            cat_dir = os.path.join(app_config.FILING_CABINET_DIR, final_category.replace(' ', '_'))
+            cat_dir = resolve_filing_cabinet_dir(final_category)
             markdown_path = os.path.join(cat_dir, f"{filename_base}.md")
             if not os.path.exists(markdown_path):
                 continue  # skip if markdown absent

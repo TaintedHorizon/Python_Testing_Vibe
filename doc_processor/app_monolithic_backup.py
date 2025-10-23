@@ -150,16 +150,15 @@ sys.excepthook = log_uncaught_exceptions
 import logging
 
 
-def _select_tmp_dir() -> str:
-    """Select a temporary directory with test-friendly precedence.
-
-    Precedence: TEST_TMPDIR -> TMPDIR -> system tempfile.gettempdir() -> cwd
-    """
-    try:
-        import tempfile as _temp
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
-    except Exception:
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+try:
+    from doc_processor.utils.path_utils import select_tmp_dir  # type: ignore
+except Exception:
+    def select_tmp_dir() -> str:
+        try:
+            import tempfile
+            return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+        except Exception:
+            return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
 
 # Third-party imports
 from flask import (

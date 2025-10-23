@@ -1,0 +1,23 @@
+name: Manual Smoke Test
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  smoke:
+    name: Run smoke script (manual)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Run smoke script
+        shell: bash
+        run: |
+          chmod +x ci/smoke.sh || true
+          bash ci/smoke.sh

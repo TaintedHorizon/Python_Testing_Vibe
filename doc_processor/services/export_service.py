@@ -24,16 +24,15 @@ from ..config_manager import app_config, SHUTDOWN_EVENT
 logger = logging.getLogger(__name__)
 
 
-def _select_tmp_dir() -> str:
-    """Select a temporary directory with test-friendly precedence.
-
-    Precedence: TEST_TMPDIR -> TMPDIR -> system tempfile.gettempdir() -> cwd
-    """
-    try:
-        import tempfile as _temp
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
-    except Exception:
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+try:
+    from doc_processor.utils.path_utils import select_tmp_dir
+except Exception:
+    def select_tmp_dir() -> str:
+        try:
+            import tempfile as _temp
+            return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
+        except Exception:
+            return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
 
 
 def _resolve_export_dir() -> str:
@@ -47,14 +46,14 @@ def _resolve_export_dir() -> str:
     # If not configured, prefer CI/test temp dirs then environment, then system temp
     if not export_dir:
         env_export = os.getenv('EXPORT_DIR')
-        tmp_candidate = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _select_tmp_dir()
+        tmp_candidate = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or select_tmp_dir()
         if env_export:
             export_dir = env_export
         elif tmp_candidate:
             export_dir = os.path.join(tmp_candidate, 'exports')
         else:
             # Prefer system tempdir as last-resort
-            export_dir = os.path.join(_select_tmp_dir(), 'exports')
+            export_dir = os.path.join(select_tmp_dir(), 'exports')
 
     export_dir = os.path.abspath(export_dir)
     # Ensure export directory exists; prefer test-scoped tmp on failure
@@ -62,8 +61,8 @@ def _resolve_export_dir() -> str:
         os.makedirs(export_dir, exist_ok=True)
     except Exception:
         try:
-            tmp_candidate = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _select_tmp_dir()
-            fallback = os.path.join(tmp_candidate, 'exports') if tmp_candidate else os.path.join(_select_tmp_dir(), 'exports')
+            tmp_candidate = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or select_tmp_dir()
+            fallback = os.path.join(tmp_candidate, 'exports') if tmp_candidate else os.path.join(select_tmp_dir(), 'exports')
             export_dir = os.path.abspath(fallback)
             os.makedirs(export_dir, exist_ok=True)
         except Exception:
@@ -73,7 +72,7 @@ def _resolve_export_dir() -> str:
                 os.makedirs(export_dir, exist_ok=True)
             except Exception:
                 # If we still can't create a directory, fall back to tmpdir without creating
-                export_dir = os.path.abspath(os.path.join(_select_tmp_dir(), 'exports'))
+                export_dir = os.path.abspath(os.path.join(select_tmp_dir(), 'exports'))
     return export_dir
 
 class ExportService:

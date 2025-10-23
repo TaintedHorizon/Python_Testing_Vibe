@@ -1,0 +1,36 @@
+*** Dry-run patch for tools/gamelist_editor/gamelist_xml_editor.py
+- Goal: redirect new gamelist output to a configurable/test-safe location.
+- Plan: prefer explicit env var GAMELIST_OUTPUT_DIR, then select_tmp_dir(), then original gamelist_dir.
+- This is a dry-run file; it does not modify source.
+
+Replacement guidance (conceptual):
+
+Locate the block:
+    safe_output_base = os.environ.get('GAMELIST_OUTPUT_DIR') or gamelist_dir
+    new_gamelist_output_path = os.path.join(safe_output_base, "gamelist_new.xml")
+
+Replace with (pseudocode):
+    try:
+        from doc_processor.utils.path_utils import select_tmp_dir
+    except Exception:
+        def select_tmp_dir():
+            import tempfile, os
+            return os.getenv('GAMELIST_BACKUP_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+
+    # Prefer explicit env var, then select_tmp_dir (which prefers TEST_TMPDIR), then gamelist_dir as last resort
+    safe_output_base = os.environ.get('GAMELIST_OUTPUT_DIR') or select_tmp_dir() or gamelist_dir
+    # Ensure directory exists before writing
+    try:
+        os.makedirs(safe_output_base, exist_ok=True)
+    except Exception:
+        # best-effort: fallback to gamelist_dir
+        safe_output_base = gamelist_dir
+
+    new_gamelist_output_path = os.path.join(safe_output_base, "gamelist_new.xml")
+
+Notes:
+- This keeps existing behavior when GAMELIST_OUTPUT_DIR is set or when select_tmp_dir() fails.
+- It ensures backups and new outputs go to test-scoped temp locations by default in CI (if TEST_TMPDIR is set).
+- Keep messagebox and status strings unchanged; only the output path resolution is modified.
+
+*** End dry-run patch

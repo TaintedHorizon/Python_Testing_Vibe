@@ -131,6 +131,16 @@ def _enforce_test_environment(tmp_path_factory):
     os.environ.setdefault('OLLAMA_NUM_GPU', '0')
     # Also clear CUDA_VISIBLE_DEVICES for safety
     os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')
+    # Provide a stable test-scoped temp dir for any scripts that honor TEST_TMPDIR
+    # Prefer an explicit tmp in the test workspace to avoid cross-user collisions.
+    test_tmp = os.path.join(str(tempdir), 'test_tmp')
+    os.makedirs(test_tmp, exist_ok=True)
+    os.environ.setdefault('TEST_TMPDIR', test_tmp)
+    # For some scripts we also set common destination overrides if not already set
+    os.environ.setdefault('FILE_UTILS_DEST', test_tmp)
+    os.environ.setdefault('FILING_CABINET_DIR', os.path.join(test_tmp, 'filing_cabinet'))
+    os.environ.setdefault('PROCESSED_DIR', os.path.join(test_tmp, 'processed'))
+    os.environ.setdefault('EXPORT_DIR', os.path.join(test_tmp, 'exports'))
     yield
 
 
