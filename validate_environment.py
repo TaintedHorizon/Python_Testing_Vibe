@@ -1,82 +1,26 @@
 #!/usr/bin/env python3
 """
-Environment validation script to ensure AI assistants follow correct patterns.
-This script checks for common mistakes outlined in .github/copilot-instructions.md
+Root shim: delegate to the canonical implementation at `scripts/validate_environment.py`.
+
+This small script keeps `validate_environment.py` discoverable at the repository root
+while the authoritative implementation lives under `scripts/`.
 """
 
-import os
+from importlib import import_module
 import sys
-from pathlib import Path
 
-def check_environment():
-    """Check if the environment is set up correctly."""
-    issues = []
-    warnings = []
 
-    # Check if we're in the right directory
-    repo_root = Path("/home/svc-scan/Python_Testing_Vibe")
-    if not repo_root.exists():
-        issues.append("❌ Repository not found at expected location")
-        return issues, warnings
-
-    # Check for startup script
-    startup_script = repo_root / "start_app.sh"
-    if not startup_script.exists():
-        issues.append("❌ start_app.sh not found - use ./start_app.sh to run app")
-    else:
-        if not os.access(startup_script, os.X_OK):
-            warnings.append("⚠️ start_app.sh is not executable - run: chmod +x start_app.sh")
-
-    # Check virtual environment location
-    venv_path = repo_root / "doc_processor" / "venv"
-    if not venv_path.exists():
-        issues.append("❌ Virtual environment not found at doc_processor/venv/")
-
-    # Check for config_manager.py (not config.py)
-    config_manager = repo_root / "doc_processor" / "config_manager.py"
-    old_config = repo_root / "doc_processor" / "config.py"
-
-    if not config_manager.exists():
-        issues.append("❌ config_manager.py not found")
-
-    if old_config.exists():
-        warnings.append("⚠️ Old config.py exists - should use config_manager.py instead")
-
-    # Check for .env file
-    env_file = repo_root / "doc_processor" / ".env"
-    env_sample = repo_root / "doc_processor" / ".env.sample"
-
-    if not env_file.exists() and env_sample.exists():
-        warnings.append("⚠️ .env file not found - copy from .env.sample")
-
-    # Check for copilot instructions
-    instructions = repo_root / ".github" / "copilot-instructions.md"
-    if not instructions.exists():
-        warnings.append("⚠️ AI assistant instructions not found")
-
-    return issues, warnings
-
-def main():
-    print("🔍 Validating Python_Testing_Vibe environment...")
-    print("📋 Checking patterns from .github/copilot-instructions.md\n")
-
-    #!/usr/bin/env python3
-    """
-    Shim wrapper: call the moved `scripts.validate_environment` implementation.
-
-    This small shim keeps `validate_environment.py` importable/executable from the repo root
-    for discovery while the canonical implementation lives in `scripts/validate_environment.py`.
-    """
-
-    from importlib import import_module
-    import sys
-
-    def main():
+def main() -> int:
+    try:
         mod = import_module("scripts.validate_environment")
         if hasattr(mod, "main"):
             return mod.main()
-        print("Error: scripts.validate_environment does not expose main()")
+        print("Error: scripts.validate_environment does not expose main()", file=sys.stderr)
+        return 2
+    except Exception as exc:  # pragma: no cover - trivial delegating shim
+        print(f"Error invoking scripts.validate_environment: {exc}", file=sys.stderr)
         return 2
 
-    if __name__ == "__main__":
-        raise SystemExit(main())
+
+if __name__ == "__main__":
+    raise SystemExit(main())
