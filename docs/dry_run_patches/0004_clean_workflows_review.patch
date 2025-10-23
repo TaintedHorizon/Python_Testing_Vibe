@@ -1,0 +1,21 @@
+*** Dry-run patch for tools/clean_workflows.py (review)
+- Goal: ensure clean_workflows writes to configurable output and is test-safe.
+
+Existing behavior: writes/moves files under '.github/workflows' and archive to '.github/workflows_archived'.
+
+Dry-run recommended edits (already applied to source earlier):
+- Use env var CLEAN_WORKFLOWS_OUT_DIR to override output.
+- Default to os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') when not set, falling back to the repo path '.github/workflows'.
+- Add CLI flag --out to override.
+
+Suggested safe code snippet:
+    _env_out = os.environ.get('CLEAN_WORKFLOWS_OUT_DIR')
+    _test_tmp = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR')
+    OUT_DIR = _env_out or (_test_tmp and os.path.join(_test_tmp, 'workflows')) or '.github/workflows'
+    os.makedirs(OUT_DIR, exist_ok=True)
+
+Notes:
+- When running in CI, set CLEAN_WORKFLOWS_OUT_DIR or TEST_TMPDIR to avoid modifying .github in repo.
+- This file was already patched in an earlier step; include in dry-run review artifacts.
+
+*** End dry-run patch

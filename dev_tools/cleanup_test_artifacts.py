@@ -55,10 +55,14 @@ def load_env_paths() -> dict:
 def _select_tmp_dir() -> str:
     """Select a temporary directory: TEST_TMPDIR -> TMPDIR -> system tempdir -> cwd."""
     try:
-        import tempfile
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+        from doc_processor.utils.path_utils import select_tmp_dir
+        return select_tmp_dir()
     except Exception:
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+        try:
+            import tempfile
+            return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+        except Exception:
+            return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
 
 
 def find_candidates(env_paths: dict, allow_tmp: bool=False) -> list[Path]:

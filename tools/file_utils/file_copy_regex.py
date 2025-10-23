@@ -8,14 +8,12 @@ import shutil  # Provides high-level file operations
 import argparse  # For command-line argument parsing
 from typing import List, Tuple # For type hinting
 import tempfile
-def _select_tmp_dir():
-    """Select a safe temporary directory with precedence:
-    1. FILE_UTILS_DEST env
-    2. TEST_TMPDIR
-    3. TMPDIR
-    4. system tempdir
-    """
-    return os.environ.get('FILE_UTILS_DEST') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+try:
+    from doc_processor.utils.path_utils import select_tmp_dir
+except Exception:
+    # Fallback that preserves previous precedence for this script
+    def select_tmp_dir():
+        return os.environ.get('FILE_UTILS_DEST') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
 
 def find_matching_files(source: str, pattern: str) -> List[Tuple[str, str, str]]:
     """
@@ -63,7 +61,7 @@ def main() -> None:  # Main function where the program starts execution
     # Determine destination path: prefer provided arg, then env var, then TEST_TMPDIR/TMPDIR, then system temp
     destination_arg = args.destination
     if not destination_arg:
-        destination_arg = _select_tmp_dir()
+        destination_arg = select_tmp_dir()
         print(f"No destination provided; using safe default: {destination_arg}")
     destination_path = os.path.abspath(destination_arg)
 

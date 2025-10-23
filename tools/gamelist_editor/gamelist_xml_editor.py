@@ -4,8 +4,11 @@ import xml.etree.ElementTree as ET
 import os
 import shutil # For file operations like renaming and moving
 import tempfile
-def _select_tmp_dir():
-    return os.environ.get('GAMELIST_BACKUP_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+try:
+    from doc_processor.utils.path_utils import select_tmp_dir
+except Exception:
+    def select_tmp_dir():
+        return os.environ.get('GAMELIST_BACKUP_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
 
 # Define the main application class.
 # This class encapsulates all the GUI elements and their associated logic for modifying gamelist XML files.
@@ -153,7 +156,7 @@ class GamelistProcessorApp:
             # --- Safe Backup of Original Gamelist ---
             # Get the exact path for the backup right before moving. Prefer a separate backup directory
             # controlled by GAMELIST_BACKUP_DIR env var or use TEST_TMPDIR/TMPDIR then system temp directory
-            backup_base = _select_tmp_dir()
+            backup_base = select_tmp_dir()
             orig_backup_filename = os.path.basename(self._generate_orig_backup_path(input_path))
             actual_orig_backup_path = os.path.join(backup_base, orig_backup_filename)
             # Ensure backup base directory exists and unique filename in the backup base dir

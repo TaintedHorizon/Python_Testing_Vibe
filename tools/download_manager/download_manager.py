@@ -4,14 +4,7 @@ import os
 from urllib.parse import urljoin, urlparse, unquote
 import time # Import time for sleep functionality
 import tempfile
-def _select_tmp_dir():
-    """Select a safe temporary directory with precedence:
-    1. Explicit DOWNLOAD_MANAGER_DIR env
-    2. TEST_TMPDIR
-    3. TMPDIR
-    4. system tempdir
-    """
-    return os.environ.get('DOWNLOAD_MANAGER_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+from doc_processor.utils.path_utils import select_tmp_dir
 
 def download_files_from_url(url, download_dir, max_retries=3, retry_delay=5):
     """
@@ -121,7 +114,7 @@ if __name__ == "__main__":
         download_location = input("Please enter the local directory to save files (e.g., downloads or C:\\Users\\YourUser\\Downloads). Leave empty to use safe default: ").strip()
         if not download_location:
             # Prefer explicit env var for CI or user control; otherwise use TEST_TMPDIR/TMPDIR then system tempdir
-            download_location = _select_tmp_dir()
+            download_location = select_tmp_dir()
             print(f"No directory specified. Using safe default: {download_location}")
         else:
             # Extract subdirectory name from the URL

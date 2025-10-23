@@ -1,0 +1,25 @@
+*** Dry-run patch for dev_tools scripts (generic)
+- Goal: template for dev_tools scripts that perform backups or create files; redirect outputs to TEST_TMPDIR by default.
+
+Template (dry-run, to be applied per-file):
+
+try:
+    from doc_processor.utils.path_utils import select_tmp_dir
+except Exception:
+    import tempfile, os
+    def select_tmp_dir():
+        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+
+# Prefer explicit env var BACKUP_DIR, then select_tmp_dir(), then original fallback
+backup_base = os.environ.get('BACKUP_DIR') or select_tmp_dir()
+try:
+    os.makedirs(backup_base, exist_ok=True)
+except Exception:
+    backup_base = original_backup_dir  # fallback to original if creation fails
+
+# Use backup_base for subsequent writes
+
+Notes:
+- Apply to dev_tools/* scripts that currently write into repo tree (e.g., dev_tools/database_setup.py, dev_tools/retention_and_rotate.py)
+
+*** End dry-run patch

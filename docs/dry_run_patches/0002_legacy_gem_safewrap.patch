@@ -1,0 +1,40 @@
+*** Dry-run patch for Document_Scanner_Ollama_outdated/document_processor_gem.py
+- Goal: show a templated safe-wrap for calls that create directories or write files in legacy scripts.
+- This is a dry-run file; it does not modify source.
+
+Example replacement guidance for patterns like:
+    os.makedirs(destination_dir, exist_ok=True)
+    shutil.copy2(source_pdf_path, original_copy_path)
+
+Replace with:
+    # Safe output resolution: prefer explicit env, then TEST_TMPDIR/TMPDIR, then temp dir, then original destination
+    try:
+        from doc_processor.utils.path_utils import select_tmp_dir
+        safe_base = select_tmp_dir()
+    except Exception:
+        import tempfile
+        safe_base = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+
+    # If this script intentionally writes into project/archival dirs, prefer explicit ARCHIVE_DIR env first
+    archive_env = os.environ.get('ARCHIVE_DIR')
+    if archive_env:
+        archive_dest = archive_env
+    else:
+        # Map original destination into safe_base to avoid writing into repo tree during tests
+        archive_dest = os.path.join(safe_base, os.path.basename(destination_dir))
+
+    try:
+        os.makedirs(archive_dest, exist_ok=True)
+    except Exception:
+        # best-effort fallback: try original destination (may raise)
+        archive_dest = destination_dir
+        os.makedirs(archive_dest, exist_ok=True)
+
+    # Use archive_dest for subsequent writes/copies
+    shutil.copy2(source_pdf_path, os.path.join(archive_dest, os.path.basename(source_pdf_path)))
+
+Notes:
+- This template preserves behavior when ARCHIVE_DIR env var is provided.
+- Use this approach for legacy scripts where changing logic safely requires mapping to a temporary area in tests.
+
+*** End dry-run patch

@@ -108,8 +108,28 @@ except Exception as e:
 
 # Define a log file path:
 # This log file will record application events, debug messages, and errors.
-# It's placed in the same directory as the script for easy access.
-LOG_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sd_card_imager_error.log")
+# Prefer explicit env var overrides for tests/CI. Fallbacks:
+# 1) env SDCARD_IMAGER_LOG or LOG_FILE_PATH
+# 2) TEST_TMPDIR/TMPDIR + 'sd_card_imager_error.log'
+# 3) repo-local default: tools/sdcard_imager/sd_card_imager_error.log
+_env_log = os.environ.get('SDCARD_IMAGER_LOG') or os.environ.get('LOG_FILE_PATH')
+_test_tmp = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR')
+if _env_log:
+    LOG_FILE_PATH = _env_log
+elif _test_tmp:
+    LOG_FILE_PATH = os.path.join(_test_tmp, 'sd_card_imager_error.log')
+else:
+    LOG_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sd_card_imager_error.log")
+
+
+def _ensure_log_dir():
+    try:
+        os.makedirs(os.path.dirname(LOG_FILE_PATH), exist_ok=True)
+    except Exception:
+        # Best-effort: if we can't create the dir, logging will fallback to console
+        pass
+
+_ensure_log_dir()
 
 def log_message(message, level="INFO"):
     """
@@ -546,7 +566,7 @@ class SDCardImager(tk.Tk):
         Gets the total size of a raw disk device using the Windows API DeviceIoControl.
         This function directly calls kernel32.dll to query disk length information.
         Args:
-            drive_path (str): The raw path to the drive (e.g., "\\.\D:").
+            drive_path (str): The raw path to the drive (platform-specific raw device path for the target drive).
         Returns:
             int or None: The total size of the drive in bytes, or None if an error occurs.
         """

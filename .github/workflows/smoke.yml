@@ -1,0 +1,33 @@
+name: Smoke tests (non-E2E)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: [3.11, 3.12]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Create TEST_TMPDIR
+        run: |
+          echo "TEST_TMPDIR=$(mktemp -d)" >> $GITHUB_ENV
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r doc_processor/requirements.txt
+      - name: Run non-E2E tests
+        working-directory: doc_processor
+        env:
+          TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
+        run: |
+          pytest -q -k "not e2e and not playwright"

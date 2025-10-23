@@ -15,6 +15,7 @@ from ..config_manager import app_config
 from ..database import get_db_connection
 from ..processing import database_connection
 from ..batch_guard import get_or_create_intake_batch
+from ..utils.path_utils import select_tmp_dir
 import logging
 import json
 import os
@@ -24,13 +25,7 @@ from pathlib import Path
 intake_bp = Blueprint('intake', __name__)
 
 
-def _select_tmp_dir() -> str:
-    """Select a temporary directory: TEST_TMPDIR -> TMPDIR -> system tempdir -> cwd."""
-    try:
-        import tempfile
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
-    except Exception:
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+# use shared select_tmp_dir from utils.path_utils
 
 
 def _resolve_working_pdf_path(original_filename: str) -> str:
@@ -52,7 +47,7 @@ def _resolve_working_pdf_path(original_filename: str) -> str:
     orig_path = os.path.join(app_config.INTAKE_DIR, original_filename)
     stem = Path(original_filename).stem
     ext = Path(original_filename).suffix.lower()
-    tmp_dir = _select_tmp_dir()
+    tmp_dir = select_tmp_dir()
     try:
         os.makedirs(tmp_dir, exist_ok=True)
     except Exception:
@@ -180,7 +175,7 @@ def analyze_intake_page():
             # during tests. Only purge when no cache is present.
             import tempfile
             import os as _os
-            cache_file = _os.path.join(_select_tmp_dir(), 'intake_analysis_cache.pkl')
+            cache_file = _os.path.join(select_tmp_dir(), 'intake_analysis_cache.pkl')
             if _os.path.exists(cache_file):
                 logging.info("Skipping cache purge because analysis cache exists (avoids race)")
             else:
@@ -197,7 +192,7 @@ def analyze_intake_page():
     try:
         import tempfile
         import pickle
-        cache_file = os.path.join(_select_tmp_dir(), 'intake_analysis_cache.pkl')
+        cache_file = os.path.join(select_tmp_dir(), 'intake_analysis_cache.pkl')
         if os.path.exists(cache_file):
             with open(cache_file, 'rb') as f:
                 cached_analyses = pickle.load(f)
@@ -279,7 +274,7 @@ def analyze_intake_progress():
             # Clean up any old converted PDFs to ensure fresh start
             import tempfile
             import glob
-            temp_dir = _select_tmp_dir()
+            temp_dir = select_tmp_dir()
             old_converted_pdfs = glob.glob(os.path.join(temp_dir, "*_converted.pdf"))
             for old_pdf in old_converted_pdfs:
                 try:
@@ -607,7 +602,7 @@ def intake_viewer_ready():
         import tempfile
         import os
         import pickle
-        cache_file = os.path.join(_select_tmp_dir(), 'intake_analysis_cache.pkl')
+        cache_file = os.path.join(select_tmp_dir(), 'intake_analysis_cache.pkl')
         if os.path.exists(cache_file):
             try:
                 with open(cache_file, 'rb') as f:

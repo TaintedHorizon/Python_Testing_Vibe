@@ -1,0 +1,19 @@
+*** Dry-run patch for tools/sdcard_imager/SDCardImager.py (review)
+- Goal: ensure log file path is configurable/test-safe and log dir is created before writing.
+
+Existing behavior: used a repo-local path for error log. Earlier we updated it to prefer env SDCARD_IMAGER_LOG or LOG_FILE_PATH then TEST_TMPDIR/TMPDIR; include as a dry-run review artifact.
+
+Suggested snippet (already applied):
+    _env_log = os.environ.get('SDCARD_IMAGER_LOG') or os.environ.get('LOG_FILE_PATH')
+    _test_tmp = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR')
+    LOG_FILE_PATH = _env_log or (os.path.join(_test_tmp, 'sd_card_imager_error.log') if _test_tmp else os.path.join(os.path.dirname(__file__), 'sd_card_imager_error.log'))
+    # ensure log dir
+    try:
+        os.makedirs(os.path.dirname(LOG_FILE_PATH), exist_ok=True)
+    except Exception:
+        pass
+
+Notes:
+- This was already patched. Keep as-is.
+
+*** End dry-run patch

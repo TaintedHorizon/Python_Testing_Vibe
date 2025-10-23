@@ -14,8 +14,7 @@ from tkinter import ttk # Tkinter "themed widgets" extension, providing more mod
 import threading # Used to run the download process in a separate thread, preventing the GUI from freezing.
 import re # Used for regular expressions, specifically for filename sanitization.
 import tempfile # Provides functions for creating temporary files and directories.
-def _select_tmp_dir():
-    return os.environ.get('DOWNLOAD_MANAGER_DIR') or os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+from doc_processor.utils.path_utils import select_tmp_dir
 
 # --- Configuration Constants ---
 # These constants define various parameters for the downloader, making them easy to adjust.
@@ -415,8 +414,8 @@ class DownloaderApp:
         self.dir_entry = tk.Entry(master, width=50) # Entry widget for download directory path.
         self.dir_entry.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
 
-    # Prefill download directory with safe default (env var or TEST_TMPDIR/TMPDIR or system temp)
-    safe_default_dir = _select_tmp_dir()
+        # Prefill download directory with safe default (env var or TEST_TMPDIR/TMPDIR or system temp)
+        safe_default_dir = select_tmp_dir()
         self.dir_entry.insert(0, safe_default_dir)
 
         self.browse_button = tk.Button(master, text="Browse", command=self.browse_directory)

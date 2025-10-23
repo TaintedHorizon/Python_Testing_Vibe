@@ -31,12 +31,16 @@ logger = logging.getLogger(__name__)
 
 
 def _select_tmp_dir() -> str:
-    """Select a temporary directory: TEST_TMPDIR -> TMPDIR -> system tempdir -> cwd."""
     try:
-        import tempfile
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+        from doc_processor.utils.path_utils import select_tmp_dir
     except Exception:
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+        def select_tmp_dir() -> str:
+            try:
+                import tempfile
+                return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+            except Exception:
+                return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+    return select_tmp_dir()
 
 @bp.route('/db_diagnostics')
 def db_diagnostics():

@@ -114,16 +114,16 @@ sys.excepthook = log_uncaught_exceptions
 import logging
 
 
-def _select_tmp_dir() -> str:
-    """Select a temporary directory with test-friendly precedence.
-
-    Precedence: TEST_TMPDIR -> TMPDIR -> system tempfile.gettempdir() -> cwd
-    """
-    try:
-        import tempfile as _temp
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
-    except Exception:
-        return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
+try:
+    from doc_processor.utils.path_utils import select_tmp_dir  # type: ignore
+except Exception:
+    # Conservative fallback to preserve original behavior if import fails
+    def select_tmp_dir() -> str:
+        try:
+            import tempfile
+            return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+        except Exception:
+            return os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or os.getcwd()
 
 # Third-party imports
 from flask import (
@@ -450,7 +450,7 @@ def clear_analysis_cache():
     """Clear the cached analysis results to force re-analysis."""
     try:
         # Prefer test-scoped tmpdir helper
-        tmpdir = _select_tmp_dir()
+        tmpdir = select_tmp_dir()
         try:
             os.makedirs(tmpdir, exist_ok=True)
         except Exception:
@@ -579,7 +579,7 @@ def analyze_intake_progress():
 
             # Cache the results for future use to avoid re-analysis
             import pickle
-            tmpdir = _select_tmp_dir()
+            tmpdir = select_tmp_dir()
             try:
                 os.makedirs(tmpdir, exist_ok=True)
             except Exception:
@@ -825,7 +825,7 @@ def api_smart_processing_progress():
                 # Try to load cached analysis results
                 import pickle
                 # Cache file: prefer INTAKE_CACHE_DIR env var, otherwise use test-aware tmpdir
-                cache_dir = os.environ.get('INTAKE_CACHE_DIR') or _select_tmp_dir()
+                cache_dir = os.environ.get('INTAKE_CACHE_DIR') or select_tmp_dir()
                 try:
                     os.makedirs(cache_dir, exist_ok=True)
                 except Exception:
@@ -1157,7 +1157,7 @@ def api_smart_processing_start():
 
             # Load cached analysis
             import pickle
-            cache_dir = os.environ.get('INTAKE_CACHE_DIR') or _select_tmp_dir()
+            cache_dir = os.environ.get('INTAKE_CACHE_DIR') or select_tmp_dir()
             try:
                 os.makedirs(cache_dir, exist_ok=True)
             except Exception:
@@ -1344,7 +1344,7 @@ def api_smart_processing_progress_with_strategy(force_strategy=None):
                 # Smart mode - load cached analysis results
                 try:
                     import pickle
-                    cache_dir = os.environ.get('INTAKE_CACHE_DIR') or _select_tmp_dir()
+                    cache_dir = os.environ.get('INTAKE_CACHE_DIR') or select_tmp_dir()
                     try:
                         os.makedirs(cache_dir, exist_ok=True)
                     except Exception:
