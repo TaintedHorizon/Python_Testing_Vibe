@@ -60,23 +60,31 @@ def main():
     print("🔍 Validating Python_Testing_Vibe environment...")
     print("📋 Checking patterns from .github/copilot-instructions.md\n")
 
-    #!/usr/bin/env python3
-    """
-    Shim wrapper: call the moved `scripts.validate_environment` implementation.
+    issues, warnings = check_environment()
 
-    This small shim keeps `validate_environment.py` importable/executable from the repo root
-    for discovery while the canonical implementation lives in `scripts/validate_environment.py`.
-    """
+    if issues:
+        print("🚨 CRITICAL ISSUES:")
+        for issue in issues:
+            print(f"  {issue}")
+        print()
 
-    from importlib import import_module
-    import sys
+    if warnings:
+        print("⚠️ WARNINGS:")
+        for warning in warnings:
+            print(f"  {warning}")
 
-    def main():
-        mod = import_module("scripts.validate_environment")
-        if hasattr(mod, "main"):
-            return mod.main()
-        print("Error: scripts.validate_environment does not expose main()")
-        return 2
+    if not issues and not warnings:
+        print("✅ Environment validation passed!")
+        print("🎯 All critical patterns are correctly configured.")
+    elif not issues:
+        print("✅ No critical issues found.")
+        print("💡 Address warnings for optimal setup.")
+    else:
+        print("❌ Critical issues found - see .github/copilot-instructions.md")
+        return 1
 
-    if __name__ == "__main__":
-        raise SystemExit(main())
+    print("\n📖 For AI assistants: Follow patterns in .github/copilot-instructions.md")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
