@@ -1,6 +1,81 @@
 """
 Dry-run wrapper for `doc_processor.dev_tools.find_databases`.
 
+Ensures DB search/backup locations are test-scoped and delegates.
+"""
+import os
+import tempfile
+
+try:
+    from doc_processor.utils.path_utils import select_tmp_dir, ensure_dir
+except Exception:
+    def select_tmp_dir() -> str:
+        return os.environ.get("TEST_TMPDIR") or os.environ.get("TMPDIR") or tempfile.gettempdir()
+
+    def ensure_dir(p: str) -> None:
+        os.makedirs(p, exist_ok=True)
+
+
+base = os.environ.get("TEST_TMPDIR") or select_tmp_dir()
+ensure_dir(base)
+
+os.environ.setdefault("DB_SEARCH_DIR", base)
+os.environ.setdefault("DB_BACKUP_DIR", os.path.join(base, "db_backups"))
+
+
+def _main() -> int:
+    from importlib import import_module
+
+    mod = import_module("doc_processor.dev_tools.find_databases")
+    if hasattr(mod, "main"):
+        return mod.main()
+    if hasattr(mod, "run"):
+        return mod.run()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
+"""
+Dry-run wrapper for `doc_processor.dev_tools.find_databases`.
+
+Ensures any search/copy paths point inside a TEST_TMPDIR-local area to avoid
+enumerating or copying production DB files during tests.
+"""
+
+import os
+import tempfile
+
+try:
+    from doc_processor.utils.path_utils import select_tmp_dir
+except Exception:
+    def select_tmp_dir() -> str:
+        return os.environ.get("TEST_TMPDIR") or os.environ.get("TMPDIR") or tempfile.gettempdir()
+
+base = os.environ.get("TEST_TMPDIR") or select_tmp_dir()
+os.makedirs(base, exist_ok=True)
+
+os.environ.setdefault("DB_SEARCH_BASE", os.path.join(base, "db_search"))
+os.environ.setdefault("DB_BACKUP_DIR", os.path.join(base, "db_backups"))
+
+def _main() -> int:
+    from importlib import import_module
+
+    mod = import_module("doc_processor.dev_tools.find_databases")
+    if hasattr(mod, "main"):
+        result = mod.main()
+        return int(result or 0)
+    if hasattr(mod, "run"):
+        result = mod.run()
+        return int(result or 0)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
+"""
+Dry-run wrapper for `doc_processor.dev_tools.find_databases`.
+
 This wrapper ensures any scanning artifacts or backups remain under TEST_TMPDIR.
 """
 import os
