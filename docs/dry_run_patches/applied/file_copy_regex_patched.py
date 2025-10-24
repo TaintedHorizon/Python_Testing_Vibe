@@ -1,4 +1,42 @@
 """
+Dry-run wrapper for `tools/file_utils/file_copy_regex.py`.
+
+Routes any copy targets to TEST_TMPDIR and delegates to the original module.
+"""
+import os
+import tempfile
+
+try:
+    from doc_processor.utils.path_utils import select_tmp_dir, ensure_dir
+except Exception:
+    def select_tmp_dir() -> str:
+        return os.environ.get("TEST_TMPDIR") or os.environ.get("TMPDIR") or tempfile.gettempdir()
+
+    def ensure_dir(p: str) -> None:
+        os.makedirs(p, exist_ok=True)
+
+
+base = os.environ.get("TEST_TMPDIR") or select_tmp_dir()
+ensure_dir(base)
+
+# Default destination for copy operations when not explicitly provided
+os.environ.setdefault("FILE_COPY_DEST", os.path.join(base, "file_copy_dest"))
+
+
+def _main() -> int:
+    from importlib import import_module
+
+    mod = import_module("tools.file_utils.file_copy_regex")
+    if hasattr(mod, "main"):
+        return mod.main()
+    if hasattr(mod, "run"):
+        return mod.run()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
+"""
 Dry-run wrapper for tools/file_utils/file_copy_regex.py
 
 Purpose: ensure the script writes to a test-safe destination during CI/tests by setting
