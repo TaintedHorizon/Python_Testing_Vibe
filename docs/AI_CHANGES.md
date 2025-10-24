@@ -1,3 +1,4 @@
+````markdown
 # AI Changes Manifest
 
 Date: 2025-10-21
@@ -114,3 +115,5 @@ Files changed:
 
 If you want per-file patches included inline here, I can expand each commit's patch into the manifest (this will make `AI_CHANGES.md` considerably larger). Say "include diffs" and I'll append the full patches for each commit.
 
+
+````

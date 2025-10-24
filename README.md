@@ -156,6 +156,23 @@ This map lists active, support, legacy, and runtime directories/files for fast o
 
 Legend: Core = essential runtime; Support = ancillary active; Legacy = historical only; Runtime Dir = generated/working; Service/Route/Template = layered architecture components.
 
+### Project layout (short)
+
+If you want a quick orientation, here's the short canonical layout used by this repository:
+
+- `doc_processor/` — The main application package. All runtime code, blueprints, services, templates, and app-scoped dev tools live here.
+- `docs/` — Project documentation, audit artifacts, and non-runtime manuals.
+- `scripts/` — Small, user-facing executable helpers (e.g., `validate_environment.py`, local test/run helpers).
+- `ci/` — CI entrypoints and smoke scripts used by local and CI verification.
+- `dev_tools/` — Repository-level maintenance scripts (cleanup, rotation, retention). App-specific helpers remain under `doc_processor/dev_tools/`.
+- `tools/` — Independent utility projects and long-lived helper utilities.
+- `archive/` — Legacy code and historical backups; not maintained for production use.
+
+Notes:
+- Keep `doc_processor/` focused on runtime concerns. If a script touches the app internals (DB, migrations, schema), put it under `doc_processor/dev_tools/`.
+- Keep high-level configs (`.gitignore`, `Makefile`, `pytest.ini`, `pyrightconfig.json`) at the repository root for quick discovery.
+- Small root shims (thin wrappers) are acceptable for discoverability, but prefer canonical implementations under `scripts/`, `doc_processor/`, or `docs/`.
+
 > Cleanup candidates after stability window: unused `archive/` dir (after confirming no workflow dependency).
 
 ### 🏠 Main Projects
