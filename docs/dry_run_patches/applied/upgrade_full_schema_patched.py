@@ -1,4 +1,89 @@
 """
+Dry-run wrapper for `doc_processor.dev_tools.upgrade_full_schema`.
+
+Sets test-scoped database paths and delegates to the original module.
+"""
+import os
+import tempfile
+
+try:
+    from doc_processor.utils.path_utils import select_tmp_dir, ensure_dir
+except Exception:  # pragma: no cover - best-effort fallback
+    def select_tmp_dir() -> str:
+        return os.environ.get("TEST_TMPDIR") or os.environ.get("TMPDIR") or tempfile.gettempdir()
+
+    def ensure_dir(p: str) -> None:
+        os.makedirs(p, exist_ok=True)
+
+
+def _ensure_env(var: str, sub: str | None = None) -> str:
+    if var in os.environ and os.environ.get(var):
+        return os.environ[var]
+    base = os.environ.get("TEST_TMPDIR") or select_tmp_dir()
+    path = os.path.join(base, sub or "db")
+    ensure_dir(path)
+    os.environ.setdefault(var, path)
+    return os.environ[var]
+
+
+# Prefer an explicit DATABASE_PATH; otherwise use a test DB in TEST_TMPDIR
+base = os.environ.get("TEST_TMPDIR") or select_tmp_dir()
+_ensure_env("DB_BACKUP_DIR", "db_backups")
+if "DATABASE_PATH" not in os.environ:
+    os.environ["DATABASE_PATH"] = os.path.join(base, "documents_upgrade_test.db")
+
+
+def _main() -> int:
+    from importlib import import_module
+
+    mod = import_module("doc_processor.dev_tools.upgrade_full_schema")
+    if hasattr(mod, "main"):
+        return mod.main()
+    if hasattr(mod, "run"):
+        return mod.run()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
+"""
+Dry-run wrapper for `doc_processor.dev_tools.upgrade_full_schema`.
+
+Sets database-related paths to test-scoped locations (prefer `TEST_TMPDIR`) before
+delegating to the original module so tests/CI won't touch production databases.
+"""
+from __future__ import annotations
+
+import os
+import tempfile
+
+try:
+    from doc_processor.utils.path_utils import select_tmp_dir
+except Exception:
+    def select_tmp_dir() -> str:  # pragma: no cover - fallback for import-time runs
+        return os.environ.get("TEST_TMPDIR") or os.environ.get("TMPDIR") or tempfile.gettempdir()
+
+base = os.environ.get("TEST_TMPDIR") or select_tmp_dir()
+os.makedirs(base, exist_ok=True)
+
+# Respect an explicit DATABASE_PATH; otherwise point it at a test DB
+os.environ.setdefault("DATABASE_PATH", os.path.join(base, "documents_upgrade_full_schema.db"))
+os.environ.setdefault("DB_BACKUP_DIR", os.path.join(base, "db_backups"))
+
+def _main() -> int:
+    from importlib import import_module
+
+    mod = import_module("doc_processor.dev_tools.upgrade_full_schema")
+    if hasattr(mod, "main"):
+        return mod.main()
+    if hasattr(mod, "run"):
+        return mod.run()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
+"""
 Dry-run wrapper for `doc_processor/dev_tools/upgrade_full_schema.py`.
 
 Sets test-scoped DATABASE_PATH and DB_BACKUP_DIR before importing and re-exports upgrade entrypoints.
