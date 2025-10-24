@@ -1,4 +1,42 @@
 """
+Dry-run wrapper for `tools.download_manager.download_manager`.
+
+Ensures downloads go into TEST_TMPDIR and delegates to the original module.
+"""
+import os
+import tempfile
+
+try:
+    from doc_processor.utils.path_utils import select_tmp_dir, ensure_dir
+except Exception:
+    def select_tmp_dir() -> str:
+        return os.environ.get("TEST_TMPDIR") or os.environ.get("TMPDIR") or tempfile.gettempdir()
+
+    def ensure_dir(p: str) -> None:
+        os.makedirs(p, exist_ok=True)
+
+
+base = os.environ.get("TEST_TMPDIR") or select_tmp_dir()
+download_dir = os.path.join(base, "downloads")
+ensure_dir(download_dir)
+
+os.environ.setdefault("DOWNLOADS_DIR", download_dir)
+
+
+def _main() -> int:
+    from importlib import import_module
+
+    mod = import_module("tools.download_manager.download_manager")
+    if hasattr(mod, "main"):
+        return mod.main()
+    if hasattr(mod, "run"):
+        return mod.run()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
+"""
 Dry-run wrapper for tools/download_manager/download_manager.py
 
 Provides a safe helper `download_files_from_url_safe` that defaults to a test-scoped
