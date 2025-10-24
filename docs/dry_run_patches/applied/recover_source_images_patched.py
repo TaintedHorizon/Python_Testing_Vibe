@@ -1,4 +1,46 @@
 """
+Dry-run wrapper for `doc_processor.dev_tools.recover_source_images`.
+
+This wrapper ensures the environment variables that determine output
+locations are set to TEST_TMPDIR-derived safe paths before delegating to
+the real module. It intentionally does not modify the original module.
+"""
+import os
+
+from doc_processor.utils.path_utils import select_tmp_dir
+
+
+def ensure_env_var_from_test(var_name: str, fallback_subdir: str | None = None) -> str:
+    if var_name in os.environ and os.environ.get(var_name):
+        return os.environ[var_name]
+    base = os.environ.get("TEST_TMPDIR") or select_tmp_dir()
+    if fallback_subdir:
+        path = os.path.join(base, fallback_subdir)
+    else:
+        path = os.path.join(base, "devtools")
+    os.environ.setdefault(var_name, path)
+    return os.environ[var_name]
+
+
+# Ensure the filing cabinet base and recover base are safe for tests
+ensure_env_var_from_test("FILING_CABINET_DIR", "filing_cabinet")
+ensure_env_var_from_test("RECOVER_SOURCE_BASE", "recover_source")
+
+
+def _main() -> int:
+    from importlib import import_module
+
+    mod = import_module("doc_processor.dev_tools.recover_source_images")
+    if hasattr(mod, "main"):
+        return mod.main()
+    if hasattr(mod, "run"):
+        return mod.run()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
+"""
 Dry-run wrapper for `doc_processor/dev_tools/recover_source_images.py`.
 
 Sets test-scoped environment variables before importing and re-exports restore functions.
