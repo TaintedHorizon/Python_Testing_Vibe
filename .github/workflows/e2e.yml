@@ -23,6 +23,14 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-cache-${{ runner.os }}-python-3.12-${{ hashFiles('doc_processor/requirements.txt') }}
+          restore-keys: |
+            pip-cache-${{ runner.os }}-python-
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
