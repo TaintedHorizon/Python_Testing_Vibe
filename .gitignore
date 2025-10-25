@@ -48,6 +48,7 @@ Desktop.ini
 *.log
 log/
 logs/
+ci_logs/
 
 # === Database Files ===
 documents.db
