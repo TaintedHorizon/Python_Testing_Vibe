@@ -64,4 +64,6 @@ pytest-timeout>=2.2.0
 # Playwright is required for E2E UI tests that use browser automation.
 playwright>=1.40.0
 # document_detector: project-local detector used in PDF/image detection tests
-document_detector>=0.0.1
+# Removed from CI requirements because no matching distribution is available on PyPI.
+# If this is a local package, install it in CI via a wheel or VCS reference instead.
+# document_detector>=0.0.1
