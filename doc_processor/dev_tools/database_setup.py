@@ -1,6 +1,7 @@
 # Standard library imports
 import sqlite3
 import os
+from ..utils.path_utils import select_tmp_dir, ensure_dir
 
 # Third-party imports
 from dotenv import load_dotenv
@@ -26,16 +27,20 @@ def create_database():
         except Exception:
             db_path = None
     if not db_path:
-        db_path = os.path.join(os.path.dirname(__file__), '..', 'documents.db')
+        # Prefer test-friendly temporary location when nothing is configured.
+        tmp_base = select_tmp_dir()
+        db_path = os.path.join(tmp_base, 'documents.db')
     print(f"[SETUP] Using database file: {os.path.abspath(db_path)}")
     # Get the directory part of the database path.
     db_dir = os.path.dirname(db_path)
 
     # If a directory is specified in the path (e.g., 'instance/documents.db'),
     # ensure that directory exists. If not, create it.
-    if db_dir and not os.path.exists(db_dir):
-        os.makedirs(db_dir)
-        print(f"Created directory: {db_dir}")
+    if db_dir:
+        # Ensure directory exists using helper which is tolerant in CI/test envs
+        created = ensure_dir(db_dir)
+        if created:
+            print(f"Ensured directory exists: {db_dir}")
 
     from doc_processor.dev_tools.db_connect import connect as db_connect
     conn = None

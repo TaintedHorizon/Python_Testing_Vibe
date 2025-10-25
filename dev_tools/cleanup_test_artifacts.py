@@ -48,7 +48,13 @@ def load_env_paths() -> dict:
     # sensible repo-local defaults (do not overwrite if env provided)
     repo_root = Path(__file__).resolve().parents[1]
     if not keys['DB_BACKUP_DIR']:
-        keys['DB_BACKUP_DIR'] = str(repo_root / 'db_backups')
+        # Use test-friendly tmp location by default to avoid writing into repo during CI/tests
+        try:
+            from doc_processor.utils.path_utils import select_tmp_dir
+            tmp = select_tmp_dir()
+        except Exception:
+            tmp = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or tempfile.gettempdir()
+        keys['DB_BACKUP_DIR'] = str(Path(tmp) / 'db_backups')
     return keys
 
 
@@ -184,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
 
     env_paths = load_env_paths()
     repo_root = Path(__file__).resolve().parents[1]
-    dest_root_val = args.dest if args.dest else env_paths.get('DB_BACKUP_DIR') or str(repo_root / 'db_backups')
+    dest_root_val = args.dest if args.dest else env_paths.get('DB_BACKUP_DIR')
     dest_root = Path(str(dest_root_val))
     if not dest_root.exists():
         try:
