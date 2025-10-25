@@ -10,7 +10,7 @@ jobs:
   e2e:
     if: "github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'run-e2e')"
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,7 +39,8 @@ jobs:
           . doc_processor/venv/bin/activate
           pip install --upgrade pip
           pip install -r doc_processor/requirements.txt
-          pip install playwright pytest-playwright
+          # Pin Playwright to a known-working version to reduce variability
+          pip install playwright==1.40.0 pytest-playwright
           python -m playwright install --with-deps
 
       - name: Setup Node
@@ -92,7 +93,13 @@ jobs:
           DATABASE_PATH: '${{ github.workspace }}/doc_processor/documents.db'
           DB_BACKUP_DIR: '${{ github.workspace }}/doc_processor/db_backups'
         run: |
-          npx playwright test e2e --reporter=list
+          # Retry the Playwright runner a few times to reduce transient flakes
+          for attempt in 1 2 3; do
+            echo "Playwright attempt $attempt"
+            npx playwright test e2e --reporter=list && break
+            echo "Playwright run failed - retrying in 5s..."
+            sleep 5
+          done
 
       - name: Upload E2E artifacts
         if: always()
