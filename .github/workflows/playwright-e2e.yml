@@ -1,14 +1,14 @@
 name: Playwright E2E (live server)
 
+# Manual/label-triggered only: avoid running Playwright on every push/PR.
 on:
-  pull_request:
-    branches: [ main, '**' ]
-  push:
-    branches: [ '**' ]
   workflow_dispatch: {}
+  pull_request:
+    types: [opened, labeled]
 
 jobs:
   e2e:
+    if: "github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'run-e2e')"
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:

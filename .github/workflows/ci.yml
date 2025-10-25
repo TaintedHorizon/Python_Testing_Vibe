@@ -6,5 +6,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure TEST_TMPDIR is configured
+        run: |
+          echo "[ci] running test tmpdir check"
+          bash ci/check_test_tmpdir.sh
       - name: Print
         run: echo "ci minimal test"
