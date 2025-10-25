@@ -458,6 +458,8 @@ Contributions are welcome! Each project maintains its own contributing guideline
 
 <!-- ci-trigger: noop commit to retrigger workflows on 2025-10-25 -->
 
+<!-- ci-retrigger: additional noop to force Actions re-evaluation on branch chore/cleanup-workflows -->
+
 ## License
 
 This repository is licensed under the MIT License. See [LICENSE](LICENSE) for details.
