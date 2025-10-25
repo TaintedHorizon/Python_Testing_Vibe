@@ -450,17 +450,13 @@ cd tools/<specific_tool>
 
 Small housekeeping performed during the test-safety rollout:
 
-- Archived dry-run wrapper patches to `docs/dry_run_patches/archive/` and cleared `docs/dry_run_patches/applied/`.
-- Moved temporary/duplicate workflow YAMLs into `.github/workflows/archive/` to reduce noise in active workflows.
-- Added a canonical test-temp helper and CI safety check: see `doc_processor/utils/path_utils.py` and `ci/check_test_tmpdir.sh`.
-- Smoke harness for quick local validation: `ci/smoke.sh` (runs pytest non-E2E subset using `TEST_TMPDIR`).
 
 See PR #32 for the cleanup commit and CI run: https://github.com/TaintedHorizon/Python_Testing_Vibe/pull/32
 
 Contributions are welcome! Each project maintains its own contributing guidelines:
 
-- **doc_processor**: See `doc_processor/CONTRIBUTING.md`
-- **General**: Follow standard Python conventions and add tests where applicable
+
+<!-- ci-trigger: noop commit to retrigger workflows on 2025-10-25 -->
 
 ## License
 
