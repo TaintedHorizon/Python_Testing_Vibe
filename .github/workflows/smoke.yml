@@ -45,6 +45,10 @@ jobs:
         run: |
           echo "Running pytest --collect-only (writes collect-output.txt)"
           pytest --collect-only -q > collect-output.txt 2>&1 || true
+      - name: Sanity check - import top-level shims
+        run: |
+          echo "Sanity: try importing top-level shims (document_detector)"
+          python -c "import document_detector; print('document_detector OK')" || true
       - name: Upload collect-only artifact
         if: always()
         uses: actions/upload-artifact@v4
