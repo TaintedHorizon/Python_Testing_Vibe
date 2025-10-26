@@ -41,6 +41,7 @@ jobs:
         working-directory: doc_processor
         env:
           TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           echo "Running pytest --collect-only (writes collect-output.txt)"
           pytest --collect-only -q > collect-output.txt 2>&1 || true
@@ -54,5 +55,6 @@ jobs:
         working-directory: doc_processor
         env:
           TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           pytest -q -k "not e2e and not playwright"
