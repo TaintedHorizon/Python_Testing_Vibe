@@ -32,6 +32,19 @@ jobs:
         run: |
           echo "Running quick python syntax check for doc_processor tests"
           python -m py_compile $(find doc_processor -name "*.py") || true
+      - name: Pytest collect-only (diagnostics)
+        working-directory: doc_processor
+        env:
+          TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
+        run: |
+          echo "Running pytest --collect-only (writes collect-output.txt)"
+          pytest --collect-only -q > collect-output.txt 2>&1 || true
+      - name: Upload collect-only artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-collect-output
+          path: doc_processor/collect-output.txt
       - name: Install deps
         run: |
           python -m pip install --upgrade pip

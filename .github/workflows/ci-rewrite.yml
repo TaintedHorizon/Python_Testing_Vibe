@@ -34,6 +34,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r doc_processor/requirements.txt
+      - name: Pytest collect-only (diagnostics)
+        working-directory: doc_processor
+        run: |
+          echo "Running pytest --collect-only (writes collect-output.txt)"
+          pytest --collect-only -q > collect-output.txt 2>&1 || true
+      - name: Upload collect-only artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-rewrite-collect-output
+          path: doc_processor/collect-output.txt
       - name: Run tests (fast vs full)
         run: |
           if [ "${{ matrix.mode }}" = "fast" ]; then
