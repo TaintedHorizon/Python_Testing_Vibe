@@ -9,6 +9,8 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     strategy:
       matrix:
         python: [3.11, 3.12]
@@ -37,24 +39,43 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pytest
           python -m pip install -r doc_processor/requirements.txt
-      - name: Pytest collect-only (diagnostics)
-        working-directory: doc_processor
-        env:
-          TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
-          PYTHONPATH: ${{ github.workspace }}
-        run: |
-          echo "Running pytest --collect-only (writes collect-output.txt)"
-          pytest --collect-only -q > collect-output.txt 2>&1 || true
       - name: Sanity check - import top-level shims
         run: |
           echo "Sanity: try importing top-level shims (document_detector)"
           python -c "import document_detector; print('document_detector OK')" || true
+      - name: Pytest collect-only (diagnostics)
+        working-directory: doc_processor
+        env:
+          TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
+        run: |
+          echo "Running pytest --collect-only (writes collect-output.txt)"
+          pytest --collect-only -q > collect-output.txt 2>&1 || true
       - name: Upload collect-only artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-collect-output-${{ matrix.python }}
           path: doc_processor/collect-output.txt
+      - name: Post collect-output to PR (tail)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const pr = context.payload.pull_request.number;
+            const path = 'doc_processor/collect-output.txt';
+            if (fs.existsSync(path)) {
+              const content = fs.readFileSync(path, 'utf8');
+              const lines = content.split('\n');
+              const tail = lines.slice(-800).join('\n');
+              const body = `### pytest collect-only output (last 800 lines)\n\n\`\`\`\n${tail}\n\`\`\``;
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr,
+                body
+              });
+            }
       - name: Run non-E2E tests
         working-directory: doc_processor
         env:
