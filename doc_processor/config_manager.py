@@ -8,7 +8,19 @@ See .github/copilot-instructions.md - NEVER import from old 'config.py'
 import os
 from dataclasses import dataclass
 from typing import Optional
-from dotenv import load_dotenv
+try:
+    # Prefer the real package when available
+    from dotenv import load_dotenv  # type: ignore
+except Exception:
+    # Fallback to the local shim in CI/test environments where python-dotenv
+    # is not installed. This keeps the repo root clean and places shims under
+    # the doc_processor package namespace.
+    try:
+        from doc_processor._shims.dotenv import load_dotenv  # type: ignore
+    except Exception:
+        # As a final fallback provide a tiny inline shim (best-effort no-op)
+        def load_dotenv(dotenv_path=None, **kwargs):
+            return False
 import logging
 import threading
 
