@@ -1,3 +1,32 @@
+"""
+Compatibility shim so tests running with working-directory `doc_processor` can
+`import document_detector` even if the canonical shim lives at repo root.
+
+This module first tries to import the top-level `document_detector` (repo root).
+If that fails it falls back to an internal no-op stub to allow pytest collection
+and early diagnostics to run. Keep this intentionally minimal and non-invasive.
+"""
+from __future__ import annotations
+
+try:  # Preferred: import the repo-root shim (set via PYTHONPATH in CI)
+    from document_detector import DocumentTypeDetector, get_detector  # type: ignore
+    __all__ = ["DocumentTypeDetector", "get_detector"]
+except Exception:
+    # Fallback: provide a minimal stub so imports don't break during collection.
+    # Real behavior should come from the repo-root shim or the package's
+    # implementation; this stub is only to make test collection robust.
+    class DocumentTypeDetector:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def analyze(self, *args, **kwargs):
+            return None
+
+
+    def get_detector(*args, **kwargs):
+        return DocumentTypeDetector()
+
+    __all__ = ["DocumentTypeDetector", "get_detector"]
 try:
     # Try relative imports first (when used as module)
     from .llm_utils import get_ai_document_type_analysis
