@@ -39,10 +39,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pytest
           python -m pip install -r doc_processor/requirements.txt
-      - name: Sanity check - import top-level shims
+      - name: Sanity check - import top-level shims (fail-fast)
         run: |
           echo "Sanity: try importing top-level shims (document_detector)"
-          python -c "import document_detector; print('document_detector OK')" || true
+          # Fail fast if top-level shims are missing so CI errors are easier to triage
+          python -c "import document_detector, sys; print('document_detector OK', sys.path)"
       - name: Pytest collect-only (diagnostics)
         working-directory: doc_processor
         env:
@@ -82,4 +83,7 @@ jobs:
           TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
           PYTHONPATH: ${{ github.workspace }}
         run: |
+          # Extra debug import step to expose import path issues quickly in logs
+          echo "Debug: PYTHONPATH=$PYTHONPATH"
+          python -c "import sys, document_detector; print('debug import OK', document_detector, sys.path)" 
           pytest -q -k "not e2e and not playwright"
