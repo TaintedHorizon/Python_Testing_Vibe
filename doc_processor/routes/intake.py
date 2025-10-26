@@ -402,14 +402,15 @@ def analyze_intake_progress():
                 # counters (pdf_progress/pdf_total) so the UI can show a
                 # user-friendly "X of Y PDFs" message while internal logic can
                 # still track convert+analyze operations.
-                yield f"data: {json.dumps({
+                payload = {
                     'progress': current_operation,
                     'total': total_operations,
-                    'pdf_progress': i+1,
+                    'pdf_progress': i + 1,
                     'pdf_total': total_pdfs,
                     'current_file': pdf_name,
                     'message': f'Analyzing PDF {i+1}/{total_pdfs}: {pdf_name}...'
-                })}\n\n"
+                }
+                yield f"data: {json.dumps(payload)}\n\n"
 
                 # Analyze the standardized PDF
                 analysis = detector.analyze_pdf(pdf_path)
