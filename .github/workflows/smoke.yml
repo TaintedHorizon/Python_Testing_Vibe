@@ -221,10 +221,14 @@ jobs:
           # doesn't import heavy e2e-only modules like playwright during
           # collection. We'll rename rather than delete to be safe.
           if [ -d "tests/e2e" ]; then
-            mv tests/e2e tests/.e2e_ignored || true
+            # Move e2e tests outside the repository (into /tmp) so pytest
+            # cannot discover them. Using /tmp prevents pytest from treating
+            # the directory as part of the package tree (relative imports
+            # inside those tests will not be attempted during collection).
+            mv tests/e2e /tmp/e2e_ignored || true
           fi
           if [ -d "doc_processor/tests/e2e" ]; then
-            mv doc_processor/tests/e2e doc_processor/tests/.e2e_ignored || true
+            mv doc_processor/tests/e2e /tmp/doc_processor_e2e_ignored || true
           fi
           # If a wheelhouse was downloaded into ./.wheelhouse, install heavy deps from it.
           # Also ensure the job python matches the wheelhouse (3.11) to avoid
