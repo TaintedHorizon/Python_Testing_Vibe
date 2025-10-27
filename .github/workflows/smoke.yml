@@ -173,7 +173,7 @@ jobs:
             echo "Installing heavy deps from wheelhouse"
             python -m pip install --no-index --find-links ./.wheelhouse -r requirements-heavy.txt || true
           fi
-          pytest -q -k "not e2e and not playwright"
+          pytest -q -k "not e2e and not playwright" --ignore=doc_processor/tests/e2e
 
       # Note: label check and artifact download/unpack are performed earlier in the
       # workflow (before the test run) so the test step can see the wheel files.
