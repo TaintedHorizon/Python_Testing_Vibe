@@ -203,6 +203,12 @@ jobs:
           RUN_HEAVY_DEPS: ${{ env.RUN_HEAVY_DEPS }}
           MATRIX_PYTHON: ${{ matrix.python }}
         run: |
+          # Turn off FAST_TEST_MODE/CI_SKIP_HEAVY_IMPORTS for the actual test
+          # run so code can import real runtime modules. These were set true
+          # earlier to avoid import-time crashes during pytest collection.
+          export FAST_TEST_MODE=false
+          export CI_SKIP_HEAVY_IMPORTS=false
+
           # If this PR requests heavy deps via the `run-heavy-deps` label, the
           # wheelhouse artifact has already been downloaded and unpacked into ./.wheelhouse
           if [ "$RUN_HEAVY_DEPS" = "true" ]; then
@@ -245,7 +251,18 @@ jobs:
               echo "numpy not importable after wheelhouse install — installing from PyPI"
               python -m pip install --prefer-binary numpy==1.26.4 || true
             }
+            # Ensure pytesseract (python wrapper) is available for tests that
+            # monkeypatch it. The real tesseract binary is not required for
+            # those tests because they patch the functions.
+            python -c "import pytesseract" 2>/dev/null || {
+              echo "pytesseract not installed — installing from PyPI"
+              python -m pip install pytesseract || true
+            }
           fi
+          # As a final defensive install, if tests expect PIL.Image to be
+          # available ensure Pillow is installed (requirements-ci usually
+          # installs it, but double-check).
+          python -c "from PIL import Image" 2>/dev/null || python -m pip install Pillow || true
           pytest -q -k "not e2e and not playwright" --ignore=doc_processor/tests/e2e
           # Also ignore a potential alternate relative path for e2e tests
           # (defensive - some CI runners use a different working directory)
