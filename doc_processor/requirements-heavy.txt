@@ -1,0 +1,11 @@
+# Heavy dependencies for wheelhouse generation
+# Put packages here that are expensive or platform-specific (torch, triton, xformers, etc.)
+# NOTE: Many of these require platform-specific wheels (CUDA variants) or additional index URLs.
+# Example entries (uncomment and pin as needed for your platform):
+# torch==2.2.0+cu118
+# triton==2.0.0
+# xformers==0.0.16
+# fairscale==0.4.13
+# faiss-cpu==1.7.3
+
+# Add other heavy, slow-to-install packages below.
