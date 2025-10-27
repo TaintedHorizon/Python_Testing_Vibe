@@ -107,6 +107,12 @@ jobs:
             find ./.wheelhouse/extracted -type f -name '*.whl' -exec mv -f {} ./.wheelhouse/ \;
             rm -rf ./.wheelhouse/extracted
           fi
+          # Also make wheels available inside doc_processor working dir so later
+          # `working-directory: doc_processor` steps can find them at ./ .wheelhouse
+          if [ -d ./.wheelhouse ]; then
+            mkdir -p doc_processor/.wheelhouse
+            find ./.wheelhouse -type f -name '*.whl' -exec cp -f {} doc_processor/.wheelhouse/ \;
+          fi
 
       - name: Run non-E2E tests
         working-directory: doc_processor
@@ -136,19 +142,5 @@ jobs:
           fi
           pytest -q -k "not e2e and not playwright"
 
-      - name: Check for run-heavy-deps label (PRs only)
-        if: github.event_name == 'pull_request'
-        id: check_label
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const labels = context.payload.pull_request.labels.map(l => l.name);
-            const has = labels.includes('run-heavy-deps');
-            core.setOutput('run_heavy', has ? 'true' : 'false');
-
-      - name: Download wheelhouse artifact if requested
-        if: steps.check_label.outputs.run_heavy == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: wheelhouse-3.11
-          path: ./.wheelhouse
+      # Note: label check and artifact download/unpack are performed earlier in the
+      # workflow (before the test run) so the test step can see the wheel files.
