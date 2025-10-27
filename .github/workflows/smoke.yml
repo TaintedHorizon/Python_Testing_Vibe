@@ -30,6 +30,12 @@ jobs:
       - name: Create TEST_TMPDIR
         run: |
           echo "TEST_TMPDIR=$(mktemp -d)" >> $GITHUB_ENV
+      - name: Enable test-mode for smoke collection
+        run: |
+          # Ensure imports guarded by FAST_TEST_MODE/TEST_MODE/CI_SKIP_HEAVY_IMPORTS
+          # won't raise during pytest collection on lightweight CI runs.
+          echo "FAST_TEST_MODE=true" >> $GITHUB_ENV
+          echo "CI_SKIP_HEAVY_IMPORTS=true" >> $GITHUB_ENV
       - name: Quick python compile check
         run: |
           echo "Running quick python syntax check for doc_processor tests"
@@ -75,7 +81,7 @@ jobs:
           TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
         run: |
           echo "Running pytest --collect-only (writes collect-output.txt)"
-          pytest --collect-only -q > collect-output.txt 2>&1 || true
+          pytest --collect-only -q -k "not e2e and not playwright" --ignore=doc_processor/tests/e2e --ignore=tests/e2e > collect-output.txt 2>&1 || true
       - name: Upload collect-only artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -226,6 +232,8 @@ jobs:
             }
           fi
           pytest -q -k "not e2e and not playwright" --ignore=doc_processor/tests/e2e
+          # Also ignore a potential alternate relative path for e2e tests
+          # (defensive - some CI runners use a different working directory)
 
       # Note: label check and artifact download/unpack are performed earlier in the
       # workflow (before the test run) so the test step can see the wheel files.

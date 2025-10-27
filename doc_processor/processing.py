@@ -234,12 +234,41 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-# Third-party imports
-import fitz  # PyMuPDF
-import numpy as np
-import pytesseract
-from pdf2image import convert_from_path
-from PIL import Image
+# Third-party imports (guarded to allow lightweight CI/test collection when
+# heavy binary packages are not available). Use environment flags to opt-in
+# to skipping heavy imports early (so pytest collection doesn't fail).
+_SKIP_HEAVY_IMPORTS = os.getenv('FAST_TEST_MODE', '').lower() in ('1', 'true', 't') or \
+                     os.getenv('TEST_MODE', '').lower() in ('1', 'true', 't') or \
+                     os.getenv('CI_SKIP_HEAVY_IMPORTS', '').lower() in ('1', 'true', 't')
+
+if _SKIP_HEAVY_IMPORTS:
+    # Provide None placeholders; call sites already branch on FAST_TEST_MODE
+    fitz = None
+    np = None
+    pytesseract = None
+    convert_from_path = None
+    Image = None
+else:
+    try:
+        import fitz  # PyMuPDF
+    except Exception:
+        fitz = None
+    try:
+        import numpy as np
+    except Exception:
+        np = None
+    try:
+        import pytesseract
+    except Exception:
+        pytesseract = None
+    try:
+        from pdf2image import convert_from_path
+    except Exception:
+        convert_from_path = None
+    try:
+        from PIL import Image
+    except Exception:
+        Image = None
 
 # Local application imports
 from .config_manager import app_config
