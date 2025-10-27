@@ -127,6 +127,7 @@ jobs:
         if: github.event_name == 'pull_request' && steps.determine_label.outputs.run_heavy == 'true' && matrix.python == '3.11'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MATRIX_PYTHON: ${{ matrix.python }}
         run: |
           set -euo pipefail
           # Only attempt fetch when the PR requested heavy deps and the
@@ -136,8 +137,8 @@ jobs:
             echo "RUN_HEAVY_DEPS != true — skipping wheelhouse fetch"
             exit 0
           fi
-          if [ "${{ matrix.python }}" != "3.11" ]; then
-            echo "matrix.python=${{ matrix.python }} != 3.11 — skipping wheelhouse fetch"
+          if [ "$MATRIX_PYTHON" != "3.11" ]; then
+            echo "matrix.python=$MATRIX_PYTHON != 3.11 — skipping wheelhouse fetch"
             exit 0
           fi
           mkdir -p ./.wheelhouse
@@ -200,6 +201,7 @@ jobs:
           TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
           PYTHONPATH: ${{ github.workspace }}
           RUN_HEAVY_DEPS: ${{ env.RUN_HEAVY_DEPS }}
+          MATRIX_PYTHON: ${{ matrix.python }}
         run: |
           # If this PR requests heavy deps via the `run-heavy-deps` label, the
           # wheelhouse artifact has already been downloaded and unpacked into ./.wheelhouse
@@ -215,11 +217,20 @@ jobs:
           fi
           # Ensure key modules importable; keep output minimal to reduce noise.
           python -c "import document_detector"
+          # Temporarily move E2E test directories out of the way so pytest
+          # doesn't import heavy e2e-only modules like playwright during
+          # collection. We'll rename rather than delete to be safe.
+          if [ -d "tests/e2e" ]; then
+            mv tests/e2e tests/.e2e_ignored || true
+          fi
+          if [ -d "doc_processor/tests/e2e" ]; then
+            mv doc_processor/tests/e2e doc_processor/tests/.e2e_ignored || true
+          fi
           # If a wheelhouse was downloaded into ./.wheelhouse, install heavy deps from it.
           # Also ensure the job python matches the wheelhouse (3.11) to avoid
           # trying to install incompatible wheels on e.g. 3.12 runners.
-          if [ -d "./.wheelhouse" ] && [ -f "requirements-heavy.txt" ] && [ "$RUN_HEAVY_DEPS" = "true" ] && [ "${{ matrix.python }}" = "3.11" ]; then
-            echo "Installing heavy deps from wheelhouse (python ${matrix.python})"
+          if [ -d "./.wheelhouse" ] && [ -f "requirements-heavy.txt" ] && [ "$RUN_HEAVY_DEPS" = "true" ] && [ "$MATRIX_PYTHON" = "3.11" ]; then
+            echo "Installing heavy deps from wheelhouse (python $MATRIX_PYTHON)"
             python -m pip install --no-index --find-links ./.wheelhouse -r requirements-heavy.txt || true
             # If a critical package like numpy wasn't present in the wheelhouse
             # (common when building wheels from source fails), fall back to

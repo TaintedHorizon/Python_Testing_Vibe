@@ -41,6 +41,29 @@ jobs:
             tar -czf wheelhouse-3.11.tgz wheelhouse-3.11-marker.txt
           fi
 
+      - name: Validate critical wheels
+        run: |
+          # Fail the job if critical wheels (like numpy) are missing from the wheelhouse.
+          # This prevents publishing an incomplete wheelhouse that will cause downstream
+          # smoke runs to fall back to PyPI unexpectedly.
+          echo "Validating wheelhouse contents..."
+          tmpdir=$(mktemp -d)
+          tar -xzf wheelhouse-3.11.tgz -C "$tmpdir" || true
+          # Search for any .whl file inside the extracted contents
+          wheels=$(find "$tmpdir" -type f -name '*.whl' || true)
+          if [ -z "$wheels" ]; then
+            echo "No wheel files found in wheelhouse-3.11.tgz" >&2
+            ls -R "$tmpdir" || true
+            exit 1
+          fi
+          # Ensure numpy is present (match 'numpy-' to be tolerant on versions/build tags)
+          if ! echo "$wheels" | grep -q 'numpy-'; then
+            echo "Critical wheel 'numpy' not found in wheelhouse (files: )" >&2
+            echo "$wheels"
+            exit 1
+          fi
+          echo "Wheelhouse validation passed (numpy present)."
+
       - name: Upload wheelhouse artifact
         uses: actions/upload-artifact@v4
         with:
