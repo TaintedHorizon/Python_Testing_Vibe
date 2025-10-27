@@ -94,12 +94,40 @@ jobs:
         run: |
           echo "RUN_HEAVY_DEPS=${{ steps.determine_label.outputs.run_heavy || 'false' }}" >> $GITHUB_ENV
 
-      - name: Download wheelhouse artifact if requested
+      - name: Fetch latest wheelhouse artifact from heavy-deps workflow (main)
         if: env.RUN_HEAVY_DEPS == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: wheelhouse-3.11
-          path: ./.wheelhouse
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p ./.wheelhouse
+          echo "Looking up latest successful heavy-deps workflow run on main..."
+          api_url="https://api.github.com/repos/${{ github.repository }}/actions/workflows/heavy-deps.yml/runs?branch=main&status=completed&per_page=50"
+          run_id=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$api_url" | jq -r '.workflow_runs[] | select(.conclusion=="success") | .id' | head -n1)
+          if [ -z "$run_id" ]; then
+            echo "No successful heavy-deps run found on main" >&2
+            exit 1
+          fi
+          echo "Found heavy-deps run: $run_id — fetching artifacts list"
+          artifacts_url="https://api.github.com/repos/${{ github.repository }}/actions/runs/${run_id}/artifacts"
+          artifact_id=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$artifacts_url" | jq -r '.artifacts[] | select(.name=="wheelhouse-3.11") | .id')
+          if [ -z "$artifact_id" ]; then
+            echo "wheelhouse-3.11 artifact not found in run $run_id" >&2
+            exit 1
+          fi
+          echo "Downloading artifact id: $artifact_id"
+          download_url="https://api.github.com/repos/${{ github.repository }}/actions/artifacts/${artifact_id}/zip"
+          curl -L -H "Authorization: token $GITHUB_TOKEN" -o ./.wheelhouse/wheelhouse-3.11.zip "$download_url"
+          unzip -q ./.wheelhouse/wheelhouse-3.11.zip -d ./.wheelhouse/tmp
+          # find the tarball and move it to ./.wheelhouse
+          tarball=$(find ./.wheelhouse/tmp -type f -name 'wheelhouse-3.11.tgz' | head -n1 || true)
+          if [ -z "$tarball" ]; then
+            echo "tarball wheelhouse-3.11.tgz not found inside artifact zip" >&2
+            ls -R ./.wheelhouse/tmp
+            exit 1
+          fi
+          mv "$tarball" ./.wheelhouse/
+          rm -rf ./.wheelhouse/tmp ./.wheelhouse/wheelhouse-3.11.zip
 
       - name: Unpack wheelhouse tarball (if present)
         if: env.RUN_HEAVY_DEPS == 'true'
