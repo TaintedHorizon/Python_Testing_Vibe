@@ -30,9 +30,19 @@ jobs:
           # Build wheels into ./.wheelhouse. Note: some packages require extra-index-url or platform-specific builds.
           python -m pip wheel -r doc_processor/requirements-heavy.txt -w ./.wheelhouse
 
+      - name: Package wheelhouse for upload
+        run: |
+          # Create a single tarball for reliable upload. If the wheelhouse dir doesn't exist
+          # create a small marker file and tar that so the upload step always has a file.
+          if [ -d ./.wheelhouse ] && [ "$(ls -A ./.wheelhouse)" ]; then
+            tar -czf wheelhouse-3.11.tgz -C . .wheelhouse
+          else
+            echo "no-wheelhouse-files" > wheelhouse-3.11-marker.txt
+            tar -czf wheelhouse-3.11.tgz wheelhouse-3.11-marker.txt
+          fi
+
       - name: Upload wheelhouse artifact
         uses: actions/upload-artifact@v4
         with:
           name: wheelhouse-3.11
-          # upload all files under the wheelhouse directory; use a glob to ensure newly-created files are matched
-          path: ./.wheelhouse/**
+          path: wheelhouse-3.11.tgz
