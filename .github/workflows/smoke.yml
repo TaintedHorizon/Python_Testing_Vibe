@@ -79,25 +79,30 @@ jobs:
                 body
               });
             }
-      - name: Check for run-heavy-deps label (PRs only)
+      - name: Determine run-heavy-deps for this job
         if: github.event_name == 'pull_request'
-        id: check_label
+        id: determine_label
         uses: actions/github-script@v6
         with:
           script: |
-            const labels = context.payload.pull_request.labels.map(l => l.name);
+            const pr = context.payload.pull_request;
+            const labels = pr ? pr.labels.map(l => l.name) : [];
             const has = labels.includes('run-heavy-deps');
             core.setOutput('run_heavy', has ? 'true' : 'false');
 
+      - name: Export RUN_HEAVY_DEPS to environment
+        run: |
+          echo "RUN_HEAVY_DEPS=${{ steps.determine_label.outputs.run_heavy || 'false' }}" >> $GITHUB_ENV
+
       - name: Download wheelhouse artifact if requested
-        if: steps.check_label.outputs.run_heavy == 'true'
+        if: env.RUN_HEAVY_DEPS == 'true'
         uses: actions/download-artifact@v4
         with:
           name: wheelhouse-3.11
           path: ./.wheelhouse
 
       - name: Unpack wheelhouse tarball (if present)
-        if: steps.check_label.outputs.run_heavy == 'true'
+        if: env.RUN_HEAVY_DEPS == 'true'
         run: |
           # The artifact is a tarball named wheelhouse-3.11.tgz; extract any wheels into ./.wheelhouse
           if [ -f ./.wheelhouse/wheelhouse-3.11.tgz ]; then
@@ -119,7 +124,7 @@ jobs:
         env:
           TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
           PYTHONPATH: ${{ github.workspace }}
-          RUN_HEAVY_DEPS: ${{ steps.check_label.outputs.run_heavy }}
+          RUN_HEAVY_DEPS: ${{ env.RUN_HEAVY_DEPS }}
         run: |
           # If this PR requests heavy deps via the `run-heavy-deps` label, the
           # wheelhouse artifact has already been downloaded and unpacked into ./.wheelhouse
