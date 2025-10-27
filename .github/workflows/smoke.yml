@@ -206,6 +206,10 @@ jobs:
           # Turn off FAST_TEST_MODE/CI_SKIP_HEAVY_IMPORTS for the actual test
           # run so code can import real runtime modules. These were set true
           # earlier to avoid import-time crashes during pytest collection.
+          # Persist the change for later steps and also export for this step
+          # so the current shell sees the unset values.
+          echo "FAST_TEST_MODE=false" >> $GITHUB_ENV
+          echo "CI_SKIP_HEAVY_IMPORTS=false" >> $GITHUB_ENV
           export FAST_TEST_MODE=false
           export CI_SKIP_HEAVY_IMPORTS=false
 
@@ -259,6 +263,10 @@ jobs:
               python -m pip install pytesseract || true
             }
           fi
+          # Ensure pytesseract is available for tests that monkeypatch it.
+          # Some jobs (non-wheelhouse) rely on this being present; install
+          # unconditionally if still missing so monkeypatch.resolve() works.
+          python -c "import pytesseract" 2>/dev/null || python -m pip install pytesseract || true
           # As a final defensive install, if tests expect PIL.Image to be
           # available ensure Pillow is installed (requirements-ci usually
           # installs it, but double-check).
