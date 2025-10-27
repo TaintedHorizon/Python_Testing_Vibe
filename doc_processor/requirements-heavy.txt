@@ -9,3 +9,6 @@
 # faiss-cpu==1.7.3
 
 # Add other heavy, slow-to-install packages below.
+# For CI verification only: include a small, fast package so the wheelhouse isn't empty.
+# Remove or replace this with real heavy packages (torch, triton) for production wheelhouse builds.
+requests==2.31.0
