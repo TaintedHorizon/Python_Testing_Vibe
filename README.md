@@ -446,10 +446,19 @@ cd tools/<specific_tool>
 
 ## Contributing
 
+## Repository cleanup (test-safety rollout)
+
+Small housekeeping performed during the test-safety rollout:
+
+
+See PR #32 for the cleanup commit and CI run: https://github.com/TaintedHorizon/Python_Testing_Vibe/pull/32
+
 Contributions are welcome! Each project maintains its own contributing guidelines:
 
-- **doc_processor**: See `doc_processor/CONTRIBUTING.md`
-- **General**: Follow standard Python conventions and add tests where applicable
+
+<!-- ci-trigger: noop commit to retrigger workflows on 2025-10-25 -->
+
+<!-- ci-retrigger: additional noop to force Actions re-evaluation on branch chore/cleanup-workflows -->
 
 ## License
 

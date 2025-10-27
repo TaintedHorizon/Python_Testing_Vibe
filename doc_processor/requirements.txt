@@ -8,6 +8,16 @@ python-dotenv>=1.0.0
 
 # --- OCR (Optical Character Recognition) ---
 # easyocr is the primary, user-friendly OCR library for text extraction.
+# --- Core Web Framework ---
+# Flask is a lightweight web framework for Python used to build the web application interface.
+Flask>=2.3.0
+
+# --- Configuration ---
+# python-dotenv is used to load environment variables from a .env file for configuration.
+python-dotenv>=1.0.0
+
+# --- OCR (Optical Character Recognition) ---
+# easyocr is the primary, user-friendly OCR library for text extraction.
 easyocr>=1.7.0
 # pytesseract is used as a secondary OCR tool, specifically for its Orientation and Script Detection (OSD) capabilities.
 pytesseract>=0.3.10
@@ -49,3 +59,11 @@ pytest-timeout>=2.2.0
 
 # For data validation and type checking (optional) 
 # pydantic>=2.0.0
+
+# --- Additional test/runtime dependencies added during CI troubleshooting ---
+# Playwright is required for E2E UI tests that use browser automation.
+playwright>=1.40.0
+# document_detector: project-local detector used in PDF/image detection tests
+# Removed from CI requirements because no matching distribution is available on PyPI.
+# If this is a local package, install it in CI via a wheel or VCS reference instead.
+# document_detector>=0.0.1

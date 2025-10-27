@@ -48,6 +48,7 @@ Desktop.ini
 *.log
 log/
 logs/
+ci_logs/
 
 # === Database Files ===
 documents.db
@@ -98,6 +99,12 @@ doc_processor/doc_processor/
 # Prevent accidental command output files
 =*
 *=*
+
+# Local temporary virtualenv created during CI triage
+.venv_test/
+
+# Local pytest collect output used for debugging
+collect-local.txt
 
 # === Outdated Implementation Environments ===
 # These should never be committed
