@@ -46,6 +46,29 @@ jobs:
         run: |
           # Fail fast if top-level shims are missing. Keep output minimal.
           python -c "import document_detector"
+      - name: Early determine run-heavy-deps (for collection)
+        if: github.event_name == 'pull_request'
+        run: |
+          # Read the incoming PR event payload and check labels early so
+          # we can decide whether to install numpy before pytest collection.
+          # This is intentionally lightweight (uses the event JSON available
+          # in GITHUB_EVENT_PATH) and runs before collect-only.
+          if jq -r '.pull_request.labels[]?.name' "$GITHUB_EVENT_PATH" | grep -q '^run-heavy-deps$'; then
+            echo "RUN_HEAVY_DEPS=true" >> $GITHUB_ENV
+          else
+            echo "RUN_HEAVY_DEPS=false" >> $GITHUB_ENV
+          fi
+      - name: Ensure numpy available for pytest collection (fast fallback)
+        run: |
+          # This check uses the early-determined RUN_HEAVY_DEPS env var (set above)
+          # and runs at runtime; using a step-level `if:` here would prevent
+          # access to that runtime env. Keep this lightweight and non-fatal.
+          if [ "${RUN_HEAVY_DEPS:-false}" != "true" ]; then
+            echo "RUN_HEAVY_DEPS != true — skipping numpy fallback"
+            exit 0
+          fi
+          echo "RUN_HEAVY_DEPS=${RUN_HEAVY_DEPS} — ensuring numpy available for collect"
+          python -m pip install --prefer-binary numpy==1.26.4 || true
       - name: Pytest collect-only (diagnostics)
         working-directory: doc_processor
         env:
@@ -95,11 +118,22 @@ jobs:
           echo "RUN_HEAVY_DEPS=${{ steps.determine_label.outputs.run_heavy || 'false' }}" >> $GITHUB_ENV
 
       - name: Fetch latest wheelhouse artifact from heavy-deps workflow (main)
-        if: env.RUN_HEAVY_DEPS == 'true'
+        if: github.event_name == 'pull_request' && steps.determine_label.outputs.run_heavy == 'true' && matrix.python == '3.11'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # Only attempt fetch when the PR requested heavy deps and the
+          # job python matches the wheelhouse target (3.11). Use the
+          # exported RUN_HEAVY_DEPS env var and the matrix value.
+          if [ "${RUN_HEAVY_DEPS:-false}" != "true" ]; then
+            echo "RUN_HEAVY_DEPS != true — skipping wheelhouse fetch"
+            exit 0
+          fi
+          if [ "${{ matrix.python }}" != "3.11" ]; then
+            echo "matrix.python=${{ matrix.python }} != 3.11 — skipping wheelhouse fetch"
+            exit 0
+          fi
           mkdir -p ./.wheelhouse
           echo "Looking up latest successful heavy-deps workflow run on main..."
           api_url="https://api.github.com/repos/${{ github.repository }}/actions/workflows/heavy-deps.yml/runs?branch=main&status=completed&per_page=50"
@@ -130,8 +164,15 @@ jobs:
           rm -rf ./.wheelhouse/tmp ./.wheelhouse/wheelhouse-3.11.zip
 
       - name: Unpack wheelhouse tarball (if present)
-        if: env.RUN_HEAVY_DEPS == 'true'
+        if: github.event_name == 'pull_request' && steps.determine_label.outputs.run_heavy == 'true' && matrix.python == '3.11'
         run: |
+          # Only unpack when we actually fetched a tarball and on matching python
+          # version. This step is safe to run on all jobs; it will early-exit
+          # if not applicable.
+          if [ "${RUN_HEAVY_DEPS:-false}" != "true" ]; then
+            echo "RUN_HEAVY_DEPS != true — skipping unpack"
+            exit 0
+          fi
           # The artifact is a tarball named wheelhouse-3.11.tgz; extract any wheels into ./.wheelhouse
           if [ -f ./.wheelhouse/wheelhouse-3.11.tgz ]; then
             mkdir -p ./.wheelhouse/extracted
@@ -168,10 +209,21 @@ jobs:
           fi
           # Ensure key modules importable; keep output minimal to reduce noise.
           python -c "import document_detector"
-          # If a wheelhouse was downloaded into ./.wheelhouse, install heavy deps from it
-          if [ -d "./.wheelhouse" ] && [ -f "requirements-heavy.txt" ] && [ "$RUN_HEAVY_DEPS" = "true" ]; then
-            echo "Installing heavy deps from wheelhouse"
+          # If a wheelhouse was downloaded into ./.wheelhouse, install heavy deps from it.
+          # Also ensure the job python matches the wheelhouse (3.11) to avoid
+          # trying to install incompatible wheels on e.g. 3.12 runners.
+          if [ -d "./.wheelhouse" ] && [ -f "requirements-heavy.txt" ] && [ "$RUN_HEAVY_DEPS" = "true" ] && [ "${{ matrix.python }}" = "3.11" ]; then
+            echo "Installing heavy deps from wheelhouse (python ${matrix.python})"
             python -m pip install --no-index --find-links ./.wheelhouse -r requirements-heavy.txt || true
+            # If a critical package like numpy wasn't present in the wheelhouse
+            # (common when building wheels from source fails), fall back to
+            # installing the numpy wheel from PyPI (prefer-binary to avoid
+            # source builds). This keeps the smoke run fast while satisfying
+            # import-time requirements used during pytest collection.
+            python -c "import numpy" 2>/dev/null || {
+              echo "numpy not importable after wheelhouse install — installing from PyPI"
+              python -m pip install --prefer-binary numpy==1.26.4 || true
+            }
           fi
           pytest -q -k "not e2e and not playwright" --ignore=doc_processor/tests/e2e
 
