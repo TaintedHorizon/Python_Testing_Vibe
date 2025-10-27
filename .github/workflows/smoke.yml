@@ -263,14 +263,11 @@ jobs:
               python -m pip install pytesseract || true
             }
           fi
-          # Ensure pytesseract is available for tests that monkeypatch it.
-          # Some jobs (non-wheelhouse) rely on this being present; install
-          # unconditionally if still missing so monkeypatch.resolve() works.
-          python -c "import pytesseract" 2>/dev/null || python -m pip install pytesseract || true
-          # As a final defensive install, if tests expect PIL.Image to be
-          # available ensure Pillow is installed (requirements-ci usually
-          # installs it, but double-check).
-          python -c "from PIL import Image" 2>/dev/null || python -m pip install Pillow || true
+          # At this point we rely on the curated `requirements-ci.txt` and
+          # the downloaded wheelhouse to provide pytesseract/Pillow. If a
+          # package is still missing the job will fall back to PyPI during
+          # install above (keeps collect/runtime fast). Avoid unconditional
+          # ad-hoc installs here to reduce noise and duplicated downloads.
           pytest -q -k "not e2e and not playwright" --ignore=doc_processor/tests/e2e
           # Also ignore a potential alternate relative path for e2e tests
           # (defensive - some CI runners use a different working directory)

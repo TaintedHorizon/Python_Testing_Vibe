@@ -30,6 +30,16 @@ jobs:
           # Build wheels into ./.wheelhouse. Note: some packages require extra-index-url or platform-specific builds.
           python -m pip wheel -r doc_processor/requirements-heavy.txt -w ./.wheelhouse
 
+      - name: Fetch critical binary wheels (numpy, pytesseract)
+        run: |
+          # Some packages (numpy, pytesseract) are commonly provided as prebuilt manylinux wheels on PyPI.
+          # If building from source fails or the wheel isn't produced locally, download the binary wheels
+          # into the wheelhouse so downstream consumers can install them with --no-index.
+          python -m pip install --upgrade pip
+          mkdir -p ./.wheelhouse
+          # Try to download binary wheels only; ignore failures for packages that don't provide binary wheels.
+          python -m pip download --only-binary=:all: numpy pytesseract -d ./.wheelhouse || true
+
       - name: Package wheelhouse for upload
         run: |
           # Create a single tarball for reliable upload. If the wheelhouse dir doesn't exist
