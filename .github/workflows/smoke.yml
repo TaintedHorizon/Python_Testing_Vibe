@@ -79,40 +79,60 @@ jobs:
                 body
               });
             }
+      - name: Check for run-heavy-deps label (PRs only)
+        if: github.event_name == 'pull_request'
+        id: check_label
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const labels = context.payload.pull_request.labels.map(l => l.name);
+            const has = labels.includes('run-heavy-deps');
+            core.setOutput('run_heavy', has ? 'true' : 'false');
+
+      - name: Download wheelhouse artifact if requested
+        if: steps.check_label.outputs.run_heavy == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: wheelhouse-3.11
+          path: ./.wheelhouse
+
+      - name: Unpack wheelhouse tarball (if present)
+        if: steps.check_label.outputs.run_heavy == 'true'
+        run: |
+          # The artifact is a tarball named wheelhouse-3.11.tgz; extract any wheels into ./.wheelhouse
+          if [ -f ./.wheelhouse/wheelhouse-3.11.tgz ]; then
+            mkdir -p ./.wheelhouse/extracted
+            tar -xzf ./.wheelhouse/wheelhouse-3.11.tgz -C ./.wheelhouse/extracted
+            # Move any .whl files to ./.wheelhouse
+            find ./.wheelhouse/extracted -type f -name '*.whl' -exec mv -f {} ./.wheelhouse/ \;
+            rm -rf ./.wheelhouse/extracted
+          fi
+
       - name: Run non-E2E tests
         working-directory: doc_processor
         env:
           TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
           PYTHONPATH: ${{ github.workspace }}
+          RUN_HEAVY_DEPS: ${{ steps.check_label.outputs.run_heavy }}
         run: |
-          # If this PR requests heavy deps via the `run-heavy-deps` label, download the
-          # prebuilt wheelhouse artifact produced by the `heavy-deps` workflow and
-          # install from it. This keeps normal PR runs fast while allowing opt-in heavy installs.
-          # We detect the label in a prior step and set $RUN_HEAVY_DEPS to 'true' when present.
-          if [ "${RUN_HEAVY_DEPS:-false}" = "true" ]; then
-            echo "Downloading wheelhouse artifact and installing heavy deps"
-            if command -v gh >/dev/null 2>&1; then
-              echo "gh CLI available; attempting to download artifact via actions API"
-            fi
-            if [ -d "/github/home/.wheelhouse" ]; then
-              echo "wheelhouse already present"
-            fi
-            # actions/download-artifact is preferred in workflow; this branch-level script
-            # will be a no-op if wheelhouse isn't available. We still guard installs below.
+          # If this PR requests heavy deps via the `run-heavy-deps` label, the
+          # wheelhouse artifact has already been downloaded and unpacked into ./.wheelhouse
+          if [ "$RUN_HEAVY_DEPS" = "true" ]; then
+            echo "run-heavy-deps label present: will attempt heavy install"
           fi
           # Install lightweight CI requirements if provided (curated to avoid heavy wheels)
-          if [ -f "doc_processor/requirements-ci.txt" ]; then
-            echo "Installing doc_processor/requirements-ci.txt"
-            python -m pip install -r doc_processor/requirements-ci.txt
+          if [ -f "requirements-ci.txt" ]; then
+            echo "Installing requirements-ci.txt"
+            python -m pip install -r requirements-ci.txt
           else
             echo "No requirements-ci.txt found; skipping lightweight install"
           fi
           # Ensure key modules importable; keep output minimal to reduce noise.
           python -c "import document_detector"
           # If a wheelhouse was downloaded into ./.wheelhouse, install heavy deps from it
-          if [ -d "./.wheelhouse" ] && [ -f "doc_processor/requirements-heavy.txt" ]; then
+          if [ -d "./.wheelhouse" ] && [ -f "requirements-heavy.txt" ] && [ "$RUN_HEAVY_DEPS" = "true" ]; then
             echo "Installing heavy deps from wheelhouse"
-            python -m pip install --no-index --find-links ./.wheelhouse -r doc_processor/requirements-heavy.txt || true
+            python -m pip install --no-index --find-links ./.wheelhouse -r requirements-heavy.txt || true
           fi
           pytest -q -k "not e2e and not playwright"
 
