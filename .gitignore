@@ -27,6 +27,7 @@ wheels/
 doc_processor/ci_logs/
 doc_processor/tests/e2e/artifacts/
 .venv
+.venv-ci/
 env/
 venv/
 ENV/
