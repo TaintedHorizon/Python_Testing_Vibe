@@ -69,6 +69,15 @@ jobs:
           chmod +x scripts/e2e/simple_smoke.sh
           ./scripts/e2e/simple_smoke.sh
 
+      - name: Run pytest E2E tests (if present)
+        run: |
+          if [ -d doc_processor/tests/e2e ]; then
+            echo "Running pytest on doc_processor/tests/e2e"
+            pytest -q doc_processor/tests/e2e
+          else
+            echo "No e2e pytest directory present; skipping"
+          fi
+
       - name: Teardown
         if: always()
         run: |
