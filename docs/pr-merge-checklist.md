@@ -9,14 +9,21 @@ Pre-merge validation
 - [ ] pytest non-E2E tests pass and collect-only step did not trigger heavy native builds during collection.
 - [ ] `docs/ci-heavy-deps.md` updated with the final policy and steps to reproduce locally.
 
+> Quick status: run 18887489644 validated a wheelhouse in CI (python=3.11 smoke job). See `docs/ci-archive/wheelhouse-3.11-run-18884042880.tgz` for the archived artifact and its `.meta` file.
+
 Mandatory steps for PRs that touch CI or heavy native deps
 - [ ] Add the label `run-heavy-deps` to this PR if it requires binary wheels not broadly available on PyPI for the target runner/Python ABI.
 	- Why: this opt-in label tells the smoke workflow to download and consume the latest `wheelhouse-3.11` artifact so tests install from trusted binary wheels instead of attempting local builds during collection.
 	- How to validate (recommended):
-		1. Run `./scripts/ci/fetch_wheelhouse_poll.sh` locally or ask CI owner to fetch the artifact for the most recent heavy-deps run and confirm `critical_wheels.txt` contains `numpy` and `Pillow` (and `pytesseract` when used).
-		2. Add the `run-heavy-deps` label to the PR and watch the smoke job (matrix python=3.11). Confirm logs show `pip --no-index --find-links` and that packages installed from the wheelhouse (look for `.whl` filenames in the pip logs).
-		3. If the smoke job still fails to find critical wheels, open the heavy-deps Actions run, inspect the download/pip logs, and either re-trigger heavy-deps with `include_manylinux=true` or follow up to produce manylinux wheels.
-	- Post-validation: archive the validated wheelhouse by copying `wheelhouse-3.11.tgz` into `docs/ci-archive/` as `run-<ID>-wheelhouse-3.11.tgz` and add a small `run-<ID>.meta` file containing commit, date, and sha256 checksum.
+
+	- Required validation steps (MUST be performed for CI or binary-affecting changes):
+		1. Use `./scripts/ci/fetch_wheelhouse_poll.sh` or check the `heavy-deps` workflow run to obtain the latest `wheelhouse-3.11.tgz` artifact and its `critical_wheels.txt` manifest.
+		2. Add the `run-heavy-deps` label to the PR and wait for the smoke workflow (matrix python=3.11) to run. Inspect the smoke job logs and confirm it:
+			- downloads and unpacks a wheelhouse tarball, and
+			- installs packages with `pip --no-index --find-links` referencing `doc_processor/.wheelhouse`, and
+			- shows `.whl` filenames (manylinux wheels) for critical packages in the pip logs.
+		3. If the smoke job did not find critical wheels, re-run or re-dispatch `heavy-deps` with `include_manylinux=true`, or follow the manylinux build instructions in `docs/ci-manylinux.md`.
+	- Post-validation: archive the validated wheelhouse by copying `wheelhouse-3.11.tgz` into `docs/ci-archive/` and add a small `.meta` file containing run id, commit, timestamp, and sha256.
 
 Review & approvals
 - [ ] Two code reviewers sign off on workflow changes and docs.
