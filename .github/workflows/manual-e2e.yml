@@ -1,0 +1,77 @@
+name: Manual E2E (workflow_dispatch)
+
+on:
+  workflow_dispatch:
+    inputs:
+      python-version:
+        description: 'Python version for runner'
+        required: false
+        default: '3.11'
+
+jobs:
+  e2e-manual:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ github.event.inputs.python-version }}
+
+      - name: Create TEST_TMPDIR
+        run: |
+          echo "TEST_TMPDIR=$(mktemp -d)" >> $GITHUB_ENV
+
+      - name: Prepare virtualenv for app
+        run: |
+          cd doc_processor
+          python -m venv venv
+          . venv/bin/activate
+          python -m pip install --upgrade pip
+          if [ -f requirements-ci.txt ]; then
+            pip install -r requirements-ci.txt
+          elif [ -f requirements.txt ]; then
+            # best-effort install; may be heavy
+            pip install -r requirements.txt || true
+          fi
+
+      - name: Start application (background)
+        run: |
+          cd ${{ github.workspace }}
+          # Start the app in background using nohup so the job can continue
+          nohup ./start_app.sh > e2e_app.out 2>&1 &
+          echo $! > e2e_app.pid
+
+      - name: Wait for app to become healthy
+        run: |
+          URL="http://127.0.0.1:5000/"
+          echo "Waiting for $URL to respond..."
+          for i in {1..60}; do
+            if curl -fsS --max-time 2 "$URL" >/dev/null 2>&1; then
+              echo "App is responding after $i attempts"
+              break
+            fi
+            sleep 2
+            echo -n '.'
+          done
+          # show tail of app log for debugging
+          tail -n +1 e2e_app.out || true
+
+      - name: Run E2E smoke script
+        run: |
+          chmod +x scripts/e2e/simple_smoke.sh
+          ./scripts/e2e/simple_smoke.sh
+
+      - name: Teardown
+        if: always()
+        run: |
+          if [ -f e2e_app.pid ]; then
+            kill "$(cat e2e_app.pid)" || true
+          fi
+          pkill -f doc_processor.app || true
+          sleep 1
+          echo "E2E run complete. See e2e_app.out for app logs."
