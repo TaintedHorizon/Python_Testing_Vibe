@@ -3,8 +3,9 @@
 analyze_ci_failures.py
 
 Usage:
-  export GITHUB_TOKEN="ghp_..."
-  python scripts/analyze_ci_failures.py --owner TaintedHorizon --repo Python_Testing_Vibe --outdir ./ci_logs
+    # Set your GitHub personal access token in the environment (do NOT commit it):
+    export GITHUB_TOKEN="<your_token_here>"
+    python scripts/analyze_ci_failures.py --owner TaintedHorizon --repo Python_Testing_Vibe --outdir ./ci_logs
 
 This script:
  - pages through all workflow runs with status=failure

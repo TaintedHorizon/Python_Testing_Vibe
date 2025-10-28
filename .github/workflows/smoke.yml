@@ -124,7 +124,7 @@ jobs:
           echo "RUN_HEAVY_DEPS=${{ steps.determine_label.outputs.run_heavy || 'false' }}" >> $GITHUB_ENV
 
       - name: Fetch latest wheelhouse artifact from heavy-deps workflow (main)
-        if: github.event_name == 'pull_request' && steps.determine_label.outputs.run_heavy == 'true' && matrix.python == '3.11'
+        if: github.event_name == 'pull_request' && matrix.python == '3.11'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MATRIX_PYTHON: ${{ matrix.python }}
@@ -171,7 +171,7 @@ jobs:
           rm -rf ./.wheelhouse/tmp ./.wheelhouse/wheelhouse-3.11.zip
 
       - name: Unpack wheelhouse tarball (if present)
-        if: github.event_name == 'pull_request' && steps.determine_label.outputs.run_heavy == 'true' && matrix.python == '3.11'
+        if: github.event_name == 'pull_request' && matrix.python == '3.11'
         run: |
           # Only unpack when we actually fetched a tarball and on matching python
           # version. This step is safe to run on all jobs; it will early-exit
@@ -194,6 +194,22 @@ jobs:
             mkdir -p doc_processor/.wheelhouse
             find ./.wheelhouse -type f -name '*.whl' -exec cp -f {} doc_processor/.wheelhouse/ \;
           fi
+
+      - name: Log wheelhouse contents (manifest)
+        if: github.event_name == 'pull_request' && matrix.python == '3.11'
+        run: |
+          mkdir -p doc_processor/.wheelhouse
+          MANIFEST=doc_processor/.wheelhouse/wheelhouse_manifest.txt
+          echo "Wheelhouse manifest for run (python ${{ matrix.python }}):" > "$MANIFEST"
+          if [ -d ./.wheelhouse ]; then
+            echo "Contents of ./.wheelhouse:" >> "$MANIFEST"
+            find ./.wheelhouse -type f -name '*.whl' -printf "%p\n" >> "$MANIFEST" || true
+          fi
+          if [ -d doc_processor/.wheelhouse ]; then
+            echo "Contents copied to doc_processor/.wheelhouse:" >> "$MANIFEST"
+            find doc_processor/.wheelhouse -type f -name '*.whl' -printf "%p\n" >> "$MANIFEST" || true
+          fi
+          echo "-- end manifest --" >> "$MANIFEST"
 
       - name: Run non-E2E tests
         working-directory: doc_processor
@@ -253,6 +269,7 @@ jobs:
             # import-time requirements used during pytest collection.
             python -c "import numpy" 2>/dev/null || {
               echo "numpy not importable after wheelhouse install — installing from PyPI"
+              echo "numpy fallback installed from PyPI at $(date)" >> wheelhouse_install_log.txt || true
               python -m pip install --prefer-binary numpy==1.26.4 || true
             }
             # Ensure pytesseract (python wrapper) is available for tests that
@@ -260,6 +277,7 @@ jobs:
             # those tests because they patch the functions.
             python -c "import pytesseract" 2>/dev/null || {
               echo "pytesseract not installed — installing from PyPI"
+              echo "pytesseract fallback installed from PyPI at $(date)" >> wheelhouse_install_log.txt || true
               python -m pip install pytesseract || true
             }
           fi
@@ -271,6 +289,26 @@ jobs:
           pytest -q -k "not e2e and not playwright" --ignore=doc_processor/tests/e2e
           # Also ignore a potential alternate relative path for e2e tests
           # (defensive - some CI runners use a different working directory)
+
+      - name: Prepare wheelhouse diagnostics package
+        if: github.event_name == 'pull_request' && matrix.python == '3.11'
+        run: |
+          mkdir -p artifacts_to_upload
+          OUT=wheelhouse-diagnostics-${{ matrix.python }}
+          if [ -f doc_processor/.wheelhouse/wheelhouse_manifest.txt ] || [ -f doc_processor/wheelhouse_install_log.txt ]; then
+            tar -czf ${OUT}.tgz doc_processor/.wheelhouse/wheelhouse_manifest.txt doc_processor/wheelhouse_install_log.txt || true
+            mv ${OUT}.tgz artifacts_to_upload/
+          else
+            echo "no-diagnostics-present" > ${OUT}.txt
+            mv ${OUT}.txt artifacts_to_upload/
+          fi
+
+      - name: Upload wheelhouse diagnostics
+        if: always() && github.event_name == 'pull_request' && matrix.python == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheelhouse-manifest-${{ matrix.python }}
+          path: artifacts_to_upload
 
       # Note: label check and artifact download/unpack are performed earlier in the
       # workflow (before the test run) so the test step can see the wheel files.

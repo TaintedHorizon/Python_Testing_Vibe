@@ -98,6 +98,24 @@ Notes and next steps
 - Add a label-based or workflow input gate to PR jobs that need heavy deps. For example, a PR reviewer can add `run-heavy-deps` label to trigger heavy tests.
 - Optionally: publish wheelhouse to a release or internal package registry to provide artifacts to external consumers.
 
+Debug helper script
+-------------------
+For interactive validation and to avoid long blocking terminal commands, a helper script is provided at
+`scripts/ci/dispatch_and_fetch.sh`. It safely dispatches the `heavy-deps` workflow, polls a short
+bounded number of times, downloads the `wheelhouse-3.11` artifact if present, and writes a concise
+list of `.whl` filenames into a file under the output directory.
+
+Usage (run locally from repo root):
+```bash
+chmod +x scripts/ci/dispatch_and_fetch.sh
+./scripts/ci/dispatch_and_fetch.sh TaintedHorizon/Python_Testing_Vibe heavy-deps.yml main wheelhouse-3.11 /tmp/wheelhouse_run
+# Inspect /tmp/wheelhouse_run/list/wheels.txt for the wheel filenames and check for critical wheels
+```
+
+The script traps SIGINT and uses short, safe polling intervals so it won't monopolize your terminal or
+produce huge dumps of output. Use `gh run view <RUN_NUMBER> --repo <OWNER/REPO> --web` to open the run
+in your browser for log-level debugging.
+
 Policy decision (implemented)
 -----------------------------
 - We will prefer to include prebuilt binary wheels for critical packages (numpy, pytesseract, Pillow) by downloading them from PyPI into the wheelhouse during the heavy-deps workflow. This avoids the complexity of building manylinux wheels for these widely available packages.
