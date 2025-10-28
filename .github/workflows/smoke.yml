@@ -144,21 +144,34 @@ jobs:
           mkdir -p ./.wheelhouse
           echo "Looking up latest successful heavy-deps workflow run on main..."
           api_url="https://api.github.com/repos/${{ github.repository }}/actions/workflows/heavy-deps.yml/runs?branch=main&status=completed&per_page=50"
-          run_id=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$api_url" | jq -r '.workflow_runs[] | select(.conclusion=="success") | .id' | head -n1)
+          # helper: simple retry for transient network/API issues
+          retry_cmd() {
+            local tries=0; local max=3; local delay=3
+            while [ $tries -lt $max ]; do
+              if eval "$@"; then
+                return 0
+              fi
+              tries=$((tries+1))
+              echo "Retry $tries/$max..." >&2
+              sleep $delay
+            done
+            return 1
+          }
+          run_id=$(retry_cmd "curl -s -H \"Authorization: token $GITHUB_TOKEN\" \"$api_url\" | jq -r '.workflow_runs[] | select(.conclusion==\"success\") | .id' | head -n1") || true
           if [ -z "$run_id" ]; then
             echo "No successful heavy-deps run found on main" >&2
             exit 1
           fi
           echo "Found heavy-deps run: $run_id — fetching artifacts list"
           artifacts_url="https://api.github.com/repos/${{ github.repository }}/actions/runs/${run_id}/artifacts"
-          artifact_id=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$artifacts_url" | jq -r '.artifacts[] | select(.name=="wheelhouse-3.11") | .id')
+          artifact_id=$(retry_cmd "curl -s -H \"Authorization: token $GITHUB_TOKEN\" \"$artifacts_url\" | jq -r '.artifacts[] | select(.name==\"wheelhouse-3.11\") | .id' | head -n1") || true
           if [ -z "$artifact_id" ]; then
             echo "wheelhouse-3.11 artifact not found in run $run_id" >&2
             exit 1
           fi
           echo "Downloading artifact id: $artifact_id"
           download_url="https://api.github.com/repos/${{ github.repository }}/actions/artifacts/${artifact_id}/zip"
-          curl -L -H "Authorization: token $GITHUB_TOKEN" -o ./.wheelhouse/wheelhouse-3.11.zip "$download_url"
+          retry_cmd "curl -L -H \"Authorization: token $GITHUB_TOKEN\" -o ./.wheelhouse/wheelhouse-3.11.zip \"$download_url\"" || true
           unzip -q ./.wheelhouse/wheelhouse-3.11.zip -d ./.wheelhouse/tmp
           # find the tarball and move it to ./.wheelhouse
           tarball=$(find ./.wheelhouse/tmp -type f -name 'wheelhouse-3.11.tgz' | head -n1 || true)

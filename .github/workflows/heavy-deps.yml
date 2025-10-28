@@ -98,16 +98,29 @@ jobs:
           python -m pip --version
           mkdir -p ./.wheelhouse
           echo "Reading pinned versions from doc_processor/requirements-heavy.txt (if present)"
+          # simple retry helper for pip download network flakiness
+          retry_cmd() {
+            local tries=0; local max=3; local delay=4
+            while [ $tries -lt $max ]; do
+              if eval "$@"; then
+                return 0
+              fi
+              tries=$((tries+1))
+              echo "Retry $tries/$max..." >&2
+              sleep $delay
+            done
+            return 1
+          }
           # For each critical package, if a pinned version exists in requirements-heavy.txt, try to download that exact version.
           for pkg in numpy pytesseract Pillow; do
             pinned=$(grep -E "^${pkg}==" doc_processor/requirements-heavy.txt || true)
             if [[ -n "$pinned" ]]; then
               ver=$(echo "$pinned" | cut -d'=' -f3-)
               echo "Attempting to download binary wheel for ${pkg}==${ver}"
-              python -m pip download --only-binary=:all: "${pkg}==${ver}" -d ./.wheelhouse || true
+              retry_cmd "python -m pip download --only-binary=:all: \"${pkg}==${ver}\" -d ./.wheelhouse" || true
             else
               echo "No pinned version for ${pkg}; attempting to download any binary wheel available for ${pkg}"
-              python -m pip download --only-binary=:all: "${pkg}" -d ./.wheelhouse || true
+              retry_cmd "python -m pip download --only-binary=:all: \"${pkg}\" -d ./.wheelhouse" || true
             fi
           done
           echo "Listing contents of ./.wheelhouse after download attempts:"
