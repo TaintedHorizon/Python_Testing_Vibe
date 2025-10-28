@@ -1,0 +1,6 @@
+run_id: 18884042880
+source: ci_artifacts/run-18884042880/wheelhouse-3.11.tgz
+archived_at: 2025-10-28T18:26:26Z
+git_commit: e73dc28
+sha256: f3d3abdb56c794b8bfa22730510b637896846996251f22f3c2ed6d54153dc4ac
+notes: "Archived by scripts/ci/archive_wheelhouse.sh"

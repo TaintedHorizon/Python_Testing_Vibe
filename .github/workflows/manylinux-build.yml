@@ -1,0 +1,62 @@
+name: Build manylinux wheels (opt-in)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  manylinux-build:
+    name: Build manylinux wheels (dispatch only)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install cibuildwheel==2.* auditwheel
+
+      - name: Prepare target requirements
+        run: |
+          # This workflow expects doc_processor/requirements-manylinux.txt to list
+          # packages we want to produce manylinux wheels for (opt-in).
+          if [ ! -f doc_processor/requirements-manylinux.txt ]; then
+            echo "Missing doc_processor/requirements-manylinux.txt" >&2
+            exit 1
+          fi
+          mkdir -p ./.wheelhouse-manylinux
+
+      - name: Run cibuildwheel (manylinux)
+        env:
+          CIBW_PLATFORM: linux
+          CIBW_OUTPUT_DIR: ${{ github.workspace }}/.wheelhouse-manylinux
+        run: |
+          # cibuildwheel will build wheels for supported Python versions on manylinux
+          # images. This can be slow and resource intensive. Run this only when
+          # absolutely required (manual dispatch).
+          python -m cibuildwheel --output-dir ./.wheelhouse-manylinux || true
+
+      - name: Package manylinux wheelhouse
+        run: |
+          if [ -d ./.wheelhouse-manylinux ] && [ "$(ls -A ./.wheelhouse-manylinux)" ]; then
+            tar -czf manylinux-wheelhouse-3.11.tgz -C . .wheelhouse-manylinux
+            ls -l manylinux-wheelhouse-3.11.tgz || true
+          else
+            echo "No manylinux wheels produced or build failed" >&2
+            exit 1
+          fi
+
+      - name: Upload manylinux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: manylinux-wheelhouse-3.11
+          path: manylinux-wheelhouse-3.11.tgz
+
+      - name: Notes
+        run: |
+          echo "This workflow is intentionally manual and resource-intensive. Use only when prebuilt binaries are unavailable on PyPI."
