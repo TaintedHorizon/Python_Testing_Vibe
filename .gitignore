@@ -34,6 +34,7 @@ ENV/
 env.bak/
 venv.bak/
 ci_artifacts/
+docs/ci-archive/*.tgz
 
 # === Editors and IDEs ===
 .vscode/
