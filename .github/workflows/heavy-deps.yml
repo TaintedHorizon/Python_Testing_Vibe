@@ -1,7 +1,12 @@
 name: Build heavy wheelhouse
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      include_manylinux:
+        description: 'If true, run cibuildwheel inline to produce manylinux wheels (slow)'
+        required: false
+        default: 'false'
   schedule:
     - cron: '0 3 * * *' # nightly wheel refresh (UTC)
 
@@ -30,15 +35,83 @@ jobs:
           # Build wheels into ./.wheelhouse. Note: some packages require extra-index-url or platform-specific builds.
           python -m pip wheel -r doc_processor/requirements-heavy.txt -w ./.wheelhouse
 
-      - name: Fetch critical binary wheels (numpy, pytesseract)
+      - name: Run cibuildwheel (optional inline)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.include_manylinux == 'true' }}
         run: |
-          # Some packages (numpy, pytesseract) are commonly provided as prebuilt manylinux wheels on PyPI.
-          # If building from source fails or the wheel isn't produced locally, download the binary wheels
-          # into the wheelhouse so downstream consumers can install them with --no-index.
+          set -euo pipefail
           python -m pip install --upgrade pip
+          python -m pip install cibuildwheel==2.* auditwheel || true
+          mkdir -p ./.wheelhouse-manylinux
+          echo "Running cibuildwheel to produce manylinux wheels (may take a long time)"
+          CIBW_PLATFORM=linux python -m cibuildwheel --output-dir ./.wheelhouse-manylinux || true
+          if [ -d ./.wheelhouse-manylinux ] && [ "$(ls -A ./.wheelhouse-manylinux)" ]; then
+            tar -czf manylinux-wheelhouse-3.11.tgz -C . ./.wheelhouse-manylinux || true
+            mkdir -p ./.wheelhouse
+            find ./.wheelhouse-manylinux -type f -name '*.whl' -exec cp -f {} ./.wheelhouse/ \; || true
+          else
+            echo "No manylinux wheels produced by cibuildwheel"
+          fi
+
+      - name: Include manylinux wheels (optional)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # If a manual manylinux build was previously run and uploaded as an artifact,
+          # include its wheels into the main wheelhouse. This step is optional: if no
+          # manylinux artifact exists the step will exit gracefully.
+          set -euo pipefail
           mkdir -p ./.wheelhouse
-          # Try to download binary wheels only; ignore failures for packages that don't provide binary wheels.
-          python -m pip download --only-binary=:all: numpy pytesseract -d ./.wheelhouse || true
+          echo "Looking for manylinux-wheelhouse-3.11 artifact (optional)..."
+          api_url="https://api.github.com/repos/${{ github.repository }}/actions/workflows/manylinux-build.yml/runs?branch=main&status=completed&per_page=50"
+          run_id=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$api_url" | jq -r '.workflow_runs[] | select(.conclusion=="success") | .id' | head -n1 || true)
+          if [ -z "$run_id" ]; then
+            echo "No completed manylinux run found; skipping include step"
+            exit 0
+          fi
+          artifacts_url="https://api.github.com/repos/${{ github.repository }}/actions/runs/${run_id}/artifacts"
+          artifact_id=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "$artifacts_url" | jq -r '.artifacts[] | select(.name=="manylinux-wheelhouse-3.11") | .id' || true)
+          if [ -z "$artifact_id" ]; then
+            echo "manylinux-wheelhouse-3.11 artifact not found in run $run_id; skipping"
+            exit 0
+          fi
+          echo "Found manylinux artifact id: $artifact_id — downloading"
+          download_url="https://api.github.com/repos/${{ github.repository }}/actions/artifacts/${artifact_id}/zip"
+          curl -L -H "Authorization: token $GITHUB_TOKEN" -o ./.wheelhouse/manylinux.zip "$download_url"
+          unzip -q ./.wheelhouse/manylinux.zip -d ./.wheelhouse/manylinux_tmp || true
+          many_tgz=$(find ./.wheelhouse/manylinux_tmp -type f -name 'manylinux-wheelhouse-3.11.tgz' | head -n1 || true)
+          if [ -z "$many_tgz" ]; then
+            echo "manylinux tarball not found inside artifact zip; skipping"
+            rm -rf ./.wheelhouse/manylinux_tmp ./.wheelhouse/manylinux.zip || true
+            exit 0
+          fi
+          mkdir -p ./.wheelhouse/manylinux_extracted
+          tar -xzf "$many_tgz" -C ./.wheelhouse/manylinux_extracted || true
+          find ./.wheelhouse/manylinux_extracted -type f -name '*.whl' -exec cp -f {} ./.wheelhouse/ \; || true
+          rm -rf ./.wheelhouse/manylinux_tmp ./.wheelhouse/manylinux.zip ./.wheelhouse/manylinux_extracted || true
+          echo "Included any manylinux wheels found into ./.wheelhouse"
+
+      - name: Fetch critical binary wheels (numpy, pytesseract, Pillow)
+        run: |
+          # Be verbose and attempt to download explicit pinned versions when present.
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip --version
+          mkdir -p ./.wheelhouse
+          echo "Reading pinned versions from doc_processor/requirements-heavy.txt (if present)"
+          # For each critical package, if a pinned version exists in requirements-heavy.txt, try to download that exact version.
+          for pkg in numpy pytesseract Pillow; do
+            pinned=$(grep -E "^${pkg}==" doc_processor/requirements-heavy.txt || true)
+            if [[ -n "$pinned" ]]; then
+              ver=$(echo "$pinned" | cut -d'=' -f3-)
+              echo "Attempting to download binary wheel for ${pkg}==${ver}"
+              python -m pip download --only-binary=:all: "${pkg}==${ver}" -d ./.wheelhouse || true
+            else
+              echo "No pinned version for ${pkg}; attempting to download any binary wheel available for ${pkg}"
+              python -m pip download --only-binary=:all: "${pkg}" -d ./.wheelhouse || true
+            fi
+          done
+          echo "Listing contents of ./.wheelhouse after download attempts:"
+          ls -la ./.wheelhouse || true
 
       - name: Package wheelhouse for upload
         run: |
@@ -66,13 +139,30 @@ jobs:
             ls -R "$tmpdir" || true
             exit 1
           fi
-          # Ensure numpy is present (match 'numpy-' to be tolerant on versions/build tags)
+          # Check for expected critical wheels and fail only if numpy is missing.
+          missing=()
           if ! echo "$wheels" | grep -q 'numpy-'; then
-            echo "Critical wheel 'numpy' not found in wheelhouse (files: )" >&2
-            echo "$wheels"
-            exit 1
+            missing+=(numpy)
           fi
-          echo "Wheelhouse validation passed (numpy present)."
+          if ! echo "$wheels" | grep -qi 'pytesseract'; then
+            missing+=(pytesseract)
+          fi
+          if ! echo "$wheels" | grep -qi 'pillow\|Pillow'; then
+            missing+=(Pillow)
+          fi
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "Missing wheels: ${missing[*]}"
+            # Fail if numpy is missing; allow other critical wheels to be absent but warn.
+            for m in "${missing[@]}"; do
+              if [ "$m" = "numpy" ]; then
+                echo "ERROR: numpy wheel missing from wheelhouse. Failing build." >&2
+                exit 1
+              fi
+            done
+            echo "Warning: some critical wheels are missing but not failing (they may be installed from PyPI)."
+          else
+            echo "Wheelhouse validation passed (all critical wheels present)."
+          fi
 
       - name: Upload wheelhouse artifact
         uses: actions/upload-artifact@v4
