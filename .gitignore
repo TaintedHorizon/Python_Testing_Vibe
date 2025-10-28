@@ -23,6 +23,9 @@ wheels/
 
 # === Virtual Environments ===
 .env
+# Ignore CI artifacts and logs that may contain sensitive tokens
+doc_processor/ci_logs/
+doc_processor/tests/e2e/artifacts/
 .venv
 env/
 venv/
