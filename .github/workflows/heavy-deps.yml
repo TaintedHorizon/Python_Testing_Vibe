@@ -203,6 +203,21 @@ jobs:
           wheels=$(find ./.wheelhouse -maxdepth 1 -type f -name '*.whl' -printf '%f\n' | paste -sd, - || true)
           echo "wheels=${wheels}" >> "$meta_file"
 
+      - name: CI consumer validation (runs on runner python3.11)
+        run: |
+          set -euo pipefail
+          echo "Running CI consumer validation against wheelhouse-3.11.tgz"
+          if [ ! -f wheelhouse-3.11.tgz ]; then
+            echo "wheelhouse-3.11.tgz not found; failing validation" >&2
+            exit 1
+          fi
+          # Extract to a temp dir for pip find-links (script handles extraction too)
+          tmpd=$(mktemp -d)
+          tar -xzf wheelhouse-3.11.tgz -C "$tmpd" || true
+          # Run the validation script in the runner environment using python3.11
+          chmod +x ./scripts/ci/validate_wheelhouse_consumer.sh || true
+          ./scripts/ci/validate_wheelhouse_consumer.sh --local-tar wheelhouse-3.11.tgz --venv-dir ".venv-ci-validate" --python-bin python3.11
+
       - name: Stage wheelhouse in runner-side docs/ci-archive (for easier archival)
         run: |
           set -euo pipefail
