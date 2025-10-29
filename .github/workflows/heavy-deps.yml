@@ -177,8 +177,37 @@ jobs:
             echo "Wheelhouse validation passed (all critical wheels present)."
           fi
 
+      - name: Create provenance .meta file for wheelhouse
+        run: |
+          set -euo pipefail
+          meta_file=wheelhouse-3.11.tgz.meta
+          # Compute checksum and size
+          if [ -f wheelhouse-3.11.tgz ]; then
+            sha=$(sha256sum wheelhouse-3.11.tgz | awk '{print $1}')
+            size=$(stat -c%s wheelhouse-3.11.tgz || true)
+          else
+            sha=""
+            size=0
+          fi
+          echo "name=wheelhouse-3.11.tgz" > "$meta_file"
+          echo "sha256=${sha}" >> "$meta_file"
+          echo "size=${size}" >> "$meta_file"
+          echo "created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$meta_file"
+          echo "runner=$(uname -a)" >> "$meta_file"
+          echo "python=$(python -V 2>&1)" >> "$meta_file"
+          if [ -f doc_processor/requirements-heavy.txt ]; then
+            req_hash=$(sha256sum doc_processor/requirements-heavy.txt | awk '{print $1}') || true
+            echo "requirements_hash=${req_hash}" >> "$meta_file"
+          fi
+          # List wheel filenames included (comma-separated)
+          wheels=$(find ./.wheelhouse -maxdepth 1 -type f -name '*.whl' -printf '%f\n' | paste -sd, - || true)
+          echo "wheels=${wheels}" >> "$meta_file"
+
+
       - name: Upload wheelhouse artifact
         uses: actions/upload-artifact@v4
         with:
           name: wheelhouse-3.11
-          path: wheelhouse-3.11.tgz
+          path: |
+            wheelhouse-3.11.tgz
+            wheelhouse-3.11.tgz.meta
