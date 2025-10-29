@@ -128,6 +128,10 @@ class AppConfig:
             value = os.getenv(key)
             if value is not None:
                 value = value.strip('"').strip("'")
+                # Remove inline comments if present (e.g. "2048  # note")
+                if '#' in value:
+                    # Keep only the part before the comment
+                    value = value.split('#', 1)[0].strip()
             return value if value is not None else default
 
         # Helper function to get optional environment variable
@@ -136,6 +140,9 @@ class AppConfig:
             value = os.getenv(key)
             if value is not None:
                 value = value.strip('"').strip("'")
+                # Strip inline comments when present
+                if '#' in value:
+                    value = value.split('#', 1)[0].strip()
             return value
 
         # Helper function to validate directory path

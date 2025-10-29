@@ -45,3 +45,27 @@ def load_dotenv(dotenv_path: Optional[str] = None, **kwargs) -> bool:
             # Swallow parsing errors; this shim is best-effort only
             return False
     return loaded
+
+
+def find_dotenv(filename: str = '.env', raise_error_if_not_found: bool = False, usecwd: bool = False, **kwargs) -> str:
+    """Locate a .env file in the current working directory.
+
+    This minimal shim exposes a small subset of the real python-dotenv
+    API so code that calls ``dotenv.find_dotenv()`` continues to work
+    in lightweight CI/test environments where the full package may not
+    be installed.
+
+    We accept the common ``usecwd`` kwarg and any extra kwargs for
+    compatibility with callers that pass extra options. The shim simply
+    checks the current working directory (optionally using cwd when
+    requested) and returns the path or an empty string.
+    """
+    # If usecwd is True, respect the cwd option by searching from CWD.
+    # For this minimal shim, filename is interpreted relative to cwd.
+    base_dir = os.getcwd() if usecwd else os.getcwd()
+    path = os.path.join(base_dir, filename)
+    if os.path.exists(path):
+        return path
+    if raise_error_if_not_found:
+        raise FileNotFoundError(filename)
+    return ""
