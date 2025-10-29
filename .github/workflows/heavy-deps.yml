@@ -203,6 +203,25 @@ jobs:
           wheels=$(find ./.wheelhouse -maxdepth 1 -type f -name '*.whl' -printf '%f\n' | paste -sd, - || true)
           echo "wheels=${wheels}" >> "$meta_file"
 
+      - name: Stage wheelhouse in runner-side docs/ci-archive (for easier archival)
+        run: |
+          set -euo pipefail
+          # Create a dated archive folder inside the runner workspace so artifacts
+          # include a discoverable path like docs/ci-archive/20251029-<runid>/
+          ARCHIVE_DIR="docs/ci-archive/$(date -u +%Y%m%d)-${{ github.run_id }}"
+          mkdir -p "$ARCHIVE_DIR"
+          # Copy the wheelhouse tarball and its meta file into the archive dir
+          if [ -f wheelhouse-3.11.tgz ]; then
+            cp -f wheelhouse-3.11.tgz "$ARCHIVE_DIR/"
+          fi
+          if [ -f wheelhouse-3.11.tgz.meta ]; then
+            cp -f wheelhouse-3.11.tgz.meta "$ARCHIVE_DIR/"
+          fi
+          # Also copy a small README with provenance summary for quick browsing
+          echo "Archived by GitHub Actions run ${{ github.run_id }} on $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ARCHIVE_DIR/README.txt"
+          echo "Files:" >> "$ARCHIVE_DIR/README.txt"
+          ls -la "$ARCHIVE_DIR" >> "$ARCHIVE_DIR/README.txt" || true
+
 
       - name: Upload wheelhouse artifact
         uses: actions/upload-artifact@v4
