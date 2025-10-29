@@ -13,6 +13,9 @@ on:
 jobs:
   e2e-manual:
     runs-on: ubuntu-latest
+    # Run the job inside a lightweight Python 3.11 container to keep the environment deterministic
+    container:
+      image: python:3.11-slim
     if: github.event_name != 'pull_request' || (github.event_name == 'pull_request' && github.event.label.name == 'run-e2e')
     env:
       PYTHONPATH: ${{ github.workspace }}
@@ -20,34 +23,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ github.event.inputs.python-version }}
-
       - name: Create TEST_TMPDIR
         run: |
           echo "TEST_TMPDIR=$(mktemp -d)" >> $GITHUB_ENV
 
-      - name: Prepare virtualenv for app
+      - name: Prepare virtualenv for app (inside container)
         run: |
           cd doc_processor
           python -m venv venv
           . venv/bin/activate
           python -m pip install --upgrade pip
-          if [ -f requirements-ci.txt ]; then
-            pip install -r requirements-ci.txt
-          elif [ -f requirements.txt ]; then
-            # best-effort install; may be heavy
-            pip install -r requirements.txt || true
+          # If a validated wheelhouse tar exists in docs/ci-archive (meta files are kept in repo), prefer it
+          ARCHIVE_TGZ=$(ls docs/ci-archive/wheelhouse-3.11-*.tgz 2>/dev/null | head -n1 || true)
+          if [ -n "$ARCHIVE_TGZ" ]; then
+            echo "Found archived wheelhouse: $ARCHIVE_TGZ -- installing from it"
+            mkdir -p ./.wheelhouse
+            tar -xzf "$ARCHIVE_TGZ" -C ./.wheelhouse --strip-components=0 || true
+            python -m pip install --no-index --find-links=./.wheelhouse -r requirements-ci.txt || python -m pip install --no-index --find-links=./.wheelhouse -r requirements.txt || true
+          else
+            if [ -f requirements-ci.txt ]; then
+              python -m pip install -r requirements-ci.txt || true
+            elif [ -f requirements.txt ]; then
+              # best-effort install; may be heavy
+              python -m pip install -r requirements.txt || true
+            fi
           fi
 
       - name: Start application (background)
         run: |
           cd ${{ github.workspace }}
-          # Start the app in background using nohup so the job can continue
-          nohup ./start_app.sh > e2e_app.out 2>&1 &
-          echo $! > e2e_app.pid
+          chmod +x scripts/e2e/start_app_for_ci.sh
+          ./scripts/e2e/start_app_for_ci.sh
 
       - name: Wait for app to become healthy
         run: |
