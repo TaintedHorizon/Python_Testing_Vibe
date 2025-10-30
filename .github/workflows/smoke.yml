@@ -34,36 +34,46 @@ jobs:
         run: |
           echo "Installing system packages required by tests..."
           sudo apt-get update
-          sudo apt-get install -y tesseract-ocr
-      
+          # tolerate failure (some runners / images may not have apt or package)
+          sudo apt-get install -y tesseract-ocr || echo "tesseract apt install failed; will surface import errors during tests"
       - name: Quick python compile check
         run: |
           echo "Running quick python syntax check for doc_processor tests"
           python -m py_compile $(find doc_processor -name "*.py") || true
-      
       - name: Install Python test dependencies
         run: |
           echo "Installing Python test dependencies..."
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
           
-          # Install from test-requirements.txt or requirements.txt if available
+          # Install from test-requirements.txt or doc_processor/requirements.txt if available
           if [ -f "test-requirements.txt" ]; then
             echo "Installing from test-requirements.txt"
-            python -m pip install -r test-requirements.txt
+            python -m pip install --upgrade -r test-requirements.txt || true
           elif [ -f "doc_processor/requirements.txt" ]; then
             echo "Installing from doc_processor/requirements.txt"
-            python -m pip install -r doc_processor/requirements.txt
+            python -m pip install --upgrade -r doc_processor/requirements.txt || true
           else
             echo "No requirements file found, installing fallback dependencies"
-            # Note: Using unpinned versions as fallback for flexibility
-            # Consider adding a test-requirements.txt file for reproducible builds
-            python -m pip install numpy pytesseract playwright pytest
+            python -m pip install --upgrade numpy pytesseract playwright pytest || true
           fi
-      
-      - name: Install Playwright browsers
+      - name: Install Playwright browsers (if Playwright is installed)
         run: |
-          echo "Installing Playwright browsers..."
-          python -m playwright install --with-deps
+          echo "Checking for Playwright and installing browsers if present..."
+          python - <<'PY'
+import importlib, sys, subprocess
+try:
+    spec = importlib.util.find_spec('playwright')
+    if spec is None:
+        print('Playwright not installed; skipping browser install')
+        sys.exit(0)
+    # run playwright install using module form to ensure correct interpreter
+    subprocess.check_call([sys.executable, '-m', 'playwright', 'install', '--with-deps'])
+    print('Playwright browsers installed')
+except Exception as e:
+    print('Playwright browser install failed or not possible in this environment:', e)
+    # don't fail the whole workflow here; tests will surface missing browsers if needed
+    sys.exit(0)
+PY
       - name: Sanity check - import top-level shims (fail-fast)
         run: |
           # Fail fast if top-level shims are missing. Keep output minimal.
@@ -119,14 +129,12 @@ jobs:
             echo "run_heavy=false" >> "$GITHUB_OUTPUT"
           fi
         shell: bash
-
       - name: Download wheelhouse artifact if requested
         if: steps.check_label.outputs.run_heavy == 'true'
         uses: actions/download-artifact@v4
         with:
           name: wheelhouse-3.11
           path: ./.wheelhouse
-
       - name: Unpack wheelhouse tarball (if present)
         if: steps.check_label.outputs.run_heavy == 'true'
         run: |
@@ -138,7 +146,6 @@ jobs:
             find ./.wheelhouse/extracted -type f -name '*.whl' -exec mv -f {} ./.wheelhouse/ \;
             rm -rf ./.wheelhouse/extracted
           fi
-
       - name: Run non-E2E tests
         working-directory: doc_processor
         env:
@@ -154,7 +161,7 @@ jobs:
           # Install lightweight CI requirements if provided (curated to avoid heavy wheels)
           if [ -f "requirements-ci.txt" ]; then
             echo "Installing requirements-ci.txt"
-            python -m pip install -r requirements-ci.txt
+            python -m pip install -r requirements-ci.txt || true
           else
             echo "No requirements-ci.txt found; skipping lightweight install"
           fi
@@ -171,11 +178,9 @@ jobs:
           echo "Running pytest excluding E2E tests (using marker: -m 'not e2e')"
           pytest -m "not e2e" 2>&1 | tee smoke-output.txt
           exit ${PIPESTATUS[0]}
-
       - name: Upload smoke output artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-output-${{ matrix.python }}
           path: doc_processor/smoke-output.txt
-
