@@ -30,18 +30,38 @@ jobs:
       - name: Create TEST_TMPDIR
         run: |
           echo "TEST_TMPDIR=$(mktemp -d)" >> $GITHUB_ENV
+      - name: Install system dependencies
+        run: |
+          echo "Installing system packages required by tests..."
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr
+      
       - name: Quick python compile check
         run: |
           echo "Running quick python syntax check for doc_processor tests"
           python -m py_compile $(find doc_processor -name "*.py") || true
-      - name: Install deps (pytest only — avoid heavy full install before collect-only)
+      
+      - name: Install Python test dependencies
         run: |
+          echo "Installing Python test dependencies..."
           python -m pip install --upgrade pip
-          python -m pip install pytest
-          # Intentionally NOT installing full doc_processor/requirements.txt here because
-          # it pulls very large native wheels (torch, cuda, etc.) and can cause the job
-          # to be canceled during install. If you need full runtime deps for the test run,
-          # add a follow-up step that installs a curated, lightweight requirements file.
+          
+          # Install from test-requirements.txt or requirements.txt if available
+          if [ -f "test-requirements.txt" ]; then
+            echo "Installing from test-requirements.txt"
+            python -m pip install -r test-requirements.txt
+          elif [ -f "doc_processor/requirements.txt" ]; then
+            echo "Installing from doc_processor/requirements.txt"
+            python -m pip install -r doc_processor/requirements.txt
+          else
+            echo "No requirements file found, installing fallback dependencies"
+            python -m pip install numpy pytesseract playwright pytest
+          fi
+      
+      - name: Install Playwright browsers
+        run: |
+          echo "Installing Playwright browsers..."
+          python -m playwright install --with-deps
       - name: Sanity check - import top-level shims (fail-fast)
         run: |
           # Fail fast if top-level shims are missing. Keep output minimal.
@@ -52,9 +72,8 @@ jobs:
           TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
         run: |
           echo "Running pytest --collect-only (writes collect-output.txt)"
-          # Ignore e2e tests during collect so Playwright imports don't crash collection
-          # working-directory is `doc_processor`, so the e2e folder is `tests/e2e` relative to it.
-          pytest --collect-only -q --ignore=tests/e2e > collect-output.txt 2>&1 || true
+          # Exclude e2e tests during collection using pytest markers
+          pytest --collect-only -q -m "not e2e" > collect-output.txt 2>&1 || true
       - name: Upload collect-only artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -145,10 +164,10 @@ jobs:
             python -m pip install --no-index --find-links ./.wheelhouse -r requirements-heavy.txt || true
           fi
           # Capture pytest output to a file and surface it as an artifact even on failure
-          # Ignore the Playwright E2E test directory to avoid importing `playwright`
-          # during collection. Working-directory is `doc_processor` so ignore `tests/e2e`.
-          # Install lightweight numpy so modules importing it at collection time don't crash.
-          pytest -q -k "not e2e and not playwright" --ignore=tests/e2e 2>&1 | tee smoke-output.txt
+          # Exclude E2E tests marked with @pytest.mark.e2e using pytest markers
+          # Working-directory is `doc_processor`
+          echo "Running pytest excluding E2E tests (using marker: -m 'not e2e')"
+          pytest -m "not e2e" 2>&1 | tee smoke-output.txt
           exit ${PIPESTATUS[0]}
 
       - name: Upload smoke output artifact
