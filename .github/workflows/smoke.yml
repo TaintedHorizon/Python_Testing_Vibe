@@ -143,7 +143,10 @@ jobs:
             python -m pip install --no-index --find-links ./.wheelhouse -r requirements-heavy.txt || true
           fi
           # Capture pytest output to a file and surface it as an artifact even on failure
-          pytest -q -k "not e2e and not playwright" 2>&1 | tee smoke-output.txt
+          # Ignore the Playwright E2E test directory to avoid importing `playwright`
+          # during collection. Install lightweight numpy so modules importing it
+          # at collection time don't crash.
+          pytest -q -k "not e2e and not playwright" --ignore=doc_processor/tests/e2e 2>&1 | tee smoke-output.txt
           exit ${PIPESTATUS[0]}
 
       - name: Upload smoke output artifact
