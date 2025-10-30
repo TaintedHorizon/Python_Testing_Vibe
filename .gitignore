@@ -123,4 +123,4 @@ ui_tests/node_modules/
 # E2E test artifacts (screenshots, html, logs)
 doc_processor/tests/e2e/artifacts/
 doc_processor/db_prod_backups/
-!doc_processor/tests/e2e/artifacts/.gitkeep
+!doc_processor/tests/e2e/artifacts/.gitkeeprepo-rewrite.git/
