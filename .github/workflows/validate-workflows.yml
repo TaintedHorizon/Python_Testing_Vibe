@@ -36,16 +36,14 @@ jobs:
         run: |
           set -euo pipefail
           echo "Scanning $WORKFLOW_DIR for YAML files..."
-          files=$(find "$WORKFLOW_DIR" -maxdepth 1 -type f \( -name "*.yml" -o -name "*.yaml" \) || true)
-          if [ -z "$files" ]; then
+          # Use NUL-separated output and xargs -0 to pass filenames safely (no word splitting)
+          find "$WORKFLOW_DIR" -maxdepth 1 -type f \( -name "*.yml" -o -name "*.yaml" \) -print0 > /tmp/workflow_files0 || true
+          if [ ! -s /tmp/workflow_files0 ]; then
             echo "No workflow YAML files found in $WORKFLOW_DIR"
             exit 0
           fi
-          
           echo "Found workflow files:"
-          echo "$files"
+          xargs -0 -a /tmp/workflow_files0 -I{} echo "{}"
           echo ""
-          
-          # Run the validator script on all workflow files
-          # Note: Using word splitting intentionally to pass multiple files as separate args
-          python .github/scripts/validate_workflow.py $files
+          # Run the validator script on all workflow files (NUL-safe)
+          xargs -0 -a /tmp/workflow_files0 -r python .github/scripts/validate_workflow.py {}
