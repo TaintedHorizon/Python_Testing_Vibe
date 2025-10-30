@@ -1,41 +1,50 @@
 Partial workflow run analysis (note: API returned 30 of 1412 total runs):
 
-Summary:
-- validate-workflows: recurring failures across many pull_request runs. Likely YAML/schema/linter errors.
-- .github/workflows/ci-rewrite.yml: failing on push events; investigate secrets, permissions, or step errors.
-- Smoke tests (non-E2E): intermittent failures; likely flaky tests or environment/dependency issues.
+Summary (expanded):
+- validate-workflows: recurring failures across many pull_request runs. Root cause: dynamically-created validator script (/tmp/validate_workflow.py) is written with incorrect indentation, raising IndentationError at line 1 when parsing .github/workflows/push-smoke.yml. This causes the validator to exit with code 2 and the workflow to fail immediately.
 
-Returned runs inspected (partial list from API response):
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18947659921 (validate-workflows, run 86) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18947658756 (.github/workflows/ci-rewrite.yml, run 201) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18947659956 (Smoke tests (non-E2E), run 120) - success
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18946689627 (validate-workflows, run 85) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18946687987 (.github/workflows/ci-rewrite.yml, run 200) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18946600194 (validate-workflows, run 84) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18946687987 (.github/workflows/ci-rewrite.yml, run 199) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18946291486 (Smoke tests (non-E2E), run 117) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18946291474 (validate-workflows, run 83) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18946289415 (.github/workflows/ci-rewrite.yml, run 198) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18945589128 (validate-workflows, run 82) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18945589118 (Smoke tests (non-E2E), run 116) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18945587726 (.github/workflows/ci-rewrite.yml, run 197) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18945153280 (validate-workflows, run 81) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18945153207 (Smoke tests (non-E2E), run 115) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18945150857 (.github/workflows/ci-rewrite.yml, run 196) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18940869932 (validate-workflows, run 80) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18940869960 (Smoke tests (non-E2E), run 114) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18940753977 (.github/workflows/ci-rewrite.yml, run 195) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18927698427 (.github/workflows/smoke.yml, run 113) - failure
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18945153783 (Copilot code review, run 6) - success
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18940870336 (Copilot code review, run 5) - success
-- https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs/18929173375 (Build heavy wheelhouse, run 21) - success
-- Additional note: some workflows are skipped for PRs (E2E suites) and some scheduled jobs run successfully.
+- Smoke tests (non-E2E): repeated test-collection failures due to missing Python packages (ModuleNotFoundError) such as numpy, pytesseract, playwright; some runs also show import errors for document_detector dependencies. Some runs succeed when dependencies are present, indicating environmental/dependency installs are inconsistent in CI.
 
-Full set of runs exists at: https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs
+- .github/workflows/ci-rewrite.yml: multiple failing runs listed; logs not fully fetched in the partial set — likely impacted by the same validation or dependency issues. Further log inspection recommended.
 
-Recommended next steps for Copilot analysis:
-- Inspect validate-workflows failing run logs to identify the exact YAML/file/line causing lint/schema failure.
-- Open ci-rewrite failing run logs and capture failing step and error trace (check secrets and permissions).
-- For Smoke tests failures, capture specific test failures and traceback; consider adding retries or pinning dependencies.
+Details and exact excerpts from failing runs (from fetched logs):
 
-Generated by GitHub Copilot assistant on 2025-10-30 16:59:55 UTC
+validate-workflows (workflow id 200892135) - repeated identical failure pattern:
+- ref:860d90f4d4493b01cc90510d4171f8284ad12362 (run 86)
+  - Excerpt:
+    "Parsing .github/workflows/push-smoke.yml\n  File \"/tmp/validate_workflow.py\", line 1\n    import sys, yaml\nIndentationError: unexpected indent\nOne or more workflow YAML files failed to parse\n##[error]Process completed with exit code 2."
+  - Diagnosis: The validator script was written with leading whitespace or heredoc indentation. Fix by writing the script with no leading indentation (use cat > /tmp/validate_workflow.py <<'PY' ... PY) or place validator in repo.
+
+- ref:0261989532feb37669de7191787cd3fe80cb63cf (run 85) — same IndentationError excerpt.
+- ref:01cde675cac0e277ed2454ff40964a28e18d14ae (run 84) — same IndentationError excerpt.
+- ref:11b6f6229b9d8ac7772601fa08c3e133665f23c0 (run 83) — same IndentationError excerpt.
+- ref:6588a0309d10f518cfffe4c66b807f7bdbc9bf84 (run 82) — same IndentationError excerpt.
+- ref:faa24b94f7c7937068f45a32b12245b5ced01d1e (run 81) — same IndentationError excerpt.
+- ref:9d3a1bd3a6baefbbd6156ed281c5deff657df026 (run 80) — same IndentationError excerpt.
+
+Smoke tests (non-E2E) (workflow id 200445397) - repeated ModuleNotFoundError failures during pytest collection:
+- ref:11b6f6229b9d8ac7772601fa08c3e133665f23c0 (run 117)
+  - Excerpts:
+    "ERROR collecting doc_processor/tests/e2e/test_sse_ui.py\nImportError while importing test module .../doc_processor/tests/e2e/test_sse_ui.py\nfrom playwright.sync_api import sync_playwright\nE   ModuleNotFoundError: No module named 'playwright'"
+    "ERROR collecting doc_processor/tests/test_app.py\nE   ModuleNotFoundError: No module named 'pytesseract'"
+- ref:6588a0309d10f518cfffe4c66b807f7bdbc9bf84 (run 116)
+  - Excerpt: many ModuleNotFoundError entries for pytesseract; pytest aborted with "Interrupted: 20 errors during collection".
+- ref:faa24b94f7c7937068f45a32b12245b5ced01d1e (run 115)
+  - Excerpt: similar missing-module errors; also errors referencing numpy missing in some runs.
+- Additional smoke-run excerpts show the same missing numpy, pytesseract, playwright patterns.
+
+Root-cause recommendations included in file:
+1) Fix validate_workflow.py generation: use an unindented heredoc or store validator script in the repo and run it.
+
+2) Ensure smoke.yml installs test and optional dependencies before running pytest:
+   - pip install -r requirements.txt
+   - pip install -r test-requirements.txt or pip install numpy pytesseract playwright
+   - Install system packages for pytesseract: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+   - Run playwright install --with-deps
+   - Exclude heavy E2E tests from smoke job via pytest markers (e.g., -m "not e2e").
+
+3) Add a debug step in validate-workflows to print /tmp/validate_workflow.py before running it to speed troubleshooting.
+
+Note: API returned a partial set (30 of 1412 total runs). Full set available at https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs
+
+Generated for Copilot/VS Code analysis on 2025-10-30 17:20:47 UTC by GitHub Copilot assistant. Please review and let me know if you'd like me to prepare a PR with fixes for validate-workflows and smoke.yml.
