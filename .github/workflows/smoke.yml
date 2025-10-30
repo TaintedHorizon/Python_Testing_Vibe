@@ -82,12 +82,20 @@ jobs:
       - name: Check for run-heavy-deps label (PRs only)
         if: github.event_name == 'pull_request'
         id: check_label
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const labels = context.payload.pull_request.labels.map(l => l.name);
-            const has = labels.includes('run-heavy-deps');
-            core.setOutput('run_heavy', has ? 'true' : 'false');
+        run: |
+          # Read labels from the webhook event payload and set an output variable
+          if [ -f "$GITHUB_EVENT_PATH" ]; then
+            labels=$(jq -r '.pull_request.labels[]?.name' "$GITHUB_EVENT_PATH" | tr '\n' ' ')
+          else
+            labels=""
+          fi
+          echo "Found labels: $labels"
+          if echo " $labels " | grep -qw "run-heavy-deps"; then
+            echo "run_heavy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_heavy=false" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
 
       - name: Download wheelhouse artifact if requested
         if: steps.check_label.outputs.run_heavy == 'true'
@@ -136,19 +144,3 @@ jobs:
           fi
           pytest -q -k "not e2e and not playwright"
 
-      - name: Check for run-heavy-deps label (PRs only)
-        if: github.event_name == 'pull_request'
-        id: check_label
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const labels = context.payload.pull_request.labels.map(l => l.name);
-            const has = labels.includes('run-heavy-deps');
-            core.setOutput('run_heavy', has ? 'true' : 'false');
-
-      - name: Download wheelhouse artifact if requested
-        if: steps.check_label.outputs.run_heavy == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: wheelhouse-3.11
-          path: ./.wheelhouse
