@@ -29,7 +29,8 @@ jobs:
         run: |
           echo "Running smoke tests (diagnostic)"
           # Ignore E2E tests to avoid importing Playwright during collection
-          pytest -q -k "not e2e and not playwright" --ignore=doc_processor/tests/e2e 2>&1 | tee smoke-output.txt
+          # working-directory is `doc_processor`, so ignore path should be `tests/e2e`.
+          pytest -q -k "not e2e and not playwright" --ignore=tests/e2e 2>&1 | tee smoke-output.txt
           exit ${PIPESTATUS[0]}
       - name: Upload smoke output artifact
         if: always()
