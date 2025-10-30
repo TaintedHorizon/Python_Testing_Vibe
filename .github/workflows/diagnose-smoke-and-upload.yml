@@ -28,7 +28,8 @@ jobs:
         working-directory: doc_processor
         run: |
           echo "Running smoke tests (diagnostic)"
-          pytest -q -k "not e2e and not playwright" 2>&1 | tee smoke-output.txt
+          # Ignore E2E tests to avoid importing Playwright during collection
+          pytest -q -k "not e2e and not playwright" --ignore=doc_processor/tests/e2e 2>&1 | tee smoke-output.txt
           exit ${PIPESTATUS[0]}
       - name: Upload smoke output artifact
         if: always()

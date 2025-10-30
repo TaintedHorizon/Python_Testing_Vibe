@@ -52,7 +52,8 @@ jobs:
           TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
         run: |
           echo "Running pytest --collect-only (writes collect-output.txt)"
-          pytest --collect-only -q > collect-output.txt 2>&1 || true
+          # Ignore e2e tests during collect so Playwright imports don't crash collection
+          pytest --collect-only -q --ignore=doc_processor/tests/e2e > collect-output.txt 2>&1 || true
       - name: Upload collect-only artifact
         if: always()
         uses: actions/upload-artifact@v4
