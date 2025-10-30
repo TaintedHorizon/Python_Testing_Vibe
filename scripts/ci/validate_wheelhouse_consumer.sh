@@ -45,8 +45,8 @@ while [[ $# -gt 0 ]]; do
       PACKAGES="$2"; shift 2;;
     --fetch-opts)
       FETCH_OPTS="$2"; shift 2;;
-      --python-bin)
-        PYTHON_BIN="$2"; shift 2;;
+    --python-bin)
+      PYTHON_BIN="$2"; shift 2;;
     --pytest-args)
       PYTEST_ARGS="$2"; shift 2;;
     -h|--help)

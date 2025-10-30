@@ -22,6 +22,16 @@ jobs:
         with:
           python-version: 3.11
 
+      - name: Authenticate gh CLI (for scripts that call gh)
+        if: always()
+        run: |
+          if command -v gh >/dev/null 2>&1; then
+            echo "Authenticating gh CLI with GITHUB_TOKEN"
+            echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token || true
+          else
+            echo "gh CLI not installed on runner; skipping auth"
+          fi
+
       - name: Cache wheelhouse
         uses: actions/cache@v4
         with:
