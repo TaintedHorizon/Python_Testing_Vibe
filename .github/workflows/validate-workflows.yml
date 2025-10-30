@@ -35,20 +35,20 @@ jobs:
             echo "No workflow YAML files found in $WORKFLOW_DIR"
             exit 0
           fi
-          # create a small validator script
-          cat > /tmp/validate_workflow.py <<'PY'
-          import sys, yaml
-          fpath = sys.argv[1]
-          try:
-              with open(fpath, 'r') as fh:
-                  yaml.safe_load(fh)
-          except Exception as e:
-              import traceback
-              traceback.print_exc()
-              print(f"YAML parse error in {fpath}: {e}", file=sys.stderr)
-              sys.exit(2)
-          sys.exit(0)
-          PY
+          # create a small validator script using printf to avoid heredoc indentation issues
+          printf '%s\n' \
+            'import sys, yaml' \
+            'fpath = sys.argv[1]' \
+            'try:' \
+            '    with open(fpath, "r") as fh:' \
+            '        yaml.safe_load(fh)' \
+            'except Exception as e:' \
+            '    import traceback' \
+            '    traceback.print_exc()' \
+            '    print(f"YAML parse error in {fpath}: {e}", file=sys.stderr)' \
+            '    sys.exit(2)' \
+            'sys.exit(0)' \
+            > /tmp/validate_workflow.py
 
           failed=0
           for f in $files; do
