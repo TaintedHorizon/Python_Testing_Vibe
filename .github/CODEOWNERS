@@ -1,0 +1,15 @@
+# CODEOWNERS file for Python_Testing_Vibe
+# Format: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for repository-level concerns
+*       @TaintedHorizon
+
+# CI and workflows
+.github/workflows/*    @TaintedHorizon
+
+# doc_processor area
+doc_processor/**       @TaintedHorizon
+
+# Release/packaging and scripts
+scripts/**             @TaintedHorizon
+dev_tools/**           @TaintedHorizon
