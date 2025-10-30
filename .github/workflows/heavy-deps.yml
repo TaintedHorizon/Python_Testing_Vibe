@@ -248,6 +248,19 @@ jobs:
           ls -la "$ARCHIVE_DIR" >> "$ARCHIVE_DIR/README.txt" || true
 
 
+      - name: "Optional: upload wheelhouse preview to external artifact store (opt-in)"
+        run: |
+          set -euo pipefail
+          ARCHIVE_DIR="docs/ci-archive/$(date -u +%Y%m%d)-${{ github.run_id }}"
+          OUT_FILE="${ARCHIVE_DIR}/wheelhouse-3.11.tgz"
+          if [[ -f "$OUT_FILE" ]]; then
+            echo "Attempting optional upload of $OUT_FILE using scripts/ci/upload_artifacts_optin.sh"
+            chmod +x ./scripts/ci/upload_artifacts_optin.sh || true
+            ./scripts/ci/upload_artifacts_optin.sh "$OUT_FILE" || true
+          else
+            echo "No wheelhouse tarball found at $OUT_FILE; skipping optional upload"
+          fi
+
       - name: Upload wheelhouse artifact
         uses: actions/upload-artifact@v4
         with:
