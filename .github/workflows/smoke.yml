@@ -142,5 +142,14 @@ jobs:
             echo "Installing heavy deps from wheelhouse"
             python -m pip install --no-index --find-links ./.wheelhouse -r requirements-heavy.txt || true
           fi
-          pytest -q -k "not e2e and not playwright"
+          # Capture pytest output to a file and surface it as an artifact even on failure
+          pytest -q -k "not e2e and not playwright" 2>&1 | tee smoke-output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload smoke output artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-output-${{ matrix.python }}
+          path: doc_processor/smoke-output.txt
 
