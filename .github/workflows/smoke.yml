@@ -55,6 +55,8 @@ jobs:
             python -m pip install -r doc_processor/requirements.txt
           else
             echo "No requirements file found, installing fallback dependencies"
+            # Note: Using unpinned versions as fallback for flexibility
+            # Consider adding a test-requirements.txt file for reproducible builds
             python -m pip install numpy pytesseract playwright pytest
           fi
       
