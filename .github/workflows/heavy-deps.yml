@@ -1,7 +1,12 @@
 name: Build heavy wheelhouse
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      upload_releases:
+        description: 'Set to true to upload wheelhouse tarball to a GitHub Release (opt-in)'
+        required: false
+        default: 'false'
   schedule:
     - cron: '0 3 * * *' # nightly wheel refresh (UTC)
 
@@ -46,3 +51,34 @@ jobs:
         with:
           name: wheelhouse-3.11
           path: wheelhouse-3.11.tgz
+
+  publish-release:
+    needs: build-wheelhouse
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.upload_releases == 'true' }}
+    steps:
+      - name: Download wheelhouse artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wheelhouse-3.11
+          path: .
+
+      - name: Create GitHub release
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          tag_name: wheelhouse-${{ github.run_id }}
+          release_name: wheelhouse-${{ github.run_id }}
+          body: "Automated wheelhouse from heavy-deps workflow run ${{ github.run_id }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload wheelhouse to release
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./wheelhouse-3.11.tgz
+          asset_name: wheelhouse-3.11.tgz
+          asset_content_type: application/gzip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
