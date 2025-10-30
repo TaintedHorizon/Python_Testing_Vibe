@@ -38,7 +38,7 @@ jobs:
         working-directory: doc_processor
         run: |
           echo "Running pytest --collect-only (writes collect-output.txt)"
-          pytest --collect-only -q > collect-output.txt 2>&1 || true
+          pytest --collect-only -q --ignore=tests/e2e > collect-output.txt 2>&1 || true
       - name: Upload collect-only artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -46,11 +46,12 @@ jobs:
           name: ci-rewrite-collect-output
           path: doc_processor/collect-output.txt
       - name: Run tests (fast vs full)
+        working-directory: doc_processor
         run: |
           if [ "${{ matrix.mode }}" = "fast" ]; then
-            pytest -q -k "not slow";
+            pytest -q --ignore=tests/e2e -k "not slow";
           else
-            pytest -q;
+            pytest -q --ignore=tests/e2e;
           fi
 
   e2e:

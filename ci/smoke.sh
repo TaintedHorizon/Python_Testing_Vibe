@@ -147,6 +147,6 @@ else
   fi
 
   echo "[smoke] running pytest (non-E2E subset)"
-  pytest -q -k "not e2e and not playwright"
+  pytest -q --ignore=tests/e2e
 
   echo "[smoke] done"
