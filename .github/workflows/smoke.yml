@@ -53,7 +53,8 @@ jobs:
         run: |
           echo "Running pytest --collect-only (writes collect-output.txt)"
           # Ignore e2e tests during collect so Playwright imports don't crash collection
-          pytest --collect-only -q --ignore=doc_processor/tests/e2e > collect-output.txt 2>&1 || true
+          # working-directory is `doc_processor`, so the e2e folder is `tests/e2e` relative to it.
+          pytest --collect-only -q --ignore=tests/e2e > collect-output.txt 2>&1 || true
       - name: Upload collect-only artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -145,9 +146,9 @@ jobs:
           fi
           # Capture pytest output to a file and surface it as an artifact even on failure
           # Ignore the Playwright E2E test directory to avoid importing `playwright`
-          # during collection. Install lightweight numpy so modules importing it
-          # at collection time don't crash.
-          pytest -q -k "not e2e and not playwright" --ignore=doc_processor/tests/e2e 2>&1 | tee smoke-output.txt
+          # during collection. Working-directory is `doc_processor` so ignore `tests/e2e`.
+          # Install lightweight numpy so modules importing it at collection time don't crash.
+          pytest -q -k "not e2e and not playwright" --ignore=tests/e2e 2>&1 | tee smoke-output.txt
           exit ${PIPESTATUS[0]}
 
       - name: Upload smoke output artifact
