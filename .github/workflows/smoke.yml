@@ -2,7 +2,7 @@ name: Smoke tests (non-E2E)
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened]
 
