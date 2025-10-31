@@ -1,0 +1,50 @@
+Partial workflow run analysis (note: API returned 30 of 1412 total runs):
+
+Summary (expanded):
+- validate-workflows: recurring failures across many pull_request runs. Root cause: dynamically-created validator script (/tmp/validate_workflow.py) is written with incorrect indentation, raising IndentationError at line 1 when parsing .github/workflows/push-smoke.yml. This causes the validator to exit with code 2 and the workflow to fail immediately.
+
+- Smoke tests (non-E2E): repeated test-collection failures due to missing Python packages (ModuleNotFoundError) such as numpy, pytesseract, playwright; some runs also show import errors for document_detector dependencies. Some runs succeed when dependencies are present, indicating environmental/dependency installs are inconsistent in CI.
+
+- .github/workflows/ci-rewrite.yml: multiple failing runs listed; logs not fully fetched in the partial set — likely impacted by the same validation or dependency issues. Further log inspection recommended.
+
+Details and exact excerpts from failing runs (from fetched logs):
+
+validate-workflows (workflow id 200892135) - repeated identical failure pattern:
+- ref:860d90f4d4493b01cc90510d4171f8284ad12362 (run 86)
+  - Excerpt:
+    "Parsing .github/workflows/push-smoke.yml\n  File \"/tmp/validate_workflow.py\", line 1\n    import sys, yaml\nIndentationError: unexpected indent\nOne or more workflow YAML files failed to parse\n##[error]Process completed with exit code 2."
+  - Diagnosis: The validator script was written with leading whitespace or heredoc indentation. Fix by writing the script with no leading indentation (use cat > /tmp/validate_workflow.py <<'PY' ... PY) or place validator in repo.
+
+- ref:0261989532feb37669de7191787cd3fe80cb63cf (run 85) — same IndentationError excerpt.
+- ref:01cde675cac0e277ed2454ff40964a28e18d14ae (run 84) — same IndentationError excerpt.
+- ref:11b6f6229b9d8ac7772601fa08c3e133665f23c0 (run 83) — same IndentationError excerpt.
+- ref:6588a0309d10f518cfffe4c66b807f7bdbc9bf84 (run 82) — same IndentationError excerpt.
+- ref:faa24b94f7c7937068f45a32b12245b5ced01d1e (run 81) — same IndentationError excerpt.
+- ref:9d3a1bd3a6baefbbd6156ed281c5deff657df026 (run 80) — same IndentationError excerpt.
+
+Smoke tests (non-E2E) (workflow id 200445397) - repeated ModuleNotFoundError failures during pytest collection:
+- ref:11b6f6229b9d8ac7772601fa08c3e133665f23c0 (run 117)
+  - Excerpts:
+    "ERROR collecting doc_processor/tests/e2e/test_sse_ui.py\nImportError while importing test module .../doc_processor/tests/e2e/test_sse_ui.py\nfrom playwright.sync_api import sync_playwright\nE   ModuleNotFoundError: No module named 'playwright'"
+    "ERROR collecting doc_processor/tests/test_app.py\nE   ModuleNotFoundError: No module named 'pytesseract'"
+- ref:6588a0309d10f518cfffe4c66b807f7bdbc9bf84 (run 116)
+  - Excerpt: many ModuleNotFoundError entries for pytesseract; pytest aborted with "Interrupted: 20 errors during collection".
+- ref:faa24b94f7c7937068f45a32b12245b5ced01d1e (run 115)
+  - Excerpt: similar missing-module errors; also errors referencing numpy missing in some runs.
+- Additional smoke-run excerpts show the same missing numpy, pytesseract, playwright patterns.
+
+Root-cause recommendations included in file:
+1) Fix validate_workflow.py generation: use an unindented heredoc or store validator script in the repo and run it.
+
+2) Ensure smoke.yml installs test and optional dependencies before running pytest:
+   - pip install -r requirements.txt
+   - pip install -r test-requirements.txt or pip install numpy pytesseract playwright
+   - Install system packages for pytesseract: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+   - Run playwright install --with-deps
+   - Exclude heavy E2E tests from smoke job via pytest markers (e.g., -m "not e2e").
+
+3) Add a debug step in validate-workflows to print /tmp/validate_workflow.py before running it to speed troubleshooting.
+
+Note: API returned a partial set (30 of 1412 total runs). Full set available at https://github.com/TaintedHorizon/Python_Testing_Vibe/actions/runs
+
+Generated for Copilot/VS Code analysis on 2025-10-30 17:20:47 UTC by GitHub Copilot assistant. Please review and let me know if you'd like me to prepare a PR with fixes for validate-workflows and smoke.yml.
