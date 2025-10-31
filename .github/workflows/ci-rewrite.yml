@@ -55,7 +55,6 @@ jobs:
           fi
 
   e2e:
-    if: vars.RUN_E2E == '1' || env.RUN_E2E == '1'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
