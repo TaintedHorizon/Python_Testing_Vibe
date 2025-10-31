@@ -8,6 +8,8 @@ from .playwright_helpers import dump_screenshot_and_html, wait_for_progress_upda
 ARTIFACTS_DIR = os.environ.get('E2E_ARTIFACTS', 'doc_processor/tests/e2e/artifacts')
 
 
+@pytest.mark.e2e
+@pytest.mark.playwright
 @pytest.mark.skipif(os.environ.get('PLAYWRIGHT_E2E') != '1', reason='Playwright E2E not enabled')
 def test_sse_ui_progress_matches_dom(app_process):
     """Navigate to the intake analysis page, wait for the smart progress bar to appear and update.

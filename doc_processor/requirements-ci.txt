@@ -8,9 +8,8 @@ requests>=2.31.0
 httpx>=0.28.1
 pydantic>=2.9
 pytest-timeout>=2.2.0
-# Provide numpy for modules that import it at collection time
-numpy>=1.26.0
-# Tesseract Python binding (import-only; system binary optional at runtime)
+numpy>=1.24.0
+ollama>=0.1.7
 pytesseract>=0.3.10
 # Optional heavier modules (commented out):
 # opencv-python-headless>=4.12.0
