@@ -30,18 +30,50 @@ jobs:
       - name: Create TEST_TMPDIR
         run: |
           echo "TEST_TMPDIR=$(mktemp -d)" >> $GITHUB_ENV
+      - name: Install system dependencies
+        run: |
+          echo "Installing system packages required by tests..."
+          sudo apt-get update
+          # tolerate failure (some runners / images may not have apt or package)
+          sudo apt-get install -y tesseract-ocr || echo "tesseract apt install failed; will surface import errors during tests"
       - name: Quick python compile check
         run: |
           echo "Running quick python syntax check for doc_processor tests"
           python -m py_compile $(find doc_processor -name "*.py") || true
-      - name: Install deps (pytest only — avoid heavy full install before collect-only)
+      - name: Install Python test dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pytest
-          # Intentionally NOT installing full doc_processor/requirements.txt here because
-          # it pulls very large native wheels (torch, cuda, etc.) and can cause the job
-          # to be canceled during install. If you need full runtime deps for the test run,
-          # add a follow-up step that installs a curated, lightweight requirements file.
+          echo "Installing Python test dependencies..."
+          python -m pip install --upgrade pip setuptools wheel
+          
+          # Install from test-requirements.txt or doc_processor/requirements.txt if available
+          if [ -f "test-requirements.txt" ]; then
+            echo "Installing from test-requirements.txt"
+            python -m pip install --upgrade -r test-requirements.txt || true
+          elif [ -f "doc_processor/requirements.txt" ]; then
+            echo "Installing from doc_processor/requirements.txt"
+            python -m pip install --upgrade -r doc_processor/requirements.txt || true
+          else
+            echo "No requirements file found, installing fallback dependencies"
+            python -m pip install --upgrade numpy pytesseract playwright pytest || true
+          fi
+      - name: Install Playwright browsers (if Playwright is installed)
+        run: |
+          echo "Checking for Playwright and installing browsers if present..."
+          python - <<'PY'
+import importlib, sys, subprocess
+try:
+    spec = importlib.util.find_spec('playwright')
+    if spec is None:
+        print('Playwright not installed; skipping browser install')
+        sys.exit(0)
+    # run playwright install using module form to ensure correct interpreter
+    subprocess.check_call([sys.executable, '-m', 'playwright', 'install', '--with-deps'])
+    print('Playwright browsers installed')
+except Exception as e:
+    print('Playwright browser install failed or not possible in this environment:', e)
+    # don't fail the whole workflow here; tests will surface missing browsers if needed
+    sys.exit(0)
+PY
       - name: Sanity check - import top-level shims (fail-fast)
         run: |
           # Fail fast if top-level shims are missing. Keep output minimal.
@@ -52,9 +84,8 @@ jobs:
           TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
         run: |
           echo "Running pytest --collect-only (writes collect-output.txt)"
-          # Ignore e2e tests during collect so Playwright imports don't crash collection
-          # working-directory is `doc_processor`, so the e2e folder is `tests/e2e` relative to it.
-          pytest --collect-only -q --ignore=tests/e2e > collect-output.txt 2>&1 || true
+          # Exclude e2e tests during collection using pytest markers
+          pytest --collect-only -q -m "not e2e" > collect-output.txt 2>&1 || true
       - name: Upload collect-only artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -98,14 +129,12 @@ jobs:
             echo "run_heavy=false" >> "$GITHUB_OUTPUT"
           fi
         shell: bash
-
       - name: Download wheelhouse artifact if requested
         if: steps.check_label.outputs.run_heavy == 'true'
         uses: actions/download-artifact@v4
         with:
           name: wheelhouse-3.11
           path: ./.wheelhouse
-
       - name: Unpack wheelhouse tarball (if present)
         if: steps.check_label.outputs.run_heavy == 'true'
         run: |
@@ -117,7 +146,6 @@ jobs:
             find ./.wheelhouse/extracted -type f -name '*.whl' -exec mv -f {} ./.wheelhouse/ \;
             rm -rf ./.wheelhouse/extracted
           fi
-
       - name: Run non-E2E tests
         working-directory: doc_processor
         env:
@@ -133,7 +161,7 @@ jobs:
           # Install lightweight CI requirements if provided (curated to avoid heavy wheels)
           if [ -f "requirements-ci.txt" ]; then
             echo "Installing requirements-ci.txt"
-            python -m pip install -r requirements-ci.txt
+            python -m pip install -r requirements-ci.txt || true
           else
             echo "No requirements-ci.txt found; skipping lightweight install"
           fi
@@ -145,16 +173,14 @@ jobs:
             python -m pip install --no-index --find-links ./.wheelhouse -r requirements-heavy.txt || true
           fi
           # Capture pytest output to a file and surface it as an artifact even on failure
-          # Ignore the Playwright E2E test directory to avoid importing `playwright`
-          # during collection. Working-directory is `doc_processor` so ignore `tests/e2e`.
-          # Install lightweight numpy so modules importing it at collection time don't crash.
-          pytest -q -k "not e2e and not playwright" --ignore=tests/e2e 2>&1 | tee smoke-output.txt
+          # Exclude E2E tests marked with @pytest.mark.e2e using pytest markers
+          # Working-directory is `doc_processor`
+          echo "Running pytest excluding E2E tests (using marker: -m 'not e2e')"
+          pytest -m "not e2e" 2>&1 | tee smoke-output.txt
           exit ${PIPESTATUS[0]}
-
       - name: Upload smoke output artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-output-${{ matrix.python }}
           path: doc_processor/smoke-output.txt
-
