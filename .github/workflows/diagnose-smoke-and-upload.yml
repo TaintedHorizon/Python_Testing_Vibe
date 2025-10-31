@@ -3,7 +3,7 @@ name: Diagnose smoke and upload logs
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   diagnose:
