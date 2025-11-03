@@ -24,39 +24,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install PyYAML
 
+      - name: Debug - Show validator script
+        run: |
+          echo "=== Validator script content ==="
+          cat .github/scripts/validate_workflow.py
+          echo "=== End of validator script ==="
+
       - name: Validate YAML files
         env:
           WORKFLOW_DIR: .github/workflows
         run: |
           set -euo pipefail
           echo "Scanning $WORKFLOW_DIR for YAML files..."
-          files=$(find "$WORKFLOW_DIR" -maxdepth 1 -type f \( -name "*.yml" -o -name "*.yaml" \)) || true
-          if [ -z "$files" ]; then
+          # Use NUL-separated output and xargs -0 to pass filenames safely (no word splitting)
+          find "$WORKFLOW_DIR" -maxdepth 1 -type f \( -name "*.yml" -o -name "*.yaml" \) -print0 > /tmp/workflow_files0 || true
+          if [ ! -s /tmp/workflow_files0 ]; then
             echo "No workflow YAML files found in $WORKFLOW_DIR"
             exit 0
           fi
-          # create a small validator script using printf to avoid heredoc indentation issues
-          printf '%s\n' \
-            'import sys, yaml' \
-            'fpath = sys.argv[1]' \
-            'try:' \
-            '    with open(fpath, "r") as fh:' \
-            '        yaml.safe_load(fh)' \
-            'except Exception as e:' \
-            '    import traceback' \
-            '    traceback.print_exc()' \
-            '    print(f"YAML parse error in {fpath}: {e}", file=sys.stderr)' \
-            '    sys.exit(2)' \
-            'sys.exit(0)' \
-            > /tmp/validate_workflow.py
-
-          failed=0
-          for f in $files; do
-            echo "Parsing $f"
-            python /tmp/validate_workflow.py "$f" || failed=1
-          done
-          if [ "$failed" -ne 0 ]; then
-            echo "One or more workflow YAML files failed to parse"
-            exit 2
-          fi
-          echo "All workflow YAML files parsed successfully"
+          echo "Found workflow files:"
+          xargs -0 -a /tmp/workflow_files0 -I{} echo "{}"
+          echo ""
+          # Run the validator script on all workflow files (NUL-safe)
+          xargs -0 -a /tmp/workflow_files0 -r python .github/scripts/validate_workflow.py {}

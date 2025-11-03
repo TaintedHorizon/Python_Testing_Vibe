@@ -2,7 +2,7 @@ name: Smoke tests (non-E2E)
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
     types: [opened, synchronize, reopened]
 
@@ -30,20 +30,50 @@ jobs:
       - name: Create TEST_TMPDIR
         run: |
           echo "TEST_TMPDIR=$(mktemp -d)" >> $GITHUB_ENV
+      - name: Install system dependencies
+        run: |
+          echo "Installing system packages required by tests..."
+          sudo apt-get update
+          # tolerate failure (some runners / images may not have apt or package)
+          sudo apt-get install -y tesseract-ocr || echo "tesseract apt install failed; will surface import errors during tests"
       - name: Quick python compile check
         run: |
           echo "Running quick python syntax check for doc_processor tests"
           python -m py_compile $(find doc_processor -name "*.py") || true
-      - name: Install deps (pytest + lightweight CI requirements)
+      - name: Install Python test dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pytest
-          # Install lightweight CI requirements to enable test collection
-          # (avoids heavy wheels like torch/cuda while providing Flask, dotenv, PIL, etc.)
-          if [ -f "doc_processor/requirements-ci.txt" ]; then
-            echo "Installing requirements-ci.txt for test collection"
-            python -m pip install -r doc_processor/requirements-ci.txt
+          echo "Installing Python test dependencies..."
+          python -m pip install --upgrade pip setuptools wheel
+          
+          # Install from test-requirements.txt or doc_processor/requirements.txt if available
+          if [ -f "test-requirements.txt" ]; then
+            echo "Installing from test-requirements.txt"
+            python -m pip install --upgrade -r test-requirements.txt || true
+          elif [ -f "doc_processor/requirements.txt" ]; then
+            echo "Installing from doc_processor/requirements.txt"
+            python -m pip install --upgrade -r doc_processor/requirements.txt || true
+          else
+            echo "No requirements file found, installing fallback dependencies"
+            python -m pip install --upgrade numpy pytesseract playwright pytest || true
           fi
+      - name: Install Playwright browsers (if Playwright is installed)
+        run: |
+          echo "Checking for Playwright and installing browsers if present..."
+          python - <<'PY'
+import importlib, sys, subprocess
+try:
+    spec = importlib.util.find_spec('playwright')
+    if spec is None:
+        print('Playwright not installed; skipping browser install')
+        sys.exit(0)
+    # run playwright install using module form to ensure correct interpreter
+    subprocess.check_call([sys.executable, '-m', 'playwright', 'install', '--with-deps'])
+    print('Playwright browsers installed')
+except Exception as e:
+    print('Playwright browser install failed or not possible in this environment:', e)
+    # don't fail the whole workflow here; tests will surface missing browsers if needed
+    sys.exit(0)
+PY
       - name: Sanity check - import top-level shims (fail-fast)
         run: |
           # Fail fast if top-level shims are missing. Keep output minimal.
@@ -54,7 +84,8 @@ jobs:
           TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
         run: |
           echo "Running pytest --collect-only (writes collect-output.txt)"
-          pytest --collect-only -q --ignore=tests/e2e > collect-output.txt 2>&1 || true
+          # Exclude e2e tests during collection using pytest markers
+          pytest --collect-only -q -m "not e2e" > collect-output.txt 2>&1 || true
       - name: Upload collect-only artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -84,20 +115,26 @@ jobs:
       - name: Check for run-heavy-deps label (PRs only)
         if: github.event_name == 'pull_request'
         id: check_label
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const labels = context.payload.pull_request.labels.map(l => l.name);
-            const has = labels.includes('run-heavy-deps');
-            core.setOutput('run_heavy', has ? 'true' : 'false');
-
+        run: |
+          # Read labels from the webhook event payload and set an output variable
+          if [ -f "$GITHUB_EVENT_PATH" ]; then
+            labels=$(jq -r '.pull_request.labels[]?.name' "$GITHUB_EVENT_PATH" | tr '\n' ' ')
+          else
+            labels=""
+          fi
+          echo "Found labels: $labels"
+          if echo " $labels " | grep -qw "run-heavy-deps"; then
+            echo "run_heavy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_heavy=false" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
       - name: Download wheelhouse artifact if requested
         if: steps.check_label.outputs.run_heavy == 'true'
         uses: actions/download-artifact@v4
         with:
           name: wheelhouse-3.11
           path: ./.wheelhouse
-
       - name: Unpack wheelhouse tarball (if present)
         if: steps.check_label.outputs.run_heavy == 'true'
         run: |
@@ -109,7 +146,6 @@ jobs:
             find ./.wheelhouse/extracted -type f -name '*.whl' -exec mv -f {} ./.wheelhouse/ \;
             rm -rf ./.wheelhouse/extracted
           fi
-
       - name: Run non-E2E tests
         working-directory: doc_processor
         env:
@@ -122,7 +158,13 @@ jobs:
           if [ "$RUN_HEAVY_DEPS" = "true" ]; then
             echo "run-heavy-deps label present: will attempt heavy install"
           fi
-          # requirements-ci.txt was already installed during the "Install deps" step
+          # Install lightweight CI requirements if provided (curated to avoid heavy wheels)
+          if [ -f "requirements-ci.txt" ]; then
+            echo "Installing requirements-ci.txt"
+            python -m pip install -r requirements-ci.txt || true
+          else
+            echo "No requirements-ci.txt found; skipping lightweight install"
+          fi
           # Ensure key modules importable; keep output minimal to reduce noise.
           python -c "import document_detector"
           # If a wheelhouse was downloaded into ./.wheelhouse, install heavy deps from it
@@ -130,6 +172,15 @@ jobs:
             echo "Installing heavy deps from wheelhouse"
             python -m pip install --no-index --find-links ./.wheelhouse -r requirements-heavy.txt || true
           fi
-          # Exclude e2e tests directory to avoid import errors from playwright dependencies
-          pytest -q --ignore=tests/e2e
-
+          # Capture pytest output to a file and surface it as an artifact even on failure
+          # Exclude E2E tests marked with @pytest.mark.e2e using pytest markers
+          # Working-directory is `doc_processor`
+          echo "Running pytest excluding E2E tests (using marker: -m 'not e2e')"
+          pytest -m "not e2e" 2>&1 | tee smoke-output.txt
+          exit ${PIPESTATUS[0]}
+      - name: Upload smoke output artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-output-${{ matrix.python }}
+          path: doc_processor/smoke-output.txt
