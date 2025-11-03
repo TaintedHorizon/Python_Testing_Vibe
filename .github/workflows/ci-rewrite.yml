@@ -48,8 +48,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-rewrite-collect-output
+          # make artifact name unique per matrix job to avoid 409 Conflict when multiple
+          # matrix jobs try to upload the same artifact name in a single workflow run
+          name: ci-rewrite-collect-output-${{ matrix.python-version }}-${{ matrix.mode }}
           path: doc_processor/collect-output.txt
+          if-no-files-found: warn
+          overwrite: false
       - name: Run tests (fast vs full)
         working-directory: doc_processor
         run: |
