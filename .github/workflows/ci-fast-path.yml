@@ -1,0 +1,54 @@
+name: CI Fast Path
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  fast-path:
+    name: Fast-path tests (quick feedback)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-cache-${{ runner.os }}-python-3.11-${{ hashFiles('doc_processor/requirements-ci.txt') }}
+          restore-keys: |
+            pip-cache-${{ runner.os }}-python-
+
+      - name: Install fast CI dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f doc_processor/requirements-ci.txt ]; then
+            pip install -r doc_processor/requirements-ci.txt
+          else
+            # Fallback to main requirements if trimmed file missing
+            pip install -r doc_processor/requirements.txt
+          fi
+
+      - name: Pytest collect-only (fast diagnostics)
+        working-directory: doc_processor
+        run: |
+          echo "Running pytest --collect-only (writes collect-output.txt)"
+          pytest --collect-only -q --ignore=tests/e2e > collect-output.txt 2>&1 || true
+
+      - name: Upload collect artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fast-path-collect-output
+          path: doc_processor/collect-output.txt
+
+      - name: Run quick tests
+        working-directory: doc_processor
+        run: |
+          # Run a curated quick subset; change the expression for your project's fast tests
+          pytest -q --ignore=tests/e2e -k "not slow"
