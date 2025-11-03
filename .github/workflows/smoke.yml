@@ -1,4 +1,5 @@
 name: Smoke tests (non-E2E)
+name: Smoke tests (non-E2E)
 
 on:
   push:
@@ -44,8 +45,6 @@ jobs:
         run: |
           echo "Installing Python test dependencies..."
           python -m pip install --upgrade pip setuptools wheel
-          
-          # Install from test-requirements.txt or doc_processor/requirements.txt if available
           if [ -f "test-requirements.txt" ]; then
             echo "Installing from test-requirements.txt"
             python -m pip install --upgrade -r test-requirements.txt || true
@@ -60,23 +59,20 @@ jobs:
         run: |
           echo "Checking for Playwright and installing browsers if present..."
           python - <<'PY'
-import importlib, sys, subprocess
-try:
-    spec = importlib.util.find_spec('playwright')
-    if spec is None:
-        print('Playwright not installed; skipping browser install')
-        sys.exit(0)
-    # run playwright install using module form to ensure correct interpreter
-    subprocess.check_call([sys.executable, '-m', 'playwright', 'install', '--with-deps'])
-    print('Playwright browsers installed')
-except Exception as e:
-    print('Playwright browser install failed or not possible in this environment:', e)
-    # don't fail the whole workflow here; tests will surface missing browsers if needed
-    sys.exit(0)
-PY
+            import importlib, sys, subprocess
+            try:
+              spec = importlib.util.find_spec('playwright')
+              if spec is None:
+                print('Playwright not installed; skipping browser install')
+                sys.exit(0)
+              subprocess.check_call([sys.executable, '-m', 'playwright', 'install', '--with-deps'])
+              print('Playwright browsers installed')
+            except Exception as e:
+              print('Playwright browser install failed or not possible in this environment:', e)
+              sys.exit(0)
+          PY
       - name: Sanity check - import top-level shims (fail-fast)
         run: |
-          # Fail fast if top-level shims are missing. Keep output minimal.
           python -c "import document_detector"
       - name: Pytest collect-only (diagnostics)
         working-directory: doc_processor
@@ -84,7 +80,6 @@ PY
           TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
         run: |
           echo "Running pytest --collect-only (writes collect-output.txt)"
-          # Exclude e2e tests during collection using pytest markers
           pytest --collect-only -q -m "not e2e" > collect-output.txt 2>&1 || true
       - name: Upload collect-only artifact
         if: always()
@@ -116,7 +111,6 @@ PY
         if: github.event_name == 'pull_request'
         id: check_label
         run: |
-          # Read labels from the webhook event payload and set an output variable
           if [ -f "$GITHUB_EVENT_PATH" ]; then
             labels=$(jq -r '.pull_request.labels[]?.name' "$GITHUB_EVENT_PATH" | tr '\n' ' ')
           else
@@ -138,11 +132,9 @@ PY
       - name: Unpack wheelhouse tarball (if present)
         if: steps.check_label.outputs.run_heavy == 'true'
         run: |
-          # The artifact is a tarball named wheelhouse-3.11.tgz; extract any wheels into ./.wheelhouse
           if [ -f ./.wheelhouse/wheelhouse-3.11.tgz ]; then
             mkdir -p ./.wheelhouse/extracted
             tar -xzf ./.wheelhouse/wheelhouse-3.11.tgz -C ./.wheelhouse/extracted
-            # Move any .whl files to ./.wheelhouse
             find ./.wheelhouse/extracted -type f -name '*.whl' -exec mv -f {} ./.wheelhouse/ \;
             rm -rf ./.wheelhouse/extracted
           fi
@@ -153,20 +145,19 @@ PY
           PYTHONPATH: ${{ github.workspace }}
           RUN_HEAVY_DEPS: ${{ steps.check_label.outputs.run_heavy }}
         run: |
+          if [ "$RUN_HEAVY_DEPS" = "true" ]; then
+            echo "run-heavy-deps label present: will attempt heavy install"
+          fi
+        env:
+          TEST_TMPDIR: ${{ env.TEST_TMPDIR }}
+          PYTHONPATH: ${{ github.workspace }}
+          RUN_HEAVY_DEPS: ${{ steps.check_label.outputs.run_heavy }}
+        run: |
           # If this PR requests heavy deps via the `run-heavy-deps` label, the
           # wheelhouse artifact has already been downloaded and unpacked into ./.wheelhouse
           if [ "$RUN_HEAVY_DEPS" = "true" ]; then
             echo "run-heavy-deps label present: will attempt heavy install"
           fi
-          # Install lightweight CI requirements if provided (curated to avoid heavy wheels)
-          if [ -f "requirements-ci.txt" ]; then
-            echo "Installing requirements-ci.txt"
-            python -m pip install -r requirements-ci.txt || true
-          else
-            echo "No requirements-ci.txt found; skipping lightweight install"
-          fi
-          # Ensure key modules importable; keep output minimal to reduce noise.
-          python -c "import document_detector"
           # If a wheelhouse was downloaded into ./.wheelhouse, install heavy deps from it
           if [ -d "./.wheelhouse" ] && [ -f "requirements-heavy.txt" ] && [ "$RUN_HEAVY_DEPS" = "true" ]; then
             echo "Installing heavy deps from wheelhouse"
