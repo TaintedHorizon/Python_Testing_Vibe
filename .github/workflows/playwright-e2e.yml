@@ -107,6 +107,8 @@ jobs:
         with:
           name: e2e-artifacts
           path: doc_processor/tests/e2e/artifacts/
+          if-no-files-found: warn
+          overwrite: false
 
       - name: Tear down Flask app
         if: always()

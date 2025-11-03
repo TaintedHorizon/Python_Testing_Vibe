@@ -87,6 +87,8 @@ jobs:
         with:
           name: smoke-collect-output-${{ matrix.python }}
           path: doc_processor/collect-output.txt
+          if-no-files-found: warn
+          overwrite: false
       - name: Post collect-output to PR (tail)
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v6
@@ -175,3 +177,5 @@ jobs:
         with:
           name: smoke-output-${{ matrix.python }}
           path: doc_processor/smoke-output.txt
+          if-no-files-found: warn
+          overwrite: false

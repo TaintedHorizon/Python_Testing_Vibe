@@ -46,6 +46,8 @@ jobs:
         with:
           name: fast-path-collect-output
           path: doc_processor/collect-output.txt
+          if-no-files-found: warn
+          overwrite: false
 
       - name: Run quick tests
         working-directory: doc_processor

@@ -66,6 +66,8 @@ jobs:
           path: |
             doc_processor/tests/e2e/artifacts
             /tmp/python_testing_vibe_e2e
+          if-no-files-found: warn
+          overwrite: false
 
       - name: Post-summary
         if: success()

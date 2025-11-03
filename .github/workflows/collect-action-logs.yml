@@ -56,3 +56,5 @@ jobs:
         with:
           name: action-logs
           path: logs/*.zip
+          if-no-files-found: warn
+          overwrite: false

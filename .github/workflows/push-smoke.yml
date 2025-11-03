@@ -27,3 +27,5 @@ jobs:
         with:
           name: smoke-verification
           path: smoke-verification.txt
+          if-no-files-found: warn
+          overwrite: false

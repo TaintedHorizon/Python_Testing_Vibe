@@ -56,6 +56,8 @@ jobs:
         with:
           name: manylinux-wheelhouse-3.11
           path: manylinux-wheelhouse-3.11.tgz
+          if-no-files-found: warn
+          overwrite: false
 
       - name: Notes
         run: |

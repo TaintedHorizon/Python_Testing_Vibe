@@ -38,3 +38,5 @@ jobs:
         with:
           name: smoke-output
           path: doc_processor/smoke-output.txt
+          if-no-files-found: warn
+          overwrite: false

@@ -51,6 +51,8 @@ jobs:
         with:
           name: wheelhouse-3.11
           path: wheelhouse-3.11.tgz
+          if-no-files-found: warn
+          overwrite: false
 
   publish-release:
     needs: build-wheelhouse
