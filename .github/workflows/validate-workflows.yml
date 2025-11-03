@@ -5,7 +5,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   push:
-    branches: ["chore/cleanup-workflows"]
+    branches: ["chore/cleanup-workflows", "main"]
 
 jobs:
   validate:
