@@ -1,0 +1,1 @@
+/home/svc-scan/Python_Testing_Vibe/doc_processor/doc_processor/venv/bin/python: No module named pytest

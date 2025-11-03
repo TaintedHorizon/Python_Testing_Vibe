@@ -69,4 +69,4 @@ jobs:
 
       - name: Post-summary
         if: success()
-        run: echo "E2E job completed successfully. Artifacts (if any) uploaded." 
+        run: echo "E2E job completed successfully. Artifacts (if any) uploaded."
