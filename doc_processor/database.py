@@ -237,11 +237,17 @@ def get_db_connection():
         # path for scripted upgrades where accidental overwrites were happening.
         if allow_backup and db_existed_before:
             try:
-                try:
-                    from .config_manager import app_config
-                    backup_root = getattr(app_config, 'DB_BACKUP_DIR', None)
-                except Exception:
-                    backup_root = os.getenv('DB_BACKUP_DIR')
+                # Prefer an explicit environment override for DB backup root
+                # (tests set DB_BACKUP_DIR via monkeypatch before import). If not
+                # present, fall back to the centralized app_config value, and
+                # finally to a sensible XDG/default path.
+                backup_root = os.getenv('DB_BACKUP_DIR')
+                if not backup_root:
+                    try:
+                        from .config_manager import app_config
+                        backup_root = getattr(app_config, 'DB_BACKUP_DIR', None)
+                    except Exception:
+                        backup_root = None
                 if not backup_root:
                     import os as _os
                     xdg_data = os.getenv('XDG_DATA_HOME') or _os.path.join(_os.path.expanduser('~'), '.local', 'share')

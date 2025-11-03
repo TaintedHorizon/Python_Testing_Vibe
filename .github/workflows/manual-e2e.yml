@@ -1,0 +1,95 @@
+name: Manual E2E (workflow_dispatch)
+
+on:
+  workflow_dispatch:
+    inputs:
+      python-version:
+        description: 'Python version for runner'
+        required: false
+        default: '3.11'
+  pull_request:
+    types: [labeled]
+
+jobs:
+  e2e-manual:
+    runs-on: ubuntu-latest
+    # Run the job inside a lightweight Python 3.11 container to keep the environment deterministic
+    container:
+      image: python:3.11-slim
+    if: github.event_name != 'pull_request' || (github.event_name == 'pull_request' && github.event.label.name == 'run-e2e')
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create TEST_TMPDIR
+        run: |
+          echo "TEST_TMPDIR=$(mktemp -d)" >> $GITHUB_ENV
+
+      - name: Prepare virtualenv for app (inside container)
+        run: |
+          cd doc_processor
+          python -m venv venv
+          . venv/bin/activate
+          python -m pip install --upgrade pip
+          # If a validated wheelhouse tar exists in docs/ci-archive (meta files are kept in repo), prefer it
+          ARCHIVE_TGZ=$(ls docs/ci-archive/wheelhouse-3.11-*.tgz 2>/dev/null | head -n1 || true)
+          if [ -n "$ARCHIVE_TGZ" ]; then
+            echo "Found archived wheelhouse: $ARCHIVE_TGZ -- installing from it"
+            mkdir -p ./.wheelhouse
+            tar -xzf "$ARCHIVE_TGZ" -C ./.wheelhouse --strip-components=0 || true
+            python -m pip install --no-index --find-links=./.wheelhouse -r requirements-ci.txt || python -m pip install --no-index --find-links=./.wheelhouse -r requirements.txt || true
+          else
+            if [ -f requirements-ci.txt ]; then
+              python -m pip install -r requirements-ci.txt || true
+            elif [ -f requirements.txt ]; then
+              # best-effort install; may be heavy
+              python -m pip install -r requirements.txt || true
+            fi
+          fi
+
+      - name: Start application (background)
+        run: |
+          cd ${{ github.workspace }}
+          chmod +x scripts/e2e/start_app_for_ci.sh
+          ./scripts/e2e/start_app_for_ci.sh
+
+      - name: Wait for app to become healthy
+        run: |
+          URL="http://127.0.0.1:5000/"
+          echo "Waiting for $URL to respond..."
+          for i in {1..60}; do
+            if curl -fsS --max-time 2 "$URL" >/dev/null 2>&1; then
+              echo "App is responding after $i attempts"
+              break
+            fi
+            sleep 2
+            echo -n '.'
+          done
+          # show tail of app log for debugging
+          tail -n +1 e2e_app.out || true
+
+      - name: Run E2E smoke script
+        run: |
+          chmod +x scripts/e2e/simple_smoke.sh
+          ./scripts/e2e/simple_smoke.sh
+
+      - name: Run pytest E2E tests (if present)
+        run: |
+          if [ -d doc_processor/tests/e2e ]; then
+            echo "Running pytest on doc_processor/tests/e2e"
+            pytest -q doc_processor/tests/e2e
+          else
+            echo "No e2e pytest directory present; skipping"
+          fi
+
+      - name: Teardown
+        if: always()
+        run: |
+          if [ -f e2e_app.pid ]; then
+            kill "$(cat e2e_app.pid)" || true
+          fi
+          pkill -f doc_processor.app || true
+          sleep 1
+          echo "E2E run complete. See e2e_app.out for app logs."

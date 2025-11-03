@@ -40,6 +40,13 @@ Implementation plan (concrete)
    - Caches the wheelhouse using `actions/cache` keyed by a digest of `requirements-heavy.txt`.
    - Optionally uploads the wheelhouse artifact for download by other jobs/runners.
 
+3. Download prebuilt binary wheels for critical packages
+  - Rationale: building some packages (numpy, pytesseract) from source on GitHub runners is slow and error-prone. Most of these packages publish manylinux wheels on PyPI. To ensure the wheelhouse contains those binary wheels and downstream consumers can install offline with `--no-index`, add a step that attempts to download prebuilt binary wheels into `./.wheelhouse` using `pip download --only-binary=:all:` for a curated list (e.g., numpy, pytesseract).
+
+4. Validation and fallback
+  - After building wheels and downloading binary wheels, validate that `.whl` files exist in the wheelhouse and that certain critical wheels (e.g., numpy) are present. The heavy-deps workflow should fail if validation does not pass to avoid silently publishing incomplete wheelhouses.
+  - If a binary wheel is not available for a package, document that the wheelhouse may omit it and downstream jobs will fall back to PyPI during runtime. The recommended approach is to try to include the most critical binary wheels (numpy, pytesseract, Pillow) but accept PyPI fallback for less critical or platform-specific packages.
+
 3. Provide consumers (PR jobs) an optional step to download and `pip install --no-index --find-links ./.wheelhouse -r doc_processor/requirements-heavy.txt` when label `run-heavy-deps` or workflow input is present. Otherwise skip heavy install.
 
 4. Tag heavy tests with `@pytest.mark.heavy` and keep the default smoke job filter `-k "not e2e and not playwright and not heavy"`.
@@ -72,6 +79,12 @@ jobs:
           python -m pip install --upgrade pip
           mkdir -p ./.wheelhouse
           python -m pip wheel -r doc_processor/requirements-heavy.txt -w ./.wheelhouse
+      - name: Fetch prebuilt binary wheels for critical packages
+        run: |
+          # Attempt to download prebuilt binary wheels (manylinux) from PyPI for critical packages
+          python -m pip install --upgrade pip
+          mkdir -p ./.wheelhouse
+          python -m pip download --only-binary=:all: numpy pytesseract Pillow -d ./.wheelhouse || true
       - name: Upload wheelhouse artifact
         uses: actions/upload-artifact@v4
         with:
@@ -84,6 +97,34 @@ Notes and next steps
 - Create `doc_processor/requirements-heavy.txt` listing the heavy deps (torch, triton, etc.). Keep `doc_processor/requirements-ci.txt` as the lightweight runtime used by smoke.
 - Add a label-based or workflow input gate to PR jobs that need heavy deps. For example, a PR reviewer can add `run-heavy-deps` label to trigger heavy tests.
 - Optionally: publish wheelhouse to a release or internal package registry to provide artifacts to external consumers.
+
+Debug helper script
+-------------------
+For interactive validation and to avoid long blocking terminal commands, a helper script is provided at
+`scripts/ci/dispatch_and_fetch.sh`. It safely dispatches the `heavy-deps` workflow, polls a short
+bounded number of times, downloads the `wheelhouse-3.11` artifact if present, and writes a concise
+list of `.whl` filenames into a file under the output directory.
+
+Usage (run locally from repo root):
+```bash
+chmod +x scripts/ci/dispatch_and_fetch.sh
+./scripts/ci/dispatch_and_fetch.sh TaintedHorizon/Python_Testing_Vibe heavy-deps.yml main wheelhouse-3.11 /tmp/wheelhouse_run
+# Inspect /tmp/wheelhouse_run/list/wheels.txt for the wheel filenames and check for critical wheels
+```
+
+The script traps SIGINT and uses short, safe polling intervals so it won't monopolize your terminal or
+produce huge dumps of output. Use `gh run view <RUN_NUMBER> --repo <OWNER/REPO> --web` to open the run
+in your browser for log-level debugging.
+
+Policy decision (implemented)
+-----------------------------
+- We will prefer to include prebuilt binary wheels for critical packages (numpy, pytesseract, Pillow) by downloading them from PyPI into the wheelhouse during the heavy-deps workflow. This avoids the complexity of building manylinux wheels for these widely available packages.
+- For other heavy packages that require platform-specific builds (e.g., certain CUDA-enabled wheels), we will either build them with a dedicated manylinux/cibuildwheel job in the future or accept PyPI fallback depending on the project's needs.
+
+Acceptance criteria
+-------------------
+- The heavy-deps workflow produces `wheelhouse-3.11.tgz` containing at least one `.whl` and (preferably) a numpy wheel. If validation fails (no `.whl` files or missing required wheels), the workflow should fail.
+- Smoke jobs should be able to download and extract `wheelhouse-3.11.tgz` and install heavy deps using `pip --no-index --find-links ./.wheelhouse -r doc_processor/requirements-heavy.txt`. If a required wheel is not present, the smoke job may install it from PyPI as a fallback (record this behavior in logs).
 
 Acceptance criteria
 -------------------

@@ -1,0 +1,11 @@
+Wheelhouse fetch summary for run 18858633130
+
+- Downloaded artifact id: 4386420714 (from heavy-deps run 18854584211)
+- Extracted tarball: wheelhouse-3.11.tgz
+- Wheels from wheelhouse were copied into doc_processor/.wheelhouse for runtime install.
+- Observed behavior during install:
+  - numpy already satisfied (1.26.4)
+  - requests wheel from wheelhouse installed (requests==2.31.0)
+  - Remaining heavy packages installed from wheelhouse where present; pytesseract was not in wheelhouse and was installed from PyPI.
+
+If you want a full listing of .whl files, I can (A) download the artifact zip locally and extract it to enumerate, or (B) ask the heavy-deps job to output the wheel list into the artifact next run.

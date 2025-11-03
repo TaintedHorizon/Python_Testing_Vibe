@@ -1,0 +1,6 @@
+## Requirements used to build manylinux wheels (opt-in)
+# Keep this file minimal: list only packages that need manylinux wheels built from source.
+# Example: numpy often provides wheels on PyPI, but if we need a specific build we can produce it here.
+numpy==1.26.4
+pytesseract>=0.3.13
+Pillow>=10.0

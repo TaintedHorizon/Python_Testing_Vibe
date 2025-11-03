@@ -1,0 +1,18 @@
+History rewrite candidates (threshold=50MB)
+Generated: 2025-10-29T00:16:12Z
+
+Found the following large blobs:
+     1	7461d59d6e457f2502bf015395334e3808bb1a0f 83152330 Document_Scanner_Ollama_outdated/model_cache/craft_mlt_25k.pth
+
+Suggested actions:
+1) Remove by size (recommended)
+   git clone --mirror <repo-url> repo-rewrite.git
+   cd repo-rewrite.git
+   git filter-repo --strip-blobs-bigger-than 50M
+
+2) Remove by path (if any specific path is listed below, add one --path line per path)
+
+Paths that appear in the above blobs (candidate paths will be printed):
+Document_Scanner_Ollama_outdated/model_cache/craft_mlt_25k.pth  ->  7461d59d6e457f2502bf015395334e3808bb1a0f
+
+If you want me to prepare a filter-repo command that removes specific paths, re-run this script with the same threshold and then edit the produced docs/HISTORY_REWRITE_CANDIDATES.txt to include the exact --path lines you want removed. I will not perform any rewrite.
