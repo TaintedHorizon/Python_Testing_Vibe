@@ -47,4 +47,7 @@ jobs:
           xargs -0 -a /tmp/workflow_files0 -I{} echo "{}"
           echo ""
           # Run the validator script on all workflow files (NUL-safe)
-          xargs -0 -a /tmp/workflow_files0 -r python .github/scripts/validate_workflow.py {}
+          # Use -n1 so the validator is invoked once per file. Do not pass a literal
+          # '{}' token without -I; that caused the script to receive the literal
+          # string and fail with "File not found".
+          xargs -0 -a /tmp/workflow_files0 -r -n1 python .github/scripts/validate_workflow.py
