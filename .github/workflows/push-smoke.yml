@@ -3,6 +3,10 @@ name: Push Smoke
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '.github/**'
+      - 'docs/**'
+      - '*.md'
 
 jobs:
   smoke:
