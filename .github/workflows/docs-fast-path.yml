@@ -26,7 +26,11 @@ jobs:
           git fetch origin "$BASE" --depth=1 || true
           FILES=$(git diff --name-only origin/${BASE}...HEAD || git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD)
           echo "files=$FILES"
-          echo "files=$FILES" >> $GITHUB_OUTPUT
+          # GITHUB_OUTPUT does not accept raw multiline values via a single echo when the
+          # variable contains newlines; use the multiline '<<EOF' form to write safely.
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          printf "%s\n" "$FILES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Check if all changed files are docs/metadata
         id: check
