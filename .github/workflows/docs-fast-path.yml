@@ -38,8 +38,10 @@ jobs:
           files="${{ steps.changes.outputs.files }}"
           if [ -z "$files" ]; then
             echo "no files changed" >&2
+            # Treat empty change set as not docs-only. Do NOT exit non-zero here;
+            # exiting will mark the job as failed and cause spurious failures.
             echo "docs_only=false" >> $GITHUB_OUTPUT
-            exit 1
+            exit 0
           fi
           for f in $files; do
             case "$f" in
