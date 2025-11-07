@@ -14,6 +14,9 @@ usage(){
   cat <<EOF
 Usage: $0 [--repo owner/repo] [--branch branch] [--context context-name]
 
+Optional flags:
+  --dry-run    Print the payload that would be sent and exit without calling GitHub
+
 Adds the given context to the branch protection required status checks for the branch.
 If branch protection does not exist, it will create a minimal protection payload that
 requires the context.
@@ -26,12 +29,14 @@ EOF
 REPO="$REPO_DEFAULT"
 BRANCH="$BRANCH_DEFAULT"
 CONTEXT="$CONTEXT_DEFAULT"
+DRY_RUN=false
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --repo) REPO="$2"; shift 2;;
     --branch) BRANCH="$2"; shift 2;;
     --context) CONTEXT="$2"; shift 2;;
+    --dry-run) DRY_RUN=true; shift 1;;
     --help|-h) usage; exit 0;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2;;
   esac
@@ -57,10 +62,19 @@ prot_json=""
 if prot_json=$(gh api /repos/${REPO}/branches/${BRANCH}/protection 2>/dev/null); then
   echo "Existing branch protection fetched"
   # Ensure the required_status_checks object exists and add the context if missing
-  updated=$(printf '%s' "$prot_json" | jq --arg ctx "$CONTEXT" '
-    .required_status_checks = (.required_status_checks // {"strict": true, "contexts": []}) |
-    .required_status_checks.contexts |= (if index($ctx) then . else . + [$ctx] end)
-  ')
+  # Build a minimal payload acceptable to the GitHub API. The full protection
+  # JSON returned by the API contains many read-only fields (urls, nested
+  # objects) that the Update Branch Protection endpoint rejects. Construct a
+  # compact object with only the writable fields the API expects.
+  updated=$(printf '%s' "$prot_json" | jq --arg ctx "$CONTEXT" '{
+    required_status_checks: {
+      strict: (.required_status_checks.strict // true),
+      contexts: ((.required_status_checks.contexts // []) + [$ctx]) | unique
+    },
+    enforce_admins: false,
+    required_pull_request_reviews: null,
+    restrictions: null
+  }')
 else
   echo "No branch protection found, creating minimal protection with required context"
   updated=$(jq -n --arg ctx "$CONTEXT" '{ required_status_checks: { strict: true, contexts: [$ctx] }, enforce_admins: false, required_pull_request_reviews: null, restrictions: null }')
@@ -70,7 +84,12 @@ tmp=$(mktemp)
 printf '%s' "$updated" > "$tmp"
 
 echo "Applying branch protection (this will replace the branch protection payload)"
-gh api --method PUT /repos/${REPO}/branches/${BRANCH}/protection --input "$tmp"
+if [ "$DRY_RUN" = true ]; then
+  echo "DRY RUN: payload would be:"
+  sed -n '1,200p' "$tmp"
+else
+  gh api --method PUT /repos/${REPO}/branches/${BRANCH}/protection --input "$tmp"
+fi
 
 rm -f "$tmp"
 

@@ -62,7 +62,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-artifacts
+          name: e2e-artifacts-${{ github.run_id }}
           path: |
             doc_processor/tests/e2e/artifacts
             /tmp/python_testing_vibe_e2e

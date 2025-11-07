@@ -11,32 +11,4 @@ jobs:
     steps:
       - name: Print
         run: |
-          # use block scalar to avoid parser edge-cases
-          echo 'validate-smoke: OK'
-name: Validate Smoke
-
-on:
-  workflow_dispatch: {}
-  push:
-    branches: [ chore/clean-workflows-batch ]
-
-jobs:
-  smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Print
-        run: |
           echo "validate-smoke: OK"
-name: Validate Smoke
-
-on:
-  workflow_dispatch: {}
-  push:
-    branches: [ chore/clean-workflows-batch ]
-
-jobs:
-  smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Print
-        run: echo "validate-smoke: OK"

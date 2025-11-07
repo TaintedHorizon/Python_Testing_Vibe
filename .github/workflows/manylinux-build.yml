@@ -54,7 +54,7 @@ jobs:
       - name: Upload manylinux artifact
         uses: actions/upload-artifact@v4
         with:
-          name: manylinux-wheelhouse-3.11
+          name: manylinux-wheelhouse-3.11-${{ github.run_id }}
           path: manylinux-wheelhouse-3.11.tgz
           if-no-files-found: warn
           overwrite: false

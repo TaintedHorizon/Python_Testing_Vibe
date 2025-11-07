@@ -3,6 +3,10 @@ on:
   workflow_dispatch: {}
   push:
     branches: [main, chore/clean-workflows-batch]
+    paths-ignore:
+      - '.github/**'
+      - 'docs/**'
+      - '*.md'
 
 env:
   RUN_E2E: '1'

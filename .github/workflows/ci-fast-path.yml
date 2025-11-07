@@ -44,7 +44,7 @@ jobs:
       - name: Upload collect artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fast-path-collect-output
+          name: fast-path-collect-output-${{ github.run_id }}
           path: doc_processor/collect-output.txt
           if-no-files-found: warn
           overwrite: false

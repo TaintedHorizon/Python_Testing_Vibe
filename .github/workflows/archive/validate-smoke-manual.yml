@@ -10,14 +10,3 @@ jobs:
       - name: Print
         run: |
           echo "validate-smoke-manual: OK"
-name: Validate Smoke Manual
-
-on:
-  workflow_dispatch: {}
-
-jobs:
-  smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Print
-        run: echo "validate-smoke-manual: OK"
