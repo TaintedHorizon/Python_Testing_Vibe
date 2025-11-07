@@ -1,0 +1,88 @@
+name: Merge docs fast-path PRs
+
+on:
+  check_run:
+    types: [completed]
+
+jobs:
+  merge-docs:
+    if: github.event.check_run.name == 'docs-fast-path' && github.event.check_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Attempt safe merge for docs-only PRs
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = context.payload.check_run.head_sha;
+
+            // Find PRs associated with the commit
+            const prs = await github.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: sha });
+            if (!prs.data || prs.data.length === 0) {
+              core.info(`No PRs associated with commit ${sha}`);
+              return;
+            }
+
+            for (const prItem of prs.data) {
+              const pr_number = prItem.number;
+              core.info(`Evaluating PR #${pr_number}`);
+
+              // Double-check docs-fast-path was created for this PR
+              // (we already listen for the check_run event, but be conservative)
+              const checks = await github.checks.listForRef({ owner, repo, ref: prItem.head.sha });
+              const dfp = checks.data.check_runs.find(c => c.name === 'docs-fast-path');
+              if (!dfp || dfp.conclusion !== 'success') {
+                core.info(`PR #${pr_number}: docs-fast-path not successful; skipping`);
+                continue;
+              }
+
+              // Ensure PR is mergeable and not already merged
+              const pr = await github.pulls.get({ owner, repo, pull_number: pr_number });
+              if (pr.data.merged) {
+                core.info(`PR #${pr_number} already merged`);
+                continue;
+              }
+
+              // Check for approvals: if required reviews exist, require at least one APPROVED review
+              // Fetch branch protection to see if reviews are required
+              let requireReviews = false;
+              try {
+                const bp = await github.repos.getBranchProtection({ owner, repo, branch: pr.data.base.ref });
+                if (bp.data && bp.data.required_pull_request_reviews && bp.data.required_pull_request_reviews.dismiss_stale_reviews !== undefined) {
+                  // presence of required_pull_request_reviews indicates reviews are required
+                  requireReviews = true;
+                }
+              } catch (e) {
+                core.info(`Could not fetch branch protection (may not have permission): ${e.message}`);
+              }
+
+              if (requireReviews) {
+                // list reviews and check for at least one APPROVED
+                const reviews = await github.pulls.listReviews({ owner, repo, pull_number: pr_number });
+                const approved = reviews.data.some(r => r.state === 'APPROVED');
+                if (!approved) {
+                  core.info(`PR #${pr_number} requires review but has no approvals; commenting to request review`);
+                  await github.issues.createComment({ owner, repo, issue_number: pr_number, body: 'docs-fast-path passed but this repo requires PR approvals. Please request an approval to allow auto-merge.' });
+                  continue;
+                }
+              }
+
+              // Final sanity check: GitHub mergeable state
+              if (pr.data.mergeable_state !== 'clean' && pr.data.mergeable_state !== 'unstable' && pr.data.mergeable_state !== 'unknown') {
+                core.info(`PR #${pr_number} mergeable_state=${pr.data.mergeable_state}; skipping`);
+                continue;
+              }
+
+              // Merge the PR using squash
+              try {
+                await github.pulls.merge({ owner, repo, pull_number: pr_number, commit_title: `Merge PR #${pr_number}: ${pr.data.title}`, merge_method: 'squash' });
+                core.info(`PR #${pr_number} merged via squash`);
+              } catch (e) {
+                core.info(`PR #${pr_number} merge attempt failed: ${e.message}`);
+                await github.issues.createComment({ owner, repo, issue_number: pr_number, body: `Auto-merge attempt failed: ${e.message}` });
+              }
+            }
