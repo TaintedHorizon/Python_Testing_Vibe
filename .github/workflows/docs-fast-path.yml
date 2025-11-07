@@ -58,7 +58,7 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const sha = context.payload.pull_request.head.sha;
-            await github.checks.create({
+            await github.rest.checks.create({
               owner,
               repo,
               name: 'docs-fast-path',
@@ -79,7 +79,7 @@ jobs:
             const { owner, repo } = context.repo;
             const sha = context.payload.pull_request.head.sha;
             // Create a neutral check run so branch-protection can depend on this name if desired
-            await github.checks.create({
+            await github.rest.checks.create({
               owner,
               repo,
               name: 'docs-fast-path',
