@@ -1,0 +1,60 @@
+name: CI Basic Checks
+
+# Simple, fast CI checks that should always pass
+# This is a REQUIRED check for all PRs
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  lint-and-syntax:
+    name: Lint and Syntax Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install basic dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 pylint black
+      
+      - name: Python syntax check (all .py files)
+        run: |
+          echo "Checking Python syntax..."
+          python -m py_compile $(find . -name "*.py" -not -path "*/\.*" -not -path "*/venv/*" -not -path "*/archive/*") || {
+            echo "❌ Syntax errors found"
+            exit 1
+          }
+          echo "✅ All Python files have valid syntax"
+      
+      - name: Basic flake8 linting (errors only)
+        run: |
+          echo "Running flake8 for critical errors..."
+          flake8 --select=E9,F63,F7,F82 --show-source --statistics doc_processor/ || {
+            echo "❌ Critical linting errors found"
+            exit 1
+          }
+          echo "✅ No critical linting errors"
+      
+      - name: Check for common issues
+        run: |
+          echo "Checking for common issues..."
+          # Check that core files exist
+          test -f "doc_processor/app.py" || { echo "❌ Missing doc_processor/app.py"; exit 1; }
+          test -f "doc_processor/requirements.txt" || { echo "❌ Missing doc_processor/requirements.txt"; exit 1; }
+          test -f "start_app.sh" || { echo "❌ Missing start_app.sh"; exit 1; }
+          echo "✅ Core files present"
+      
+      - name: Success
+        run: |
+          echo "✅ All basic CI checks passed!"
+          echo "This PR is ready for code review."
