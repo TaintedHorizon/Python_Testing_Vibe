@@ -3,6 +3,10 @@ name: Push Smoke
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '.github/**'
+      - 'docs/**'
+      - '*.md'
 
 jobs:
   smoke:
@@ -25,7 +29,7 @@ jobs:
       - name: Upload verification artifact
         uses: actions/upload-artifact@v4
         with:
-          name: smoke-verification
+          name: smoke-verification-${{ github.run_id }}
           path: smoke-verification.txt
           if-no-files-found: warn
           overwrite: false

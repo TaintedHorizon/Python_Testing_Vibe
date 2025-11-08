@@ -55,6 +55,12 @@ Desktop.ini
 log/
 logs/
 ci_logs/
+# Git-tracked runtime artifacts created by local monitoring scripts — keep in .github/logs
+.github/logs/
+*.pid
+# Local auth/status dumps
+gh_auth_status.txt
+get_protection_contexts.txt
 
 # === Database Files ===
 documents.db

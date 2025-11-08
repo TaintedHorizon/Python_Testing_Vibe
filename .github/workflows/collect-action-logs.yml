@@ -54,7 +54,7 @@ jobs:
       - name: Upload logs artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: action-logs
+          name: action-logs-${{ github.run_id }}
           path: logs/*.zip
           if-no-files-found: warn
           overwrite: false

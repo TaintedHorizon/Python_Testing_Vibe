@@ -4,6 +4,12 @@ name: Smoke tests (non-E2E)
 on:
   push:
     branches: [ main ]
+    # Ignore pushes that only change docs or workflow metadata to avoid
+    # running expensive or noisy smoke jobs for repo-maintenance commits.
+    paths-ignore:
+      - '.github/**'
+      - 'docs/**'
+      - '*.md'
   pull_request:
     types: [opened, synchronize, reopened]
 

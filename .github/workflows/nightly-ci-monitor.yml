@@ -1,0 +1,71 @@
+name: Nightly CI Monitor
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '0 8 * * *' # daily at 08:00 UTC
+
+permissions:
+  actions: read
+  checks: read
+  issues: write
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare runner
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq curl
+
+      - name: Fetch recent workflow runs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          owner=$(echo "$REPO" | cut -d'/' -f1)
+          repo=$(echo "$REPO" | cut -d'/' -f2)
+          per_page=50
+          echo "Fetching last ${per_page} workflow runs for ${REPO}"
+          curl -s -H "Authorization: token ${GITHUB_TOKEN}" "https://api.github.com/repos/${owner}/${repo}/actions/runs?per_page=${per_page}" > runs.json
+          jq -r '.workflow_runs[] | select(.status=="completed" and .conclusion!="success") | {id: .id, name: .name, run_number: .run_number, conclusion: .conclusion, html_url: .html_url}' runs.json > failed_runs.json || true
+          failed_count=$(jq -r 'length' failed_runs.json || echo 0)
+          echo "FAILED_COUNT=${failed_count}" >> $GITHUB_ENV
+          echo "Saved failed runs to failed_runs.json"
+
+      - name: Create or update Nightly CI failures issue
+        if: env.FAILED_COUNT != '0'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const fs = require('fs');
+            const failed = JSON.parse(fs.readFileSync('failed_runs.json', 'utf8'));
+            if (!failed || failed.length === 0) {
+              core.info('No failing runs to report');
+              return;
+            }
+
+            const lines = failed.map(r => `- ${r.name} #${r.run_number} — ${r.conclusion} — ${r.html_url}`);
+            const body = `Automated nightly CI monitor report (UTC):\n\n${lines.join('\n')}\n\n(You can disable or adjust this workflow in .github/workflows/nightly-ci-monitor.yml)`;
+            const title = 'Nightly CI failures';
+
+            // Find an existing open issue with the same title
+            const issues = await github.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100 });
+            const existing = issues.data.find(i => i.title === title);
+            if (!existing) {
+              core.info('Creating new issue: ' + title);
+              await github.rest.issues.create({ owner, repo, title, body });
+            } else {
+              core.info('Posting a comment to existing issue #' + existing.number);
+              await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body });
+            }
+
+      - name: No failing runs
+        if: env.FAILED_COUNT == '0'
+        run: echo "No failing workflow runs found in the last set; nothing to report."

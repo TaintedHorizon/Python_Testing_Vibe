@@ -6,6 +6,10 @@ on:
     types: [opened, synchronize, reopened]
   push:
     branches: ["chore/cleanup-workflows", "main"]
+    paths-ignore:
+      - '.github/**'
+      - 'docs/**'
+      - '*.md'
 
 jobs:
   validate:
