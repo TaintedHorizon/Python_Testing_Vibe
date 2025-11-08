@@ -1,5 +1,7 @@
 # AI Assistant Instructions for Python_Testing_Vibe
 
+> **Note**: Throughout these instructions, `<repo_root>` refers to the root directory where this repository is cloned. Replace it with your actual path (e.g., `/home/user/Python_Testing_Vibe`, `C:\Projects\Python_Testing_Vibe`, etc.)
+
 ## 🚨 CRITICAL: GitHub Workflows & PR Policy
 
 ### **SIMPLIFIED WORKFLOW STRUCTURE (November 2025)**
@@ -41,8 +43,13 @@
 
 #### **✅ Application Startup (NEVER run Flask directly!)**
 ```bash
+<<<<<<< HEAD
 # CORRECT - Use the provided startup script from repository root
 cd /path/to/Python_Testing_Vibe && ./start_app.sh
+=======
+# CORRECT - Use the provided startup script
+cd <repo_root> && ./start_app.sh
+>>>>>>> 120508a (Fix hardcoded paths in copilot instructions (addresses PR #59))
 
 # INCORRECT - These will fail!
 # python app.py                    ❌ Wrong - import errors
@@ -54,7 +61,11 @@ cd /path/to/Python_Testing_Vibe && ./start_app.sh
 
 #### **✅ Virtual Environment Location**
 ```bash
+<<<<<<< HEAD
 # CORRECT - venv is inside doc_processor/ subdirectory
+=======
+# CORRECT - venv is inside doc_processor/
+>>>>>>> 120508a (Fix hardcoded paths in copilot instructions (addresses PR #59))
 cd <repo_root>/doc_processor
 source venv/bin/activate
 
@@ -258,8 +269,11 @@ result = get_ai_document_type_analysis(
 - **Final Storage**: `<repo_root>/doc_processor/filing_cabinet/`
 - **Logs**: `<repo_root>/doc_processor/logs/`
 - **Database**: `<repo_root>/doc_processor/documents.db`
+<<<<<<< HEAD
 - **Tests**: `<repo_root>/doc_processor/tests/`
 - **UI Tests**: `<repo_root>/ui_tests/`
+=======
+>>>>>>> 120508a (Fix hardcoded paths in copilot instructions (addresses PR #59))
 
 ### Error Handling Patterns
 ```python
