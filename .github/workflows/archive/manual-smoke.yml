@@ -1,4 +1,5 @@
-name: Manual Smoke Test
+ # Archived on 2025-11-06 — moved from `.github/workflows/manual-smoke.yml` as part of archive cleanup
+name: Manual Smoke Test (archived)
 
 on:
   workflow_dispatch: {}
