@@ -19,13 +19,13 @@ This PR successfully addresses your frustration with GitHub workflow complexity 
 2. `test-unit.yml` - Unit tests only (~8 min) ✅ Required  
 3. `test-e2e-manual.yml` - E2E tests (~15 min) ⚪ Optional
 
-**DISABLED (Archived):**
+**DELETED (Old workflows removed):**
 - smoke.yml, ci-smoke.yml, ci.yml, ci-fast-path.yml, ci-rewrite.yml
 - diagnose-smoke-and-upload.yml, collect-action-logs.yml
 - e2e.yml, manual-e2e.yml, playwright-e2e.yml, push-smoke.yml
 - validate-workflows.yml, heavy-deps.yml, manylinux-build.yml, merge-prs.yml
 
-All 15 old workflows renamed to `.disabled` - they won't run but remain for reference.
+All 15 old workflows have been **deleted** (not just renamed).
 
 ### Documentation Added
 
@@ -86,12 +86,45 @@ This prevents future Copilot PRs from re-creating the workflow complexity mess.
 
 ---
 
+## ⚠️ IMPORTANT: Branch Protection Migration Required
+
+**If you see "validate-workflows Expected — Waiting for status to be reported"**, this is because:
+1. The old `validate-workflows` check is still in branch protection rules
+2. The workflow file has been deleted (as intended)
+3. GitHub is waiting for a check that will never come
+
+**Fix this immediately:**
+1. **Update branch protection**: Remove old checks, add new ones (see steps below)
+2. **Trigger new workflows** on this PR: Push an empty commit or close/reopen the PR
+
+📖 **Detailed guide**: See `.github/BRANCH_PROTECTION_MIGRATION.md`
+
+---
+
 ## 📋 What You Need to Do
 
 ### Immediate (After Reviewing This PR)
 
-✅ **Review the changes** - especially the 3 new workflows  
-✅ **Merge this PR** - workflows will simplify automatically  
+⚠️ **CRITICAL FIRST STEP - Update Branch Protection**:
+1. Go to Settings → Branches → Branch protection rules for `main`
+2. **Remove** old required checks:
+   - `validate-workflows`
+   - `smoke tests`
+   - `ci-fast-path`, `ci-smoke`
+   - Any other old workflow names
+3. **Add** new required checks:
+   - `CI Basic Checks` (from ci-basic.yml)
+   - `Unit Tests (Python 3.11)` (from test-unit.yml)
+   - `Unit Tests (Python 3.12)` (from test-unit.yml)
+4. Save changes
+
+✅ **Trigger workflows on this PR**:
+```bash
+git checkout copilot/review-open-prs-and-workflows
+git commit --allow-empty -m "trigger new workflows"
+git push
+```
+
 ✅ **Watch CI run** - should complete in ~10 min
 
 ### Within a Week
@@ -104,12 +137,12 @@ This prevents future Copilot PRs from re-creating the workflow complexity mess.
    - `Unit Tests (Python 3.12)` (from test-unit.yml)
 3. Remove old required checks (smoke, ci-fast-path, etc.)
 
-📌 **Address other PRs**:
+📌 **Address other PRs** (after branch protection is updated):
 
-| PR | Recommendation | Reason |
-|----|---------------|--------|
-| #59 | Close or rebase | This PR addresses its goals |
-| #56 | Optional - close or merge | Root file policy not critical |
+| PR | Recommendation | Action Needed |
+|----|---------------|---------------|
+| #59 | Close or trigger workflows | Empty commit: `git commit --allow-empty -m "trigger CI" && git push` |
+| #56 | Optional - close or merge | Empty commit to trigger new workflows |
 | #54 | Close | Merge bot adds complexity |
 | #53 | Close | Fast-path workflow obsoleted |
 | #50 | Close | E2E planning not needed |
