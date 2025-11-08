@@ -201,3 +201,11 @@ jobs:
           path: doc_processor/smoke-output.txt
           if-no-files-found: warn
           overwrite: false
+      - name: Upload smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-diagnostics-${{ matrix.python }}
+          path: doc_processor/smoke-diagnostics.txt
+          if-no-files-found: warn
+          overwrite: true
