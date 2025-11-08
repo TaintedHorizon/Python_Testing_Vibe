@@ -1,0 +1,66 @@
+name: E2E Tests (Manual)
+
+# End-to-end tests with Playwright
+# Manual trigger only - NOT required for PR merge
+on:
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: 'Enable debug mode'
+        required: false
+        default: 'false'
+
+jobs:
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr || echo "tesseract install failed"
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r doc_processor/requirements.txt || echo "Some deps failed"
+          pip install playwright pytest pytest-playwright
+      
+      - name: Install Playwright browsers
+        run: |
+          python -m playwright install chromium --with-deps
+      
+      - name: Run E2E tests
+        working-directory: doc_processor
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          DEBUG: ${{ github.event.inputs.debug }}
+        run: |
+          echo "Running E2E tests..."
+          pytest -v -m "e2e" --tb=short --maxfail=3 || {
+            echo "❌ E2E tests failed"
+            exit 1
+          }
+      
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            doc_processor/tests/e2e/artifacts/
+            doc_processor/logs/
+          if-no-files-found: warn
+      
+      - name: Success
+        run: echo "✅ E2E tests passed"

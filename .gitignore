@@ -1,5 +1,9 @@
 # Normalized cached PDFs (image->PDF cache)
 normalized/
+
+# Disabled workflow files (kept for reference but not active)
+.github/workflows/*.disabled
+
 # Python Testing Vibe Repository - Git Ignore Rules
 
 # === Python Files ===
