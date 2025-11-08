@@ -6,8 +6,8 @@
 
 #### **✅ Application Startup (NEVER run Flask directly!)**
 ```bash
-# CORRECT - Use the provided startup script
-cd /home/svc-scan/Python_Testing_Vibe && ./start_app.sh
+# CORRECT - Use the provided startup script from repository root
+cd /path/to/Python_Testing_Vibe && ./start_app.sh
 
 # INCORRECT - These will fail!
 # python app.py                    ❌ Wrong - import errors
@@ -15,16 +15,20 @@ cd /home/svc-scan/Python_Testing_Vibe && ./start_app.sh
 # python -m doc_processor.app      ❌ Wrong - must be from repo root
 ```
 
+**Note**: Replace `/path/to/Python_Testing_Vibe` with your actual repository path. In CI environments, use `$GITHUB_WORKSPACE` or the current working directory.
+
 #### **✅ Virtual Environment Location**
 ```bash
-# CORRECT - venv is inside doc_processor/
-cd /home/svc-scan/Python_Testing_Vibe/doc_processor
+# CORRECT - venv is inside doc_processor/ subdirectory
+cd <repo_root>/doc_processor
 source venv/bin/activate
 
 # INCORRECT - These locations don't exist!
 # source .venv/bin/activate        ❌ Wrong location
 # source venv/bin/activate         ❌ Wrong - not in repo root
 ```
+
+**Note**: `<repo_root>` refers to the repository root directory where you cloned Python_Testing_Vibe.
 
 #### **✅ Environment Name - It's "venv" NOT "doc_processor_env"**
 ```bash
@@ -63,6 +67,17 @@ For a layered breakdown and full file map, see `../ARCHITECTURE.md` and the Comp
 
 > Quick Reference: A complete file/layer map now lives in `ARCHITECTURE.md` (root) and the root `README.md` under "Comprehensive File Map". Use those when you need to locate modules or justify code placement.
 
+### Tech Stack and Requirements
+- **Python**: 3.10+ (required)
+- **Web Framework**: Flask 2.3.0+
+- **Database**: SQLite 3 (embedded, no separate server needed)
+- **OCR**: EasyOCR, Tesseract (optional, can be skipped with DEBUG_SKIP_OCR)
+- **LLM**: Ollama API (local LLM service for document classification)
+- **Image Processing**: Pillow (PIL), pdf2image
+- **Testing**: pytest, pytest-playwright
+- **Frontend**: Playwright for E2E tests, Node.js for UI tests
+- **Environment**: python-dotenv for configuration management
+
 ### Core Architecture (Post-Refactoring)
 - **`doc_processor/app.py`**: Main Flask application factory with Blueprint registration (309 lines)
 - **`doc_processor/routes/`**: 6 specialized Blueprint modules (intake, batch, manipulation, export, admin, api)
@@ -81,7 +96,7 @@ For a layered breakdown and full file map, see `../ARCHITECTURE.md` and the Comp
 ### **Environment Setup (Follow Exactly!)**
 ```bash
 # 1. Navigate to doc_processor subdirectory
-cd /home/svc-scan/Python_Testing_Vibe/doc_processor
+cd <repo_root>/doc_processor
 
 # 2. Create virtual environment (if doesn't exist)
 python3 -m venv venv
@@ -96,10 +111,12 @@ pip install -r requirements.txt
 python dev_tools/database_setup.py
 ```
 
+**Note**: In CI environments, the repository is typically at `$GITHUB_WORKSPACE` or `/home/runner/work/Python_Testing_Vibe/Python_Testing_Vibe`.
+
 ### **Configuration (Essential Steps)**
 ```bash
 # 1. Copy sample environment file
-cd /home/svc-scan/Python_Testing_Vibe/doc_processor
+cd <repo_root>/doc_processor
 cp .env.sample .env
 
 # 2. Edit .env with your settings:
@@ -109,12 +126,13 @@ cp .env.sample .env
 #    - OLLAMA_HOST=http://localhost:11434
 #    - OLLAMA_MODEL=llama3.1:8b
 #    - DEBUG_SKIP_OCR=false
+#    - FAST_TEST_MODE=1 (for testing to skip heavy processing)
 ```
 
 ### **Starting the Application (The Only Correct Way)**
 ```bash
 # Always use the startup script from repo root
-cd /home/svc-scan/Python_Testing_Vibe
+cd <repo_root>
 ./start_app.sh
 
 # This script automatically:
@@ -127,7 +145,7 @@ cd /home/svc-scan/Python_Testing_Vibe
 ### **Development Commands (Common Tasks)**
 ```bash
 # Terminal-based operations - always activate venv first:
-cd /home/svc-scan/Python_Testing_Vibe/doc_processor
+cd <repo_root>/doc_processor
 source venv/bin/activate
 
 # Then run any Python scripts:
@@ -200,11 +218,13 @@ result = get_ai_document_type_analysis(
 ## Project-Specific Conventions
 
 ### File Organization
-- **Intake**: `/home/svc-scan/Python_Testing_Vibe/doc_processor/intake/`
-- **Processing**: `/home/svc-scan/Python_Testing_Vibe/doc_processor/processed/`
-- **Final Storage**: `/home/svc-scan/Python_Testing_Vibe/doc_processor/filing_cabinet/`
-- **Logs**: `/home/svc-scan/Python_Testing_Vibe/doc_processor/logs/`
-- **Database**: `/home/svc-scan/Python_Testing_Vibe/doc_processor/documents.db`
+- **Intake**: `<repo_root>/doc_processor/intake/`
+- **Processing**: `<repo_root>/doc_processor/processed/`
+- **Final Storage**: `<repo_root>/doc_processor/filing_cabinet/`
+- **Logs**: `<repo_root>/doc_processor/logs/`
+- **Database**: `<repo_root>/doc_processor/documents.db`
+- **Tests**: `<repo_root>/doc_processor/tests/`
+- **UI Tests**: `<repo_root>/ui_tests/`
 
 ### Error Handling Patterns
 ```python
@@ -244,12 +264,103 @@ status = app_config.STATUS_VERIFICATION_COMPLETE
 - **Smart file serving** via `export.serve_original_pdf` route
 - **Rotation system** standardized across all preview templates
 
+## Build, Test, and Lint Commands
+
+### Running Tests
+The project uses `pytest` for testing with multiple test configurations:
+
+```bash
+# Activate virtual environment first
+cd <repo_root>/doc_processor
+source venv/bin/activate
+
+# Run all unit tests
+pytest
+
+# Run tests with verbose output
+pytest -v
+
+# Run specific test file
+pytest tests/test_app.py
+
+# Run tests with coverage
+pytest --cov=. --cov-report=html
+
+# Run tests in fast mode (skips heavy processing)
+FAST_TEST_MODE=1 pytest
+
+# Run tests with Ollama integration (requires Ollama running)
+RUN_OLLAMA_INTEGRATION=1 pytest tests/test_ollama_integration.py
+```
+
+### Running E2E Tests
+End-to-end tests use Playwright and are located in `ui_tests/`:
+
+```bash
+# From repository root
+cd <repo_root>
+
+# Run single E2E test (fast)
+make e2e-single
+
+# Run full E2E suite (installs deps, starts app, runs tests)
+make e2e-full
+
+# Setup E2E dependencies only
+make e2e-setup
+
+# Manual E2E run (from ui_tests directory)
+cd ui_tests
+npm ci
+npx playwright test
+```
+
+### Linting and Code Quality
+While there's no automated linter configured, follow these conventions:
+
+```bash
+# Check Python code style manually
+python -m py_compile <filename>.py
+
+# Recommended: Use IDE linters (PyLint, flake8, black)
+# The project follows PEP8 style guidelines
+```
+
+### CI/CD Workflows
+The repository uses GitHub Actions for continuous integration:
+
+- **`ci.yml`**: Minimal CI test workflow (manual trigger)
+- **`ci-smoke.yml`**: Smoke test validation
+- **`e2e.yml`**: End-to-end test workflow
+- **`playwright-e2e.yml`**: Playwright-specific E2E tests
+- **`heavy-deps.yml`**: Tests with heavy dependencies (OCR, image processing)
+
+To run CI checks locally:
+```bash
+# Check test tmpdir configuration
+bash ci/check_test_tmpdir.sh
+
+# Run local smoke tests
+FAST_TEST_MODE=1 SKIP_OLLAMA=1 pytest
+```
+
+### Database Management
+```bash
+# Reset database to clean state
+cd <repo_root>/doc_processor
+source venv/bin/activate
+python dev_tools/database_setup.py
+
+# Backup database (automatic in test mode)
+# Set DB_BACKUP_DIR in .env for custom backup location
+```
+
 ## Testing & Debugging
 
 ### Development Tools (in `dev_tools/`)
 ```bash
 # Always activate venv first
-cd /home/svc-scan/Python_Testing_Vibe/doc_processor
+cd <repo_root>/doc_processor
 source venv/bin/activate
 
 # Common debugging tools
@@ -312,3 +423,27 @@ from config_manager import app_config      # Modern config system
 7. **Always activate venv before running any Python scripts** in `doc_processor/`
 
 These patterns eliminate the most common issues when working with this codebase.
+
+## Reference Documentation
+
+### Key Files and Resources
+- **Main README**: `README.md` - Project overview and recent changes
+- **Architecture Guide**: `ARCHITECTURE.md` (if exists in root) - Detailed architecture documentation
+- **Changelog**: `doc_processor/CHANGELOG.md` - Version history and changes
+- **Contributing Guide**: `doc_processor/CONTRIBUTING.md` - Contribution guidelines
+- **Project Status**: `docs/PROJECT_STATUS.md` - Current project status
+- **E2E Testing**: `docs/README-E2E.md` - End-to-end testing documentation
+- **Test Skips**: `docs/README-TEST-SKIPS.md` - Documentation of skipped tests
+- **CI/CD Info**: `docs/ci-heavy-deps-usage.md` - CI workflow documentation
+
+### External Resources
+- **GitHub Actions Workflows**: `.github/workflows/` - CI/CD pipeline definitions
+- **Copilot Best Practices**: https://gh.io/copilot-coding-agent-tips
+- **Flask Documentation**: https://flask.palletsprojects.com/
+- **Ollama API**: https://github.com/ollama/ollama - LLM integration
+- **EasyOCR**: https://github.com/JaidedAI/EasyOCR - OCR library
+
+### Getting Help
+- **GitHub Issues**: Report bugs or request features
+- **Pull Requests**: Contribute code changes
+- **Code Review**: All PRs require human review before merge
