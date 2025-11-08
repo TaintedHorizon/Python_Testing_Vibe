@@ -34,6 +34,22 @@ jobs:
           key: pip-cache-${{ runner.os }}-python-${{ matrix.python }}-${{ hashFiles('doc_processor/requirements.txt') }}
           restore-keys: |
             pip-cache-${{ runner.os }}-python-
+      - name: Runner & Python diagnostics
+        run: |
+          mkdir -p doc_processor
+          echo "Runner diagnostics" > doc_processor/smoke-diagnostics.txt
+          uname -a >> doc_processor/smoke-diagnostics.txt 2>&1 || true
+          lsb_release -a >> doc_processor/smoke-diagnostics.txt 2>&1 || true
+          echo "--- which python ---" >> doc_processor/smoke-diagnostics.txt
+          which python >> doc_processor/smoke-diagnostics.txt 2>&1 || true
+          echo "--- python --version ---" >> doc_processor/smoke-diagnostics.txt
+          python --version >> doc_processor/smoke-diagnostics.txt 2>&1 || true
+          echo "--- sys.path ---" >> doc_processor/smoke-diagnostics.txt
+          python -c "import sys, json, json as _j; print(_j.dumps({'sys_path': sys.path}, default=str))" >> doc_processor/smoke-diagnostics.txt 2>&1 || true
+          echo "--- pip --version ---" >> doc_processor/smoke-diagnostics.txt
+          python -m pip --version >> doc_processor/smoke-diagnostics.txt 2>&1 || true
+          echo "--- pip list (top 200 chars) ---" >> doc_processor/smoke-diagnostics.txt
+          python -m pip list --format=columns 2>&1 | head -n 200 >> doc_processor/smoke-diagnostics.txt || true
       - name: Create TEST_TMPDIR
         run: |
           echo "TEST_TMPDIR=$(mktemp -d)" >> $GITHUB_ENV
