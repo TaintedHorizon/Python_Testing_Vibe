@@ -1,0 +1,131 @@
+name: CI Basic Checks
+
+# Simple, fast CI checks that should always pass
+# This is a REQUIRED check for all PRs
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-syntax:
+    name: Lint and Syntax Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install basic dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 pylint black
+      
+      - name: Python syntax check (all .py files)
+        run: |
+          echo "Checking Python syntax (excluding backup/archive files)..."
+          # Exclude backup files and archive paths from syntax check to avoid noise
+          python -m py_compile $(find . -name "*.py" -not -path "*/\.*" -not -path "*/venv/*" -not -path "*/archive/*" -not -name "*_backup.py") || {
+            echo "❌ Syntax errors found"
+            exit 1
+          }
+          echo "✅ All Python files (excluding backups/archive) have valid syntax"
+      
+      - name: Basic flake8 linting (errors only)
+        run: |
+          echo "Running flake8 for critical errors (excluding backup/archive files)..."
+          # Exclude backup and archive files and local venvs to avoid historical/vendor noise
+          flake8 --select=E9,F63,F7,F82 --exclude "doc_processor/*_backup.py,doc_processor/archive/*,**/venv/*,venv/*,*/venv/*" --show-source --statistics doc_processor/ || {
+            echo "❌ Critical linting errors found"
+            exit 1
+          }
+          echo "✅ No critical linting errors (excluding backups/archive)"
+      
+      - name: Check for common issues
+        run: |
+          echo "Checking for common issues..."
+          # Check that core files exist
+          test -f "doc_processor/app.py" || { echo "❌ Missing doc_processor/app.py"; exit 1; }
+          test -f "doc_processor/requirements.txt" || { echo "❌ Missing doc_processor/requirements.txt"; exit 1; }
+          test -f "start_app.sh" || { echo "❌ Missing start_app.sh"; exit 1; }
+          echo "✅ Core files present"
+      
+      - name: Success
+        run: |
+          echo "✅ All basic CI checks passed!"
+name: CI Basic Checks
+
+# Simple, fast CI checks that should always pass
+# This is a REQUIRED check for all PRs
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-syntax:
+    name: Lint and Syntax Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install basic dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 pylint black
+      
+      - name: Python syntax check (all .py files)
+        run: |
+          echo "Checking Python syntax (excluding backup/archive files)..."
+          # Exclude backup files and archive paths from syntax check to avoid noise
+          python -m py_compile $(find . -name "*.py" -not -path "*/\.*" -not -path "*/venv/*" -not -path "*/archive/*" -not -name "*_backup.py") || {
+            echo "❌ Syntax errors found"
+            exit 1
+          }
+          echo "✅ All Python files (excluding backups/archive) have valid syntax"
+      
+      - name: Basic flake8 linting (errors only)
+        run: |
+          echo "Running flake8 for critical errors (excluding backup/archive files)..."
+          # Exclude backup and archive files from flake8 so historical backup files don't block CI.
+          # Exclude backup files, archive, and any local venv under doc_processor to avoid scanning third-party packages
+          # Exclude backup files, archive, and any venv directories (supports several common patterns)
+          flake8 --select=E9,F63,F7,F82 --exclude "doc_processor/*_backup.py,doc_processor/archive/*,**/venv/*,venv/*,*/venv/*" --show-source --statistics doc_processor/ || {
+            echo "❌ Critical linting errors found"
+            exit 1
+          }
+          echo "✅ No critical linting errors (excluding backups/archive)"
+      
+      - name: Check for common issues
+        run: |
+          echo "Checking for common issues..."
+          # Check that core files exist
+          test -f "doc_processor/app.py" || { echo "❌ Missing doc_processor/app.py"; exit 1; }
+          test -f "doc_processor/requirements.txt" || { echo "❌ Missing doc_processor/requirements.txt"; exit 1; }
+          test -f "start_app.sh" || { echo "❌ Missing start_app.sh"; exit 1; }
+          echo "✅ Core files present"
+      
+      - name: Success
+        run: |
+          echo "✅ All basic CI checks passed!"
+          echo "This PR is ready for code review."
