@@ -1,3 +1,105 @@
+name: Force Unit Tests (PR)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: Unit Tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: [3.11, 3.12]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install test deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f doc_processor/requirements-ci.txt ]; then
+            python -m pip install -r doc_processor/requirements-ci.txt || true
+          elif [ -f doc_processor/requirements.txt ]; then
+            python -m pip install -r doc_processor/requirements.txt || true
+          else
+            python -m pip install pytest || true
+          fi
+
+      - name: Run pytest (unit tests only)
+        working-directory: doc_processor
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          # Use marker exclusion to skip E2E tests which require Playwright
+          pytest -q -m "not e2e" 2>&1 | tee pytest-output-${{ matrix.python }}.txt; exit ${PIPESTATUS[0]}
+
+      - name: Upload pytest output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-output-${{ matrix.python }}
+          path: doc_processor/pytest-output-${{ matrix.python }}.txt
+          if-no-files-found: warn
+name: Force Unit Tests (PR)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: Unit Tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: [3.11, 3.12]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install test deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f doc_processor/requirements-ci.txt ]; then
+            python -m pip install -r doc_processor/requirements-ci.txt || true
+          elif [ -f doc_processor/requirements.txt ]; then
+            python -m pip install -r doc_processor/requirements.txt || true
+          else
+            python -m pip install pytest || true
+          fi
+
+      - name: Run pytest (unit tests only)
+        working-directory: doc_processor
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          # Use marker exclusion to skip E2E tests which require Playwright
+          pytest -q -m "not e2e" 2>&1 | tee pytest-output-${{ matrix.python }}.txt; exit ${PIPESTATUS[0]}
+
+      - name: Upload pytest output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-output-${{ matrix.python }}
+          path: doc_processor/pytest-output-${{ matrix.python }}.txt
+          if-no-files-found: warn
 ```github-actions-workflow
 name: Force Unit Tests (PR)
 
@@ -40,7 +142,8 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          pytest -q -k "not e2e" 2>&1 | tee pytest-output-${{ matrix.python }}.txt; exit ${PIPESTATUS[0]}
+          # Use marker exclusion to skip E2E tests which require Playwright
+          pytest -q -m "not e2e" 2>&1 | tee pytest-output-${{ matrix.python }}.txt; exit ${PIPESTATUS[0]}
 
       - name: Upload pytest output
         if: always()
