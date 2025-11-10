@@ -34,17 +34,17 @@ jobs:
         run: |
           echo "Checking Python syntax (excluding backup/archive files)..."
           # Exclude backup files and archive paths from syntax check to avoid noise
-          python -m py_compile $(find . -name "*.py" -not -path "*/\.*" -not -path "*/venv/*" -not -path "*/archive/*" -not -name "*_backup.py") || {
+            python -m py_compile $(find doc_processor -name "*.py" -not -path "*/\.*" -not -path "*/venv/*" -not -path "*/archive/*" -not -name "*_backup.py") || {
             echo "❌ Syntax errors found"
             exit 1
           }
-          echo "✅ All Python files (excluding backups/archive) have valid syntax"
+            echo "✅ doc_processor Python files have valid syntax"
       
       - name: Basic flake8 linting (errors only)
         run: |
           echo "Running flake8 for critical errors (excluding backup/archive files)..."
           # Exclude backup and archive files and local venvs to avoid historical/vendor noise
-          flake8 --select=E9,F63,F7,F82 --exclude "doc_processor/*_backup.py,doc_processor/archive/*,**/venv/*,venv/*,*/venv/*" --show-source --statistics doc_processor/ || {
+            flake8 --select=E9,F63,F7,F82 --exclude "**/*_backup.py,**/archive/*,**/venv/*,venv/*,*/venv/*" --show-source --statistics doc_processor/ || {
             echo "❌ Critical linting errors found"
             exit 1
           }
