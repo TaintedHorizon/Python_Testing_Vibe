@@ -1,3 +1,21 @@
+# Ignore Python virtual environments
+venv/
+*/venv/
+doc_processor/venv/
+
+# Ignore common backup/archive patterns used during local work
+*_backup.py
+*/archive/
+doc_processor/archive/
+
+# Ignore SQLite DB files that shouldn't be committed
+*.db
+*.sqlite
+*.sqlite3
+
+# Bytecode and caches
+__pycache__/
+*.pyc
 # Normalized cached PDFs (image->PDF cache)
 normalized/
 
