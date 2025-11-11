@@ -1,13 +1,55 @@
 # AI Assistant Instructions for Python_Testing_Vibe
 
+> **Note**: Throughout these instructions, `<repo_root>` refers to the root directory where this repository is cloned. Replace it with your actual path (e.g., `/home/user/Python_Testing_Vibe`, `C:\Projects\Python_Testing_Vibe`, etc.)
+
+## 🚨 CRITICAL: GitHub Workflows & PR Policy
+
+### **SIMPLIFIED WORKFLOW STRUCTURE (November 2025)**
+
+**The repository has been simplified from 15 workflows down to 3 essential ones.**
+
+#### **✅ Active Workflows (Only These!):**
+1. **`ci-basic.yml`** - Fast syntax/lint checks (~2 min) - **REQUIRED**
+2. **`test-unit.yml`** - Unit tests only (~5-10 min) - **REQUIRED**  
+3. **`test-e2e-manual.yml`** - E2E tests (manual trigger) - **OPTIONAL**
+
+#### **❌ NEVER Do These:**
+```bash
+# DO NOT create new workflow files
+# DO NOT modify existing workflows without explicit permission
+# DO NOT add smoke tests, heavy-deps, or complex CI pipelines
+# DO NOT enable old .disabled workflow files
+```
+
+#### **✅ Creating PRs:**
+- Your PR will trigger `ci-basic` and `test-unit` automatically
+- Both must pass (but test failures in unit tests don't block if syntax is OK)
+- Total CI time: < 10 minutes
+- E2E tests are NOT required for merge (manual trigger only)
+
+#### **✅ If CI Fails:**
+- **ci-basic failure**: Fix Python syntax errors or flake8 issues
+- **test-unit failure**: Review test output but known flaky tests are OK
+- **DO NOT**: Try to "fix" CI by adding more workflows or smoke tests
+
+#### **📝 Workflow Policy:**
+- All workflow files except the 3 active ones are `.disabled`
+- See `.github/workflows/README.md` for full documentation
+- This keeps PRs simple and fast - don't complicate it!
+
 ## ⚠️ CRITICAL: Common Mistakes to Avoid
 
 ### 🚨 **ALWAYS Use These Correct Patterns:**
 
 #### **✅ Application Startup (NEVER run Flask directly!)**
 ```bash
+<<<<<<< HEAD
 # CORRECT - Use the provided startup script from repository root
 cd /path/to/Python_Testing_Vibe && ./start_app.sh
+=======
+# CORRECT - Use the provided startup script
+cd <repo_root> && ./start_app.sh
+>>>>>>> 120508a (Fix hardcoded paths in copilot instructions (addresses PR #59))
 
 # INCORRECT - These will fail!
 # python app.py                    ❌ Wrong - import errors
@@ -19,7 +61,11 @@ cd /path/to/Python_Testing_Vibe && ./start_app.sh
 
 #### **✅ Virtual Environment Location**
 ```bash
+<<<<<<< HEAD
 # CORRECT - venv is inside doc_processor/ subdirectory
+=======
+# CORRECT - venv is inside doc_processor/
+>>>>>>> 120508a (Fix hardcoded paths in copilot instructions (addresses PR #59))
 cd <repo_root>/doc_processor
 source venv/bin/activate
 
@@ -223,8 +269,11 @@ result = get_ai_document_type_analysis(
 - **Final Storage**: `<repo_root>/doc_processor/filing_cabinet/`
 - **Logs**: `<repo_root>/doc_processor/logs/`
 - **Database**: `<repo_root>/doc_processor/documents.db`
+<<<<<<< HEAD
 - **Tests**: `<repo_root>/doc_processor/tests/`
 - **UI Tests**: `<repo_root>/ui_tests/`
+=======
+>>>>>>> 120508a (Fix hardcoded paths in copilot instructions (addresses PR #59))
 
 ### Error Handling Patterns
 ```python

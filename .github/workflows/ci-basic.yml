@@ -42,7 +42,12 @@ jobs:
       - name: Basic flake8 linting (errors only)
         run: |
           echo "Running flake8 for critical errors (excluding backup/archive files)..."
-          flake8 --select=E9,F63,F7,F82 --exclude "**/*_backup.py,**/archive/*,**/venv/*,venv/*,*/venv/*" --show-source --statistics doc_processor/ || {
+          # Use find to build a file list so excludes are precise and not dependent on flake8 glob semantics
+          find doc_processor -name "*.py" \
+            -not -path "*/venv/*" \
+            -not -path "*/archive/*" \
+            -not -name "*_backup.py" \
+            -print0 | xargs -0 --no-run-if-empty flake8 --select=E9,F63,F7,F82 --show-source --statistics || {
             echo "❌ Critical linting errors found"
             exit 1
           }
