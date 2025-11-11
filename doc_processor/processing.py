@@ -130,8 +130,19 @@ def convert_image_to_pdf(image_path: str, output_pdf_path: str) -> str:
 
         logging.info(f"Converting image to PDF: {os.path.basename(image_path)} -> {os.path.basename(output_pdf_path)}")
 
-        # Open and process the image
-        with Image.open(image_path) as img:
+        # Open and process the image. Import PIL locally to avoid depending on
+        # the module-level guarded import (which may be None in FAST_TEST_MODE).
+        try:
+            from PIL import Image as _PIL_Image
+        except Exception:
+            # Fall back to the module-level symbol if the local import fails
+            _PIL_Image = Image
+
+        if _PIL_Image is None:
+            raise FileProcessingError("Pillow is not available to convert images to PDF")
+
+        # Open the image using the locally-imported PIL.Image
+        with _PIL_Image.open(image_path) as img:
             # Convert to RGB if necessary (required for PDF)
             if img.mode != 'RGB':
                 img = img.convert('RGB')
@@ -143,11 +154,18 @@ def convert_image_to_pdf(image_path: str, output_pdf_path: str) -> str:
         if not os.path.exists(output_pdf_path):
             raise FileProcessingError(f"PDF conversion failed - output file not created: {output_pdf_path}")
 
-        # Verify it's a valid PDF by trying to open it
+        # Verify it's a valid PDF. Prefer PyMuPDF when available; otherwise
+        # fall back to a lightweight magic-number/size check provided by
+        # _validate_file_type to avoid hard dependency during FAST_TEST_MODE.
         try:
-            with fitz.open(output_pdf_path) as doc:
-                if len(doc) == 0:
-                    raise FileProcessingError("Converted PDF has no pages")
+            if fitz is not None:
+                with fitz.open(output_pdf_path) as doc:
+                    if len(doc) == 0:
+                        raise FileProcessingError("Converted PDF has no pages")
+            else:
+                # Basic sanity check: PDF header + reasonable size
+                if not _validate_file_type(output_pdf_path):
+                    raise FileProcessingError("Converted PDF failed basic validation (missing PDF header or too small)")
         except Exception as pdf_error:
             raise FileProcessingError(f"Converted PDF is invalid: {pdf_error}")
 
