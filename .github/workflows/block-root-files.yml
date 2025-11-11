@@ -1,0 +1,56 @@
+name: Block new root files
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-root-files:
+    name: Check PR for new root-level files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect added root files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          echo "Comparing $BASE_SHA -> $HEAD_SHA"
+          mapfile -t added < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          echo "Files changed in PR: ${added[*]}"
+
+          # Allowed root-level files/dirs (update if your repo needs more)
+          allowed=("README.md" "Makefile" ".gitignore" ".github" "docs" "scripts" "dev_tools" "start_app.sh" "pyrightconfig.json" "pytest.ini" "Python_Testing_Vibe.code-workspace" "archive" "tools" "ui_tests" "LICENSE" ".venv-ci" ".ruff_cache")
+
+          bad=()
+          for f in "${added[@]}"; do
+            # skip nested paths
+            if [[ "$f" == */* ]]; then
+              continue
+            fi
+            ok=0
+            for a in "${allowed[@]}"; do
+              if [[ "$f" == "$a" ]]; then
+                ok=1
+                break
+              fi
+            done
+            if [[ $ok -eq 0 ]]; then
+              bad+=("$f")
+            fi
+          done
+
+          if (( ${#bad[@]} > 0 )); then
+            echo "Found root-level files added in PR: ${bad[*]}"
+            echo "Repository policy requires transient files be placed under .github/logs/ and PRs must not add loose root files."
+            echo "If these files are intentional, please move them into an appropriate folder (for example: .github/logs/) and update the PR."
+            # Fail the job to block the PR from merging until fixed
+            exit 1
+          fi
+
+          echo "No problematic root-level files found."
