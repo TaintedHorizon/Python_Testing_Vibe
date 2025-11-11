@@ -1,0 +1,61 @@
+name: CI Basic Checks
+
+# Simple, fast CI checks that should always pass
+# This is a REQUIRED check for all PRs
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-syntax:
+    name: Lint and Syntax Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      - name: Install basic dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8
+
+      - name: Python syntax check (doc_processor only)
+        run: |
+          echo "Checking Python syntax in doc_processor (excluding backup/archive files)..."
+          python -m py_compile $(find doc_processor -name "*.py" -not -path "*/\.*" -not -path "*/venv/*" -not -path "*/archive/*" -not -name "*_backup.py") || {
+            echo "❌ Syntax errors found"
+            exit 1
+          }
+          echo "✅ doc_processor Python files have valid syntax"
+
+      - name: Basic flake8 linting (errors only)
+        run: |
+          echo "Running flake8 for critical errors (excluding backup/archive files)..."
+          flake8 --select=E9,F63,F7,F82 --exclude "**/*_backup.py,**/archive/*,**/venv/*,venv/*,*/venv/*" --show-source --statistics doc_processor/ || {
+            echo "❌ Critical linting errors found"
+            exit 1
+          }
+          echo "✅ No critical linting errors (excluding backups/archive)"
+
+      - name: Check for common issues
+        run: |
+          echo "Checking for common issues..."
+          test -f "doc_processor/app.py" || { echo "❌ Missing doc_processor/app.py"; exit 1; }
+          test -f "doc_processor/requirements.txt" || { echo "❌ Missing doc_processor/requirements.txt"; exit 1; }
+          test -f "start_app.sh" || { echo "❌ Missing start_app.sh"; exit 1; }
+          echo "✅ Core files present"
+
+      - name: Success
+        run: |
+          echo "✅ All basic CI checks passed!"
