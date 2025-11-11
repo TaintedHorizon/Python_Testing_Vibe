@@ -40,7 +40,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           # Ignore e2e directory to avoid importing Playwright at collection time
-          pytest -q --ignore=doc_processor/tests/e2e -m "not e2e" 2>&1 | tee pytest-output-${{ matrix.python }}.txt; exit ${PIPESTATUS[0]}
+          pytest -q --ignore=tests/e2e -m "not e2e" 2>&1 | tee pytest-output-${{ matrix.python }}.txt; exit ${PIPESTATUS[0]}
 
       - name: Upload pytest output
         if: always()
