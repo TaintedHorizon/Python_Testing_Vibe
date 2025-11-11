@@ -30,6 +30,8 @@ Update (2025-10-13): Local DB schema extensions and initialization added; the `d
 For development and running tests, see `doc_processor/.github/copilot-instructions.md`
 and the `doc_processor/README.md` for project-specific startup instructions.
 
+For contribution guidance and repository archival guidance see `docs/CONTRIBUTING-README.md` and `.github/CONTRIBUTING-ARCHIVES.md`.
+
 Updating docs and changelog
 ---------------------------
 
