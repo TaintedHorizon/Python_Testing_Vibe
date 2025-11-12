@@ -29,7 +29,10 @@ BRANCH=""
 TITLE=""
 BODY_FILE=""
 COMMIT_MSG=""
-ENABLE_AUTOMERGE=0
+# Default to enabling auto-merge for PRs created by the agent. Can be overridden with --no-auto or env var.
+ENABLE_AUTOMERGE=${ENABLE_AUTOMERGE_ENV:-1}
+# Default to non-interactive confirmation (agent-controlled). Set AUTO_YES=0 to require prompt.
+AUTO_YES=${AUTO_YES_ENV:-1}
 REPO=""
 
 while [[ $# -gt 0 ]]; do
