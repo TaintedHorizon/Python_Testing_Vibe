@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   lint-and-syntax:
-    name: Lint and Syntax Check
+    name: CI Basic Checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
