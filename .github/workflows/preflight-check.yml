@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   preflight-validator:
-    name: Preflight Validator
+    name: Preflight Validator X
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
