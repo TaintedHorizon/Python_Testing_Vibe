@@ -82,6 +82,19 @@ if [[ -n "$COMMIT_MSG" ]]; then
   fi
 fi
 
+# Append an audit log entry to .github/logs/agent-pr-log.md so merged PRs include an audit trail
+mkdir -p .github/logs
+LOGFILE=.github/logs/agent-pr-log.md
+TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+COMMIT_SHA=$(git rev-parse --short HEAD || echo "-")
+cat >> "$LOGFILE" <<EOF
+- $TS | branch: $BRANCH | title: $TITLE | commit: $COMMIT_SHA
+EOF
+git add "$LOGFILE"
+if [[ -n "$(git status --porcelain)" ]]; then
+  git commit -m "chore: add agent PR audit entry for $BRANCH" || true
+fi
+
 echo "Pushing branch to origin..."
 git push -u origin "$BRANCH"
 
