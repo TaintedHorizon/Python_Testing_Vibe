@@ -42,11 +42,17 @@ pip install pyyaml
 
 - To create PRs with automatic preflight and optional auto-merge, use `tools/create_pr_with_preflight.sh`.
 
-Example (non-interactive auto-merge):
+Default behavior
+
+- As requested, the agent now auto-opens PRs and enables auto-merge by default for PRs it creates. The script defaults to enabling auto-merge and non-interactive confirmation so the agent can create and merge PRs autonomously when required checks pass.
+
+Example (explicit non-interactive auto-merge):
 
 ```bash
 tools/create_pr_with_preflight.sh --branch chore/my-fix --title "chore: my fix" --body-file pr_body.md --commit-msg "WIP" --enable-auto-merge --yes
 ```
+
+If you want to opt out of non-interactive auto-merge for a particular run, set the environment variable `AUTO_YES=0` or pass `--no-auto` when invoking the script (the script treats explicit flags and env vars as overrides).
 
 Git alias suggestion
 --------------------
