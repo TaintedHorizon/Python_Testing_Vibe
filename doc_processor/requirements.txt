@@ -67,3 +67,6 @@ playwright>=1.40.0
 # Removed from CI requirements because no matching distribution is available on PyPI.
 # If this is a local package, install it in CI via a wheel or VCS reference instead.
 # document_detector>=0.0.1
+
+# --- Development helper: YAML parsing for tooling (preflight validator)
+PyYAML>=6.0
