@@ -21,3 +21,9 @@ e2e-setup:
 	python3 -m venv doc_processor/venv || true
 	. doc_processor/venv/bin/activate && pip install -r doc_processor/requirements.txt && pip install playwright pytest-playwright
 	(cd ui_tests && npm ci)
+
+.PHONY: pr
+pr:
+	@# Usage: make pr BRANCH=chore/my-fix TITLE="My PR" [BODY=pr_body.md] [MSG="WIP"] [AUTO=1]
+	@if [ -z "$(BRANCH)" ] || [ -z "$(TITLE)" ]; then echo "Usage: make pr BRANCH=... TITLE=..."; exit 1; fi
+	./tools/create_pr_with_preflight.sh --branch "$(BRANCH)" --title "$(TITLE)" $(if $(BODY),--body-file $(BODY)) $(if $(MSG),--commit-msg "$(MSG)") $(if $(AUTO),--enable-auto-merge --yes)
