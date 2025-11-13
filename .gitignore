@@ -79,6 +79,8 @@ logs/
 ci_logs/
 # Git-tracked runtime artifacts created by local monitoring scripts — keep in .github/logs
 .github/logs/
+!.github/logs/.gitkeep
+!.github/logs/agent-pr-log.md
 *.pid
 # Local auth/status dumps
 gh_auth_status.txt
