@@ -1,8 +1,0 @@
-{
-  "typeCheckingMode": "basic",
-  "exclude": [
-    "doc_processor/templates/**",
-    "**/node_modules",
-    "**/__pycache__/**"
-  ]
-}

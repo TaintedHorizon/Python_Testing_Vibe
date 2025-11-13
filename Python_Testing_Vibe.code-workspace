@@ -1,9 +1,0 @@
-// This repository includes a workspace template at
-// `Python_Testing_Vibe.code-workspace.template`.
-//
-// We keep a small pointer at the project root so editors can discover the
-// template; developers can copy or open the `.template` file when they want
-// the full workspace configuration.
-{
-    "folders": []
-}
