@@ -1,0 +1,23 @@
+name: Archive guidance (manual)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  guidance:
+    name: Archive guidance (manual)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Print guidance
+        run: |
+          echo "This is a manual guidance workflow. It does NOT move or delete files by default."
+          echo
+          echo "Recommended steps to archive transient root files (run locally):"
+          echo "1) From repo root, run: bash ./scripts/move_root_files_to_github_logs.sh"
+          echo "2) Inspect .github/logs and confirm moved files"
+          echo "3) Open a PR that *only* documents the housekeeping under .github (not a PR that also deletes tracked source files)"
+          echo
+          echo "If you want an automated archival workflow, create a separate, reviewed workflow that only acts on files under .github (do not make it delete tracked source files)."
