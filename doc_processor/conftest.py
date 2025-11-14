@@ -72,6 +72,22 @@ def mock_llm(monkeypatch):
     yield
 
 
+# Compatibility alias: some legacy tests import `document_detector` as a
+# top-level module. Instead of adding files to the repository root, we
+# alias the package implementation to that module name at import-time so
+# `import document_detector` resolves to `doc_processor.document_detector`.
+try:
+    import sys
+    # Use the lightweight shim to avoid importing heavy C deps at conftest
+    # import time. The shim will delegate to the real implementation lazily.
+    import doc_processor.document_detector_shim as _dd
+    sys.modules.setdefault("document_detector", _dd)
+except Exception:
+    # Best-effort: if the shim cannot be imported here then tests will
+    # surface the import error as before. We avoid raising at conftest
+    # import time to keep diagnostic flow intact.
+    pass
+
 @pytest.fixture(scope='session', autouse=True)
 def _enforce_llm_stub():
     """Session autouse fixture to stub low-level LLM calls at import/collection time.
