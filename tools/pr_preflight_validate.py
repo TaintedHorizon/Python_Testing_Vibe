@@ -36,6 +36,55 @@ def get_required_contexts(repo):
         return []
 
 
+def get_allowed_root_files_from_workflow():
+    """Try to extract the allowed root-level files list from the block-root-files workflow.
+
+    This is a pragmatic parser: it looks for the literal `allowed=(...)` construct
+    inside `.github/workflows/block-root-files.yml` and returns the entries.
+    Falls back to a conservative default set if not present.
+    """
+    wf = Path('.github/workflows/block-root-files.yml')
+    defaults = [
+        "README.md",
+        "Makefile",
+        ".gitignore",
+        ".github",
+        "docs",
+        "scripts",
+        "dev_tools",
+        "start_app.sh",
+        "pyrightconfig.json",
+        "pytest.ini",
+        "Python_Testing_Vibe.code-workspace",
+        "archive",
+        "tools",
+        "ui_tests",
+        "LICENSE",
+        ".venv-ci",
+        ".ruff_cache",
+    ]
+    if not wf.exists():
+        return defaults
+    text = wf.read_text()
+    import re
+    m = re.search(r"allowed=\(([^)]*)\)", text, flags=re.S)
+    if not m:
+        return defaults
+    inner = m.group(1)
+    # split by whitespace while trimming quotes and commas
+    parts = []
+    for tok in inner.split():
+        tok = tok.strip().strip('"\'')
+        if tok.endswith(')'):
+            tok = tok[:-1]
+        tok = tok.strip(',')
+        if tok:
+            parts.append(tok)
+    # Merge with defaults to be safe
+    merged = list(dict.fromkeys(defaults + parts))
+    return merged
+
+
 def discover_job_names():
     jobnames = []
     expanded = []
@@ -73,6 +122,34 @@ def discover_job_names():
     # expose expanded names as attribute on the function
     discover_job_names.expanded = expanded
     return jobnames
+
+
+def detect_root_level_violations():
+    """Detect added root-level files compared to origin/main and report any files not allowed.
+
+    Returns a list of offending filenames (empty if none).
+    """
+    # Ensure we have an up-to-date origin/main
+    try:
+        subprocess.run(["git", "fetch", "origin", "main"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        base = "origin/main"
+    except Exception:
+        base = "main"
+
+    # List changed files between base and HEAD
+    p = subprocess.run(["git", "diff", "--name-only", f"{base}..HEAD"], capture_output=True, text=True)
+    if p.returncode != 0:
+        # fallback: no diff
+        return []
+    files = [f.strip() for f in p.stdout.splitlines() if f.strip()]
+    # collect root-level added/changed files (no slash)
+    root_files = [f for f in files if '/' not in f]
+    if not root_files:
+        return []
+
+    allowed = get_allowed_root_files_from_workflow()
+    bad = [f for f in root_files if f not in allowed]
+    return bad
 
 
 def main(argv):
