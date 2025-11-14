@@ -21,7 +21,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "Comparing $BASE_SHA -> $HEAD_SHA"
-          mapfile -t added < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          # Only consider newly added files at the repo root (ignore deletions/renames)
+          mapfile -t added < <(git diff --name-only --diff-filter=A "$BASE_SHA" "$HEAD_SHA")
           echo "Files changed in PR: ${added[*]}"
 
           # Allowed root-level files/dirs (update if your repo needs more)
