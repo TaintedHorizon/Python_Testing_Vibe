@@ -78,15 +78,14 @@ def mock_llm(monkeypatch):
 # `import document_detector` resolves to `doc_processor.document_detector`.
 try:
     import sys
-    # Import the package implementation and insert into sys.modules under
-    # the legacy top-level name. Use setdefault so existing overrides are
-    # not clobbered in CI or developer environments.
-    import doc_processor.document_detector as _dd
+    # Use the lightweight shim to avoid importing heavy C deps at conftest
+    # import time. The shim will delegate to the real implementation lazily.
+    import doc_processor.document_detector_shim as _dd
     sys.modules.setdefault("document_detector", _dd)
 except Exception:
-    # Best-effort: if the package module cannot be imported here then
-    # tests will surface the import error as before. We avoid raising at
-    # conftest import time to keep diagnostic flow intact.
+    # Best-effort: if the shim cannot be imported here then tests will
+    # surface the import error as before. We avoid raising at conftest
+    # import time to keep diagnostic flow intact.
     pass
 
 @pytest.fixture(scope='session', autouse=True)
