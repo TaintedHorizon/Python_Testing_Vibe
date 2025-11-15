@@ -50,10 +50,7 @@ jobs:
       - name: Verify imports work
         run: |
           echo "Testing that core modules can be imported..."
-          python -c "import sys; sys.path.insert(0, '.'); import document_detector; print('✅ document_detector imports OK')" || {
-            echo "❌ Failed to import document_detector"
-            exit 1
-          }
+          python -c "import sys, importlib; sys.path.insert(0, '.'); importlib.import_module('doc_processor.document_detector_shim'); print('✅ doc_processor.document_detector_shim imports OK')"
       
       - name: Run unit tests (excluding E2E)
         working-directory: doc_processor
