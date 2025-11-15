@@ -1,0 +1,29 @@
+name: Preflight Validator
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [ main ]
+
+jobs:
+  preflight:
+    name: Run preflight validator
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies (if present)
+        run: |
+          if [ -f doc_processor/requirements.txt ]; then
+            pip install -r doc_processor/requirements.txt || true
+          fi
+
+      - name: Run preflight validator
+        run: python3 tools/pr_preflight_validate.py --repo ${{ github.repository }}

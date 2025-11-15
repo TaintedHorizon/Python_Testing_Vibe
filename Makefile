@@ -27,3 +27,8 @@ pr:
 	@# Usage: make pr BRANCH=chore/my-fix TITLE="My PR" [BODY=pr_body.md] [MSG="WIP"] [AUTO=1]
 	@if [ -z "$(BRANCH)" ] || [ -z "$(TITLE)" ]; then echo "Usage: make pr BRANCH=... TITLE=..."; exit 1; fi
 	./tools/create_pr_with_preflight.sh --branch "$(BRANCH)" --title "$(TITLE)" $(if $(BODY),--body-file $(BODY)) $(if $(MSG),--commit-msg "$(MSG)") $(if $(AUTO),--enable-auto-merge --yes)
+
+.PHONY: install-preflight-hook
+install-preflight-hook:
+	@echo "Installing local pre-push preflight hook (runs preflight validator)"
+	@./tools/install_pr_preflight_hook.sh
