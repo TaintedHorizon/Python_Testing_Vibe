@@ -33,3 +33,4 @@ Notes and caveats
 
 If you want me to change the default behavior (for example, always use `merge` instead of
 `squash`, or to disable auto-merge entirely), tell me and I'll update `tools/create_pr_with_preflight.sh` accordingly.
+\n<- Remove tracked files under  and  from git index ( they remain locally and are ignored via  ) agent-test: add timestamp -->\n
