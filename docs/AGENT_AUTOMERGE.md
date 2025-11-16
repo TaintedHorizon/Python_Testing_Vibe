@@ -33,4 +33,8 @@ Notes and caveats
 
 If you want me to change the default behavior (for example, always use `merge` instead of
 `squash`, or to disable auto-merge entirely), tell me and I'll update `tools/create_pr_with_preflight.sh` accordingly.
-\n<- Remove tracked files under  and  from git index ( they remain locally and are ignored via  ) agent-test: add timestamp -->\n
+
+Note: Remove tracked files under <directory> and <directory> from git index (they remain locally and are ignored via <ignore_rule>). The agent may append small test markers to documents during validation runs; these are harmless. The agent also records every PR creation in the audit log at `.github/logs/agent-pr-log.md` with a timestamp, branch, title, and commit SHA.
+
+If you want this behavior changed (for example, always use `merge` instead of `squash`, or to disable auto-merge entirely), tell me and I'll update `tools/create_pr_with_preflight.sh` accordingly.
+
