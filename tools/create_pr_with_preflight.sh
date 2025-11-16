@@ -30,8 +30,12 @@ TITLE=""
 BODY_FILE=""
 COMMIT_MSG=""
 # Default to enabling auto-merge for PRs created by the agent. Can be overridden with
-# the env var `ENABLE_AUTOMERGE_ENV=0` when running the script.
+# the env var `AGENT_AUTOMERGE=0` or `ENABLE_AUTOMERGE_ENV=0` when running the script.
+# `AGENT_AUTOMERGE` has priority when set.
 ENABLE_AUTOMERGE=${ENABLE_AUTOMERGE_ENV:-1}
+if [[ -n "${AGENT_AUTOMERGE-}" ]]; then
+  ENABLE_AUTOMERGE=${AGENT_AUTOMERGE}
+fi
 # Default merge method for auto-merge (one of: merge | squash | rebase). Agents prefer 'squash'.
 MERGE_METHOD=${MERGE_METHOD_ENV:-squash}
 # Default to non-interactive confirmation (agent-controlled). Set AUTO_YES=0 to require prompt.
