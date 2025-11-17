@@ -97,7 +97,12 @@ COMMIT_SHA=$(git rev-parse --short HEAD || echo "-")
 cat >> "$LOGFILE" <<EOF
 - $TS | branch: $BRANCH | title: $TITLE | commit: $COMMIT_SHA
 EOF
-git add "$LOGFILE"
+# Try to add the audit log file. If the parent dir is ignored, force-add the file.
+if git check-ignore -q "$LOGFILE" 2>/dev/null; then
+  git add -f "$LOGFILE" || true
+else
+  git add "$LOGFILE" || true
+fi
 if [[ -n "$(git status --porcelain)" ]]; then
   git commit -m "chore: add agent PR audit entry for $BRANCH" || true
 fi
@@ -113,7 +118,11 @@ elif [[ -n "$BODY_FILE" ]]; then
 fi
 
 echo "Creating PR..."
-# Note: use --body-file rather than --body to allow longer content
+# If no body-file provided and running in agent mode, provide a default non-interactive body
+if [[ -z "${BODY_FILE}" && ${ENABLE_AUTOMERGE:-0} -eq 1 ]]; then
+  PR_ARGS+=(--body "Automated PR created by agent; requests auto-merge.")
+fi
+# Note: use --body-file rather than --body to allow longer content when a file is provided
 gh pr create "${PR_ARGS[@]}"
 
 # Get PR number for the head branch we just pushed
