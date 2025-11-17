@@ -1,0 +1,56 @@
+name: Auto-update PR branches
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  merge-main-into-branch:
+    name: Sync main into PR branch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch main
+        run: git fetch origin main
+
+      - name: Attempt merge main -> branch
+        id: merge
+        continue-on-error: true
+        run: |
+          set -e
+          git merge --no-edit origin/main
+
+      - name: Push merged branch
+        if: steps.merge.outcome == 'success'
+        run: |
+          git push origin HEAD:${{ github.head_ref }}
+
+      - name: Comment on PR if merge failed
+        if: steps.merge.outcome == 'failure'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            const msg = `Auto-update failed: could not merge main into branch due to conflicts. Please rebase or resolve conflicts locally.`;
+            await github.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: msg,
+            });
