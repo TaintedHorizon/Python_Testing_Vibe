@@ -33,7 +33,8 @@ jobs:
           curl -s -H "Authorization: token ${GITHUB_TOKEN}" "https://api.github.com/repos/${owner}/${repo}/actions/runs?per_page=${per_page}" > runs.json
           jq -r '.workflow_runs[] | select(.status=="completed" and .conclusion!="success") | {id: .id, name: .name, run_number: .run_number, conclusion: .conclusion, html_url: .html_url}' runs.json > failed_runs.json || true
           failed_count=$(jq -r 'length' failed_runs.json || echo 0)
-          echo "FAILED_COUNT=${failed_count}" >> $GITHUB_ENV
+          # Use printf to ensure proper KEY=VALUE format is written to GITHUB_ENV
+          printf '%s=%s\n' FAILED_COUNT "$failed_count" >> "$GITHUB_ENV"
           echo "Saved failed runs to failed_runs.json"
 
       - name: Create or update Nightly CI failures issue
