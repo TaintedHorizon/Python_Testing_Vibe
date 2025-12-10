@@ -32,7 +32,7 @@ jobs:
           per_page=50
           echo "Fetching last ${per_page} workflow runs for ${REPO}"
           curl -s -H "Authorization: token ${GITHUB_TOKEN}" "https://api.github.com/repos/${owner}/${repo}/actions/runs?per_page=${per_page}" > runs.json
-          jq -r '.workflow_runs[] | select(.status=="completed" and .conclusion!="success") | {id: .id, name: .name, run_number: .run_number, conclusion: .conclusion, html_url: .html_url}' runs.json > failed_runs.json || true
+          jq -c '[.workflow_runs[] | select(.status=="completed" and .conclusion!="success") | {id: .id, name: .name, run_number: .run_number, conclusion: .conclusion, html_url: .html_url}]' runs.json > failed_runs.json || true
           failed_count=$(jq -r 'length' failed_runs.json || echo 0)
           # Save failed runs to a file for downstream steps to read.
           # Avoid writing to runner file-commands ($GITHUB_ENV/$GITHUB_OUTPUT)
