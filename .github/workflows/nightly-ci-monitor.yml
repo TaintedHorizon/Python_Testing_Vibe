@@ -36,10 +36,17 @@ jobs:
           failed_count=$(jq -r 'length' failed_runs.json || echo 0)
           # Use printf to ensure proper KEY=VALUE format is written to GITHUB_ENV (for other steps) and
           # set the step output so `if:` expressions can read it: KEY=VALUE lines required by Actions
-          printf '%s=%s\n' FAILED_COUNT "$failed_count" >> "$GITHUB_ENV"
-          printf '%s=%s\n' failed_count "$failed_count" >> "$GITHUB_OUTPUT"
+          # Write KEY=VALUE to temp files and atomically append them to the runner file-commands
+          tmp_env=$(mktemp)
+          tmp_out=$(mktemp)
+          printf '%s=%s\n' FAILED_COUNT "$failed_count" > "$tmp_env"
+          printf '%s=%s\n' failed_count "$failed_count" > "$tmp_out"
+          # Append only the intentional lines to the runner-provided files
+          cat "$tmp_env" >> "$GITHUB_ENV"
+          cat "$tmp_out" >> "$GITHUB_OUTPUT"
+          rm -f "$tmp_env" "$tmp_out"
           echo "Saved failed runs to failed_runs.json"
-          # Debug: show the env/output file paths and their contents to diagnose formatting issues
+          # Debug: show the runner file paths and their first 50 lines for diagnosis
           echo "GITHUB_ENV path: '$GITHUB_ENV'"
           if [ -f "$GITHUB_ENV" ]; then
             echo "---- contents of $GITHUB_ENV (first 50 lines) ----"
