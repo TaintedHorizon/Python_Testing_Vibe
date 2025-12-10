@@ -34,17 +34,9 @@ jobs:
           curl -s -H "Authorization: token ${GITHUB_TOKEN}" "https://api.github.com/repos/${owner}/${repo}/actions/runs?per_page=${per_page}" > runs.json
           jq -r '.workflow_runs[] | select(.status=="completed" and .conclusion!="success") | {id: .id, name: .name, run_number: .run_number, conclusion: .conclusion, html_url: .html_url}' runs.json > failed_runs.json || true
           failed_count=$(jq -r 'length' failed_runs.json || echo 0)
-          # Use printf to ensure proper KEY=VALUE format is written to GITHUB_ENV (for other steps) and
-          # set the step output so `if:` expressions can read it: KEY=VALUE lines required by Actions
-          # Write KEY=VALUE to temp files and atomically append them to the runner file-commands
-          tmp_env=$(mktemp)
-          tmp_out=$(mktemp)
-          printf '%s=%s\n' FAILED_COUNT "$failed_count" > "$tmp_env"
-          printf '%s=%s\n' failed_count "$failed_count" > "$tmp_out"
-          # Append only the intentional lines to the runner-provided files
-          cat "$tmp_env" >> "$GITHUB_ENV"
-          cat "$tmp_out" >> "$GITHUB_OUTPUT"
-          rm -f "$tmp_env" "$tmp_out"
+          # Save failed runs to a file for downstream steps to read.
+          # Avoid writing to runner file-commands ($GITHUB_ENV/$GITHUB_OUTPUT)
+          # because malformed or concurrent writes can corrupt those files.
           echo "Saved failed runs to failed_runs.json"
           # Debug: show the runner file paths and their first 50 lines for diagnosis
           echo "GITHUB_ENV path: '$GITHUB_ENV'"
@@ -63,7 +55,7 @@ jobs:
           fi
 
       - name: Create or update Nightly CI failures issue
-        if: steps.fetch.outputs.failed_count != '0'
+        # Run unconditionally; the script itself checks for an empty list and exits early.
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -92,6 +84,5 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body });
             }
 
-      - name: No failing runs
-        if: steps.fetch.outputs.failed_count == '0'
-        run: echo "No failing workflow runs found in the last set; nothing to report."
+      # The previous step that conditionally echoed "No failing runs" was removed.
+      # The issue-creation script handles the empty-case internally.
