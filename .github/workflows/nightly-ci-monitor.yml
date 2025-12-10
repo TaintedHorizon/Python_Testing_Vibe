@@ -39,6 +39,21 @@ jobs:
           printf '%s=%s\n' FAILED_COUNT "$failed_count" >> "$GITHUB_ENV"
           printf '%s=%s\n' failed_count "$failed_count" >> "$GITHUB_OUTPUT"
           echo "Saved failed runs to failed_runs.json"
+          # Debug: show the env/output file paths and their contents to diagnose formatting issues
+          echo "GITHUB_ENV path: '$GITHUB_ENV'"
+          if [ -f "$GITHUB_ENV" ]; then
+            echo "---- contents of $GITHUB_ENV (first 50 lines) ----"
+            sed -n '1,50p' "$GITHUB_ENV" || true
+          else
+            echo "$GITHUB_ENV does not exist"
+          fi
+          echo "GITHUB_OUTPUT path: '$GITHUB_OUTPUT'"
+          if [ -f "$GITHUB_OUTPUT" ]; then
+            echo "---- contents of $GITHUB_OUTPUT (first 50 lines) ----"
+            sed -n '1,50p' "$GITHUB_OUTPUT" || true
+          else
+            echo "$GITHUB_OUTPUT does not exist"
+          fi
 
       - name: Create or update Nightly CI failures issue
         if: steps.fetch.outputs.failed_count != '0'
