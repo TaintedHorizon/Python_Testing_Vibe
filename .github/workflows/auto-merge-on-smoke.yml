@@ -1,0 +1,42 @@
+name: Auto-merge on smoke success
+
+on:
+  workflow_run:
+    workflows: ["CI Smoke"]
+    types: [completed]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  auto-merge:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-merge PRs that requested fast-track
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const run = context.payload.workflow_run;
+            const sha = run.head_sha;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            core.info(`CI Smoke succeeded for sha ${sha}. Looking up associated PRs.`);
+            const res = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: sha });
+            for (const pr of res.data) {
+              const hasLabel = pr.labels.some(l => l.name === 'automerge' || l.name === 'fast-track');
+              if (!hasLabel) {
+                core.info(`Skipping PR #${pr.number} — no automerge label`);
+                continue;
+              }
+              core.info(`Attempting to merge PR #${pr.number}`);
+              try {
+                await github.rest.pulls.merge({ owner, repo, pull_number: pr.number, merge_method: 'merge' });
+                core.info(`Merged PR #${pr.number}`);
+              } catch (err) {
+                core.info(`Failed to merge PR #${pr.number}: ${err.message}`);
+              }
+            }

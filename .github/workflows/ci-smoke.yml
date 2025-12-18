@@ -1,0 +1,34 @@
+name: CI Smoke
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Quick syntax & smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install pip
+        run: python -m pip install --upgrade pip
+
+      - name: Syntax-check all Python files
+        run: |
+          set -euo pipefail
+          echo "Running quick syntax check"
+          # Only run a lightweight compile check so this job stays fast.
+          git ls-files '*.py' | xargs -r -n 50 python -m py_compile
+
+      - name: Smoke success marker
+        run: echo "CI smoke passed"
