@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   smoke:
-    name: Quick syntax & smoke
+    name: CI Smoke
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
