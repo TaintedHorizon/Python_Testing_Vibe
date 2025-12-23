@@ -26,22 +26,27 @@ fi
 echo "$(date -u) | Monitoring commit $SHA" >> "$LOG"
 
 while [[ $(date +%s) -le $END_TS ]]; do
-  echo "$(date -u) | Checking combined status for ${SHA}..." >> "$LOG"
-  STATE=$(gh api "/repos/${OWNER}/${REPO}/commits/${SHA}/status" -q .state 2>/dev/null || echo "unknown")
-  echo "$(date -u) | Combined state: ${STATE}" >> "$LOG"
+  echo "$(date -u) | Checking check-suites for ${SHA}..." >> "$LOG"
+  SUITES_JSON=$(gh api "/repos/${OWNER}/${REPO}/commits/${SHA}/check-suites" 2>/dev/null || echo '{}')
+  TOTAL=$(echo "$SUITES_JSON" | jq '.check_suites | length')
+  INCOMPLETE=$(echo "$SUITES_JSON" | jq '[.check_suites[] | select(.status != "completed")] | length')
+  FAILURES=$(echo "$SUITES_JSON" | jq '[.check_suites[] | select(.status == "completed" and .conclusion != "success")] | length')
+  echo "$(date -u) | check-suites total=${TOTAL} incomplete=${INCOMPLETE} failures=${FAILURES}" >> "$LOG"
 
-  if [[ "$STATE" == "success" ]]; then
-    echo "$(date -u) | All checks passed — posting comment and closing issue #${ISSUE}" >> "$LOG"
+  if [[ "$TOTAL" -eq 0 ]]; then
+    echo "$(date -u) | No check-suites found for ${SHA} (treating as pending)" >> "$LOG"
+  elif [[ "$INCOMPLETE" -gt 0 ]]; then
+    echo "$(date -u) | Some check-suites are still running (pending)" >> "$LOG"
+  elif [[ "$FAILURES" -gt 0 ]]; then
+    echo "$(date -u) | Detected failing check-suites for ${SHA}. Posting status comment and exiting." >> "$LOG"
+    gh issue comment $ISSUE --body "Auto-close watcher detected failing checks for commit ${SHA}. Not closing the issue. See workflow runs: https://github.com/${OWNER}/${REPO}/actions?query=sha:${SHA}" >> "$LOG" 2>&1 || true
+    exit 3
+  else
+    echo "$(date -u) | All check-suites completed successfully — posting comment and closing issue #${ISSUE}" >> "$LOG"
     gh issue comment $ISSUE --body "Auto-close watcher: all required checks for commit ${SHA} passed. Closing Issue #${ISSUE} as requested." >> "$LOG" 2>&1 || true
     gh api -X PATCH "/repos/${OWNER}/${REPO}/issues/${ISSUE}" -f state=closed >> "$LOG" 2>&1 || true
     echo "$(date -u) | Issue #${ISSUE} closed." >> "$LOG"
     exit 0
-  fi
-
-  if [[ "$STATE" == "failure" || "$STATE" == "error" ]]; then
-    echo "$(date -u) | Detected failing checks for ${SHA}. Posting status comment and exiting." >> "$LOG"
-    gh issue comment $ISSUE --body "Auto-close watcher detected failing checks for commit ${SHA}. Not closing the issue. See workflow runs: https://github.com/${OWNER}/${REPO}/actions?query=sha:${SHA}" >> "$LOG" 2>&1 || true
-    exit 3
   fi
 
   echo "$(date -u) | State is '${STATE}', sleeping ${INTERVAL}s..." >> "$LOG"
