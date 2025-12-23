@@ -26,12 +26,26 @@ jobs:
 
             core.info(`CI Smoke succeeded for sha ${sha}. Looking up associated PRs.`);
             const res = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: sha });
+            // Allowed authors to auto-merge without an explicit label
+            const allowedAuthors = [context.repo.owner, 'svc-scan'];
             for (const pr of res.data) {
-              const hasLabel = pr.labels.some(l => l.name === 'automerge' || l.name === 'fast-track');
-              if (!hasLabel) {
-                core.info(`Skipping PR #${pr.number} — no automerge label`);
+              core.info(`Found PR #${pr.number} by ${pr.user.login}`);
+
+              // Skip PRs that modify workflow files for safety
+              const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: pr.number });
+              const touchesWorkflow = files.some(f => f.filename.startsWith('.github/workflows/'));
+              if (touchesWorkflow) {
+                core.info(`Skipping PR #${pr.number} — modifies workflow files`);
                 continue;
               }
+
+              const hasLabel = pr.labels.some(l => l.name === 'automerge' || l.name === 'fast-track');
+              const authorAllowed = allowedAuthors.includes(pr.user.login);
+              if (!hasLabel && !authorAllowed) {
+                core.info(`Skipping PR #${pr.number} — no automerge label and author not in allowlist`);
+                continue;
+              }
+
               core.info(`Attempting to merge PR #${pr.number}`);
               try {
                 await github.rest.pulls.merge({ owner, repo, pull_number: pr.number, merge_method: 'merge' });
