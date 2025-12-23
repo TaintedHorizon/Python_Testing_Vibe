@@ -80,8 +80,9 @@ jobs:
               core.info('Creating new issue: ' + title);
               await github.rest.issues.create({ owner, repo, title, body });
             } else {
-              core.info('Posting a comment to existing issue #' + existing.number);
-              await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body });
+              core.info('Updating body of existing issue #' + existing.number + ' (no new comment)');
+              // Update the issue body instead of creating a new comment to avoid daily noise
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, body });
             }
 
       # The previous step that conditionally echoed "No failing runs" was removed.
