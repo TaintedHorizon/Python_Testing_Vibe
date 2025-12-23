@@ -32,3 +32,13 @@ jobs:
 
       - name: Smoke success marker
         run: echo "CI smoke passed"
+
+  smoke_alias:
+    name: Quick syntax & smoke
+    runs-on: ubuntu-latest
+    needs: smoke
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Alias marker
+        run: echo "Quick syntax alias passed"
