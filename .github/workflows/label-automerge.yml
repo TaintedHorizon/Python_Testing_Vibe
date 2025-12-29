@@ -12,7 +12,35 @@ jobs:
   labeler:
     runs-on: ubuntu-latest
     steps:
-      - name: Add `automerge` label when requested
+      - name: Add `automerge` label when requested (use PAT if provided)
+        if: secrets.LABELER_TOKEN != ''
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.LABELER_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) return core.info('No pull_request payload');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = pr.title || '';
+            const body = pr.body || '';
+            const trigger = title.includes('[automerge]') || body.includes('[automerge]') || pr.user.login === owner;
+            if (!trigger) return core.info('No automerge trigger found');
+            core.info(`Labeling PR #${pr.number} with 'automerge'`);
+            try {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels: ['automerge'] });
+            } catch (err) {
+              core.info('Label does not exist; creating label then adding');
+              try {
+                await github.rest.issues.createLabel({ owner, repo, name: 'automerge', color: 'ededed', description: 'Auto-merge when smoke CI passes' });
+              } catch (e) {
+                core.info('Label create may have failed or already exists: ' + e.message);
+              }
+              await github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels: ['automerge'] });
+            }
+
+      - name: Add `automerge` label when requested (fallback to GITHUB_TOKEN)
+        if: secrets.LABELER_TOKEN == ''
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
