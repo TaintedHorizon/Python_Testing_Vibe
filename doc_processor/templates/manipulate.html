@@ -97,12 +97,12 @@
         <div class="pdf-viewer">
             {% if current_doc.original_pdf_path %}
                 <iframe src="{{ url_for('manipulation.serve_single_pdf', doc_id=current_doc.id) }}#toolbar=0&navpanes=0&scrollbar=0"
-                        width="100%" height="100%"
-                        style="border: none;">
+                    width="100%" height="100%"
+                    style="border: none;"{{ testid('preview-frame') }}>
                     <div class="pdf-placeholder">
                         <h4>📄 Document {{ current_doc.id }}</h4>
                         <p>PDF viewer not supported.<br>
-                        <a href="{{ url_for('manipulation.serve_single_pdf', doc_id=current_doc.id) }}" target="_blank">Open in new tab</a></p>
+                        <a href="{{ url_for('manipulation.serve_single_pdf', doc_id=current_doc.id) }}" target="_blank"{{ testid('open-preview') }}>Open in new tab</a></p>
                     </div>
                 </iframe>
             {% else %}

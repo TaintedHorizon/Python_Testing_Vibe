@@ -205,7 +205,7 @@
 </style>
 
 <!-- Document Modal HTML -->
-<div id="pdfModal" class="pdf-modal">
+<div id="pdfModal" class="pdf-modal"{{ testid('pdf-modal') }}>
     <div class="pdf-modal-content">
         <div class="pdf-modal-header">
             <h3 class="pdf-modal-title" id="pdfModalTitle">Document Viewer</h3>
@@ -217,34 +217,34 @@
                 <div>Failed to load document</div>
                 <div style="font-size: 14px; margin-top: 10px;">Please check if the file exists and is accessible.</div>
             </div>
-            <div class="pdf-viewer-container" id="pdfViewerContainer">
+            <div class="pdf-viewer-container" id="pdfViewerContainer"{{ testid('pdf-viewer-container') }}>
                 <!-- PDF.js viewer or image will be loaded here -->
             </div>
         </div>
         <div class="pdf-controls" id="pdfControls">
             <!-- PDF-only controls -->
             <div class="pdf-only-controls" style="display: flex; align-items: center; gap: 15px;">
-                <button class="pdf-control-btn" id="pdfPrevPage" title="Previous Page">‹ Previous</button>
+                <button class="pdf-control-btn" id="pdfPrevPage" title="Previous Page"{{ testid('pdf-prev-page') }}>‹ Previous</button>
                 <div class="pdf-page-info">
                     <span>Page</span>
                     <input type="number" class="pdf-page-input" id="pdfPageInput" min="1" title="Go to page">
                     <span>of <span id="pdfTotalPages">-</span></span>
                 </div>
-                <button class="pdf-control-btn" id="pdfNextPage" title="Next Page">Next ›</button>
+                <button class="pdf-control-btn" id="pdfNextPage" title="Next Page"{{ testid('pdf-next-page') }}>Next ›</button>
             </div>
             
             <!-- Universal controls (work for both PDFs and images) -->
-            <button class="pdf-control-btn" id="pdfZoomOut" title="Zoom Out">-</button>
+                <button class="pdf-control-btn" id="pdfZoomOut" title="Zoom Out"{{ testid('pdf-zoom-out') }}>-</button>
             <span id="pdfZoomLevel">100%</span>
-            <button class="pdf-control-btn" id="pdfZoomIn" title="Zoom In">+</button>
+                <button class="pdf-control-btn" id="pdfZoomIn" title="Zoom In"{{ testid('pdf-zoom-in') }}>+</button>
             <button class="pdf-control-btn" id="pdfFitWidth" title="Fit Width">Fit Width</button>
             <button class="pdf-control-btn" id="pdfFitPage" title="Fit Page">Fit Page</button>
             
             <!-- Rotation controls -->
             <div class="rotation-controls">
-                <button class="pdf-control-btn" id="rotateLeft" title="Rotate Left 90°">↺ 90°</button>
-                <button class="pdf-control-btn" id="rotateRight" title="Rotate Right 90°">↻ 90°</button>
-                <button class="pdf-control-btn" id="resetRotation" title="Reset Rotation">📄 Reset</button>
+                <button class="pdf-control-btn" id="rotateLeft" title="Rotate Left 90°"{{ testid('modal-rotate-left') }}>↺ 90°</button>
+                <button class="pdf-control-btn" id="rotateRight" title="Rotate Right 90°"{{ testid('modal-rotate-right') }}>↻ 90°</button>
+                <button class="pdf-control-btn" id="resetRotation" title="Reset Rotation"{{ testid('modal-rotate-reset') }}>📄 Reset</button>
             </div>
             
             <!-- Image-only controls -->
