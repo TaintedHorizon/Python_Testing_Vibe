@@ -180,7 +180,13 @@ def test_gui_full_flow(e2e_page, app_process, e2e_artifacts_dir):
             if not invoked:
                 raise RuntimeError('startAnalysis not invoked')
         except Exception:
-            if page.query_selector('button[onclick="startAnalysis()"]'):
+            # Prefer data-testid first, then legacy onclick/text fallbacks
+            if page.query_selector('[data-testid="start-analysis"]'):
+                try:
+                    page.click('[data-testid="start-analysis"]', timeout=10000)
+                except Exception:
+                    pass
+            elif page.query_selector('button[onclick="startAnalysis()"]'):
                 page.click('button[onclick="startAnalysis()"]', timeout=10000)
             elif page.query_selector('text=Start Analysis'):
                 page.click('text=Start Analysis', timeout=10000)
@@ -250,7 +256,17 @@ def test_gui_full_flow(e2e_page, app_process, e2e_artifacts_dir):
             except Exception:
                 resp = None
         except Exception:
-            if page.query_selector('button[onclick="startSmartProcessing()"]'):
+            # Prefer data-testid first, then legacy onclick/text/id fallbacks
+            if page.query_selector('[data-testid="start-smart-processing"]'):
+                try:
+                    page.click('[data-testid="start-smart-processing"]', timeout=10000)
+                    try:
+                        resp = page.wait_for_response(lambda r: '/batch/process_smart' in r.url and r.request.method == 'POST', timeout=10000)
+                    except Exception:
+                        resp = None
+                except Exception:
+                    resp = None
+            elif page.query_selector('button[onclick="startSmartProcessing()"]'):
                 page.click('button[onclick="startSmartProcessing()"]', timeout=10000)
                 try:
                     resp = page.wait_for_response(lambda r: '/batch/process_smart' in r.url and r.request.method == 'POST', timeout=10000)
@@ -527,13 +543,23 @@ def test_gui_full_flow(e2e_page, app_process, e2e_artifacts_dir):
 
     # Fallback: if the JS submission didn't find anything, try the original click-based heuristic
     if not submitted_action:
-        if page.query_selector('text=Export'):
-            try:
-                page.click('text=Export')
-                time.sleep(1)
-            except Exception:
-                # Best-effort: ignore click failures here; test will assert on exported files below
-                pass
+        # Prefer guarded data-testid for export button, fall back to text selector
+        try:
+            if page.query_selector('[data-testid="export-button"]'):
+                try:
+                    page.click('[data-testid="export-button"]')
+                    time.sleep(1)
+                except Exception:
+                    pass
+            elif page.query_selector('text=Export'):
+                try:
+                    page.click('text=Export')
+                    time.sleep(1)
+                except Exception:
+                    pass
+        except Exception:
+            # Best-effort: ignore click failures here; test will assert on exported files below
+            pass
 
     # closure handled by e2e_page fixture
 
