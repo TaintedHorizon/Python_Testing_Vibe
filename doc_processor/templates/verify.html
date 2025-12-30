@@ -67,12 +67,12 @@
         <div class="pdf-viewer">
             {% if current_page.original_pdf_path %}
                 <iframe src="{{ url_for('export.serve_original_pdf', filename=current_page.original_filename) }}" 
-                        width="100%" height="100%" 
-                        style="border: none;">
+                    width="100%" height="100%" 
+                    style="border: none;"{{ testid('verify-preview-frame') }}>
                     <div class="pdf-placeholder">
                         <h4>📄 {{ current_page.original_filename }}</h4>
                         <p>PDF viewer not supported.<br>
-                        <a href="{{ url_for('export.serve_original_pdf', filename=current_page.original_filename) }}" target="_blank">Open in new tab</a></p>
+                        <a href="{{ url_for('export.serve_original_pdf', filename=current_page.original_filename) }}" target="_blank"{{ testid('verify-open-in-new') }}>Open in new tab</a></p>
                     </div>
                 </iframe>
             {% else %}
@@ -83,11 +83,11 @@
             {% endif %}
         </div>
         <div class="rotate-buttons">
-            <button type="button" onclick="rotateDocument({{ current_page.id }}, -90)">↺ Rotate Left</button>
-            <button type="button" onclick="rotateDocument({{ current_page.id }}, 90)">↻ Rotate Right</button>
-            <button type="button" onclick="resetRotation({{ current_page.id }})">🔄 Reset</button>
-            <button type="button" onclick="cycleFitModeFor({{ current_page.id }}, this)" title="Cycle fit mode (auto → width → height)">🖼️ Fit: Auto</button>
-            <button type="button" id="apply-rotation-{{ current_page.id }}" onclick="applyRotation({{ current_page.id }})" style="display:none;background:#28a745;">✅ Apply Rotation</button>
+            <button type="button" onclick="rotateDocument({{ current_page.id }}, -90)"{{ testid('verify-rotate-left') }}>↺ Rotate Left</button>
+            <button type="button" onclick="rotateDocument({{ current_page.id }}, 90)"{{ testid('verify-rotate-right') }}>↻ Rotate Right</button>
+            <button type="button" onclick="resetRotation({{ current_page.id }})"{{ testid('verify-rotate-reset') }}>🔄 Reset</button>
+            <button type="button" onclick="cycleFitModeFor({{ current_page.id }}, this)" title="Cycle fit mode (auto → width → height)"{{ testid('verify-fit-mode') }}>🖼️ Fit: Auto</button>
+            <button type="button" id="apply-rotation-{{ current_page.id }}" onclick="applyRotation({{ current_page.id }})" style="display:none;background:#28a745;"{{ testid('verify-apply-rotation') }}>✅ Apply Rotation</button>
         </div>
     </div>
 

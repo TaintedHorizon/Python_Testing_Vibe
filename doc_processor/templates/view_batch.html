@@ -39,12 +39,12 @@
 <div class="container">
     <div class="image-pane">
         <div class="image-wrapper">
-            <img id="pageImage" src="{{ url_for('export.serve_processed_file', filepath=current_page.relative_image_path) }}" alt="Scanned page">
+            <img id="pageImage" src="{{ url_for('export.serve_processed_file', filepath=current_page.relative_image_path) }}" alt="Scanned page"{{ testid('view-page-image') }}>
         </div>
         <input type="hidden" id="rotation-input" value="{{ current_page.rotation_angle or 0 }}">
         <div class="rotate-buttons">
-            <button onclick="rotateImage(-90)">Rotate Left ↺</button>
-            <button onclick="rotateImage(90)">Rotate Right ↻</button>
+            <button onclick="rotateImage(-90)"{{ testid('view-rotate-left') }}>Rotate Left ↺</button>
+            <button onclick="rotateImage(90)"{{ testid('view-rotate-right') }}>Rotate Right ↻</button>
         </div>
     </div>
 
