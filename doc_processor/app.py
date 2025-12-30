@@ -460,6 +460,22 @@ def register_template_helpers(app):
             'db_meta': db_meta
         }
 
+    # Helper to emit test IDs in templates when FAST_TEST_MODE is enabled.
+    # Usage in templates: <form{{ testid('export-form') }}> or <button{{ testid('export-btn') }}>...
+    @app.context_processor
+    def inject_test_helpers():
+        def testid(name: str) -> str:
+            try:
+                fast = os.getenv('FAST_TEST_MODE', '0').lower() in ('1', 'true', 't')
+                if fast:
+                    # Return attribute string (safe to embed directly in templates)
+                    return f' data-testid="{name}"'
+            except Exception:
+                pass
+            return ''
+
+        return {'testid': testid}
+
 # Create the Flask application instance at module level. Tests and older
 # call sites import `doc_processor.app.app`, so provide that convenience.
 # create_app itself will skip the startup cleanup when FAST_TEST_MODE is set

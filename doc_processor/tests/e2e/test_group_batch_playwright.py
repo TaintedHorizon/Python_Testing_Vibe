@@ -162,7 +162,11 @@ def test_grouped_batch_end_to_end(app_process, e2e_page):
             # non-fatal; still try to wait for the selector below
             pass
         # Mirror selectors used in other E2E flows to be more robust (iframe or manipulate links)
-        sel = page.wait_for_selector("a[href*='manipulate'], #groupingToolbar, #manipulationToolbar, .manipulation-panel, iframe[src*='serve_single_pdf']", timeout=45000)
+        # Prefer stable data-testid selectors when FAST_TEST_MODE is enabled, with legacy fallbacks
+        try:
+            sel = page.wait_for_selector("[data-testid='manipulation-toolbar'], a[href*='manipulate'], #groupingToolbar, #manipulationToolbar, .manipulation-panel, iframe[src*='serve_single_pdf']", timeout=45000)
+        except Exception:
+            sel = page.wait_for_selector("a[href*='manipulate'], #groupingToolbar, #manipulationToolbar, .manipulation-panel, iframe[src*='serve_single_pdf']", timeout=45000)
     except Exception:
         pass
     assert sel, 'Grouping / manipulation UI did not appear in time'

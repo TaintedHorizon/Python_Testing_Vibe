@@ -64,7 +64,7 @@
     @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 
-<h1>🛠️ Manipulate Documents - Batch #{{ batch_id }}</h1>
+<h1{{ testid('manipulation-toolbar') }}>🛠️ Manipulate Documents - Batch #{{ batch_id }}</h1>
 <p>Review and edit AI suggestions for category and filename. Use the rescan tools if needed to improve accuracy.</p>
 
 {% if total_docs and total_docs > 0 %}
@@ -114,17 +114,17 @@
         </div>
         
         <div class="rotate-buttons">
-            <button type="button" data-doc-id="{{ current_doc.id }}" class="btn-rotate-left">↺ Rotate Left</button>
-            <button type="button" data-doc-id="{{ current_doc.id }}" class="btn-rotate-right">↻ Rotate Right</button>
-            <button type="button" data-doc-id="{{ current_doc.id }}" class="btn-rotate-reset">🔄 Reset</button>
-            <button type="button" data-doc-id="{{ current_doc.id }}" class="btn-fit-mode" title="Cycle fit mode (auto → width → height)">🖼️ Fit: Auto</button>
+            <button type="button" data-doc-id="{{ current_doc.id }}" class="btn-rotate-left"{{ testid('rotate-left') }}>↺ Rotate Left</button>
+            <button type="button" data-doc-id="{{ current_doc.id }}" class="btn-rotate-right"{{ testid('rotate-right') }}>↻ Rotate Right</button>
+            <button type="button" data-doc-id="{{ current_doc.id }}" class="btn-rotate-reset"{{ testid('rotate-reset') }}>🔄 Reset</button>
+            <button type="button" data-doc-id="{{ current_doc.id }}" class="btn-fit-mode" title="Cycle fit mode (auto → width → height)"{{ testid('fit-mode') }}>🖼️ Fit: Auto</button>
             <span id="rotation-save-status" style="margin-left:8px;font-size:0.85em;color:#28a745;display:none;">Saved</span>
         </div>
     </div>
 
     <!-- Right Pane: Information and Controls -->
     <div class="info-pane">
-        <form method="post" action="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch_id, doc_num=current_doc_num) }}">
+        <form method="post" action="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch_id, doc_num=current_doc_num) }}"{{ testid('manipulate-form') }}>
             <input type="hidden" name="doc_id" value="{{ current_doc.id }}">
             <input type="hidden" id="action-input" name="action" value="finish_batch">
 
@@ -145,9 +145,9 @@
                     </h3>
                 </div>
                 <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                    <button type="button" class="btn-rescan btn-rescan-ocr-only" data-doc-id="{{ current_doc.id }}" title="Run OCR only (do not change AI suggestions)">🅾️ OCR Only</button>
-                    <button type="button" class="btn-rescan btn-rescan-llm-only" data-doc-id="{{ current_doc.id }}" title="Run AI only (reuse current OCR text)">🤖 AI Only</button>
-                    <button type="button" class="btn-rescan btn-rescan-full" data-doc-id="{{ current_doc.id }}" title="Run OCR then AI (full pipeline)">🔄 Full Rescan</button>
+                    <button type="button" class="btn-rescan btn-rescan-ocr-only" data-doc-id="{{ current_doc.id }}" title="Run OCR only (do not change AI suggestions)"{{ testid('rescan-ocr') }}>🅾️ OCR Only</button>
+                    <button type="button" class="btn-rescan btn-rescan-llm-only" data-doc-id="{{ current_doc.id }}" title="Run AI only (reuse current OCR text)"{{ testid('rescan-llm') }}>🤖 AI Only</button>
+                    <button type="button" class="btn-rescan btn-rescan-full" data-doc-id="{{ current_doc.id }}" title="Run OCR then AI (full pipeline)"{{ testid('rescan-full') }}>🔄 Full Rescan</button>
                 </div>
                 <div style="margin-top:10px;font-size:0.8em;color:#555;">
                     Tip: Use OCR Only after fixing rotation or DPI settings; use AI Only if text already looks good; use Full for a clean end-to-end refresh.

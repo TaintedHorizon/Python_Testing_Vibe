@@ -169,10 +169,15 @@ def test_single_document_batch_flow(page):
             frame = page.query_selector("iframe[src*='serve_single_pdf']")
         assert frame
 
+        # Prefer stable data-testid selectors when FAST_TEST_MODE is enabled;
+        # fall back to legacy ids/classes for compatibility.
         try:
-            page.click("button#rotateRight, .btn-rotate-right", timeout=2000)
+            page.click("[data-testid='rotate-right']", timeout=2000)
         except Exception:
-            pass
+            try:
+                page.click("button#rotateRight, .btn-rotate-right", timeout=2000)
+            except Exception:
+                pass
 
         page.reload()
         page.wait_for_selector("iframe[src*='serve_single_pdf']", timeout=10000)
@@ -287,7 +292,11 @@ def test_grouped_batch_flow(page):
         else:
             page.goto(f"{BASE}/manipulation/batch/{batch_id}")
 
-        page.wait_for_selector("#manipulationToolbar, .manipulation-panel, iframe[src*='serve_single_pdf']", timeout=10000)
+        # Wait for manipulation UI; prefer testid where available
+        try:
+            page.wait_for_selector("[data-testid='manipulation-toolbar'], #manipulationToolbar, .manipulation-panel, iframe[src*='serve_single_pdf']", timeout=10000)
+        except Exception:
+            page.wait_for_selector("#manipulationToolbar, .manipulation-panel, iframe[src*='serve_single_pdf']", timeout=10000)
 
     except Exception:
         dump_screenshot_and_html(page, os.path.join(ARTIFACTS_DIR, "group_failure"))

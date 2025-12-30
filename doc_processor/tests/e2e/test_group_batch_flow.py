@@ -80,7 +80,11 @@ def test_group_batch_flow(playwright, browser_name):
 
         # Wait for any manipulation UI to appear: either per-document manipulate links,
         # the manipulation toolbar/panel, or the PDF iframe used for previews.
-        page.wait_for_selector("a[href*='manipulate'], #manipulationToolbar, .manipulation-panel, iframe[src*='serve_single_pdf']", timeout=15000)
+        # Prefer stable data-testid selector when FAST_TEST_MODE is enabled
+        try:
+            page.wait_for_selector("[data-testid='manipulation-toolbar'], a[href*='manipulate'], #manipulationToolbar, .manipulation-panel, iframe[src*='serve_single_pdf']", timeout=15000)
+        except Exception:
+            page.wait_for_selector("a[href*='manipulate'], #manipulationToolbar, .manipulation-panel, iframe[src*='serve_single_pdf']", timeout=15000)
 
     except Exception:
         dump_artifacts(page, "group_batch_failure")
