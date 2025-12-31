@@ -22,15 +22,15 @@
 <h1>📄 Batch #{{ batch_id }} Details</h1>
 <p>This is a read-only view of the pages in this completed batch. If changes are needed, you must use the "Reset Batch" button on the Batch Control page.</p>
 
-<div class="pagination">
+<div class="pagination"{{ testid('view-pagination') }}>
     {% if current_page_num > 1 %}
-        <a href="{{ url_for('manipulation.view_batch', batch_id=batch_id, page=current_page_num - 1) }}">&laquo; Previous Page</a>
+        <a href="{{ url_for('manipulation.view_batch', batch_id=batch_id, page=current_page_num - 1) }}"{{ testid('view-prev') }}>&laquo; Previous Page</a>
     {% else %}
         <span>&laquo; Previous Page</span>
     {% endif %}
     <strong>Page {{ current_page_num }} of {{ total_pages }}</strong>
     {% if current_page_num < total_pages %}
-        <a href="{{ url_for('manipulation.view_batch', batch_id=batch_id, page=current_page_num + 1) }}">Next Page &raquo;</a>
+        <a href="{{ url_for('manipulation.view_batch', batch_id=batch_id, page=current_page_num + 1) }}"{{ testid('view-next') }}>Next Page &raquo;</a>
     {% else %}
         <a href="{{ url_for('batch.batch_control') }}" style="background-color: #17a2b8;">Finish Viewing</a>
     {% endif %}
@@ -39,12 +39,12 @@
 <div class="container">
     <div class="image-pane">
         <div class="image-wrapper">
-            <img id="pageImage" src="{{ url_for('export.serve_processed_file', filepath=current_page.relative_image_path) }}" alt="Scanned page">
+            <img id="pageImage" src="{{ url_for('export.serve_processed_file', filepath=current_page.relative_image_path) }}" alt="Scanned page"{{ testid('view-page-image') }}>
         </div>
         <input type="hidden" id="rotation-input" value="{{ current_page.rotation_angle or 0 }}">
         <div class="rotate-buttons">
-            <button onclick="rotateImage(-90)">Rotate Left ↺</button>
-            <button onclick="rotateImage(90)">Rotate Right ↻</button>
+            <button onclick="rotateImage(-90)"{{ testid('view-rotate-left') }}>Rotate Left ↺</button>
+            <button onclick="rotateImage(90)"{{ testid('view-rotate-right') }}>Rotate Right ↻</button>
         </div>
     </div>
 

@@ -45,16 +45,16 @@
 <p>This is the first step of the workflow. Review each page, check the AI's suggested category, and make corrections as needed.</p>
 
 <!-- Pagination controls to move between pages in the batch -->
-<div class="pagination">
+    <div class="pagination"{{ testid('verify-pagination') }}>
     {% if current_page_num > 1 %}
-        <a href="{{ url_for('manipulation.verify_batch', batch_id=batch_id, page=current_page_num - 1) }}">&laquo; Previous Page</a>
+        <a href="{{ url_for('manipulation.verify_batch', batch_id=batch_id, page=current_page_num - 1) }}"{{ testid('verify-prev') }}>&laquo; Previous Page</a>
     {% else %}
         <!-- Disable the "Previous" button on the first page -->
         <span>&laquo; Previous Page</span>
     {% endif %}
     <strong>Page {{ current_page_num }} of {{ total_pages }}</strong>
     {% if current_page_num < total_pages %}
-        <a href="{{ url_for('manipulation.verify_batch', batch_id=batch_id, page=current_page_num + 1) }}">Next Page &raquo;</a>
+        <a href="{{ url_for('manipulation.verify_batch', batch_id=batch_id, page=current_page_num + 1) }}"{{ testid('verify-next') }}>Next Page &raquo;</a>
     {% else %}
         <!-- On the last page, the "Next" button is disabled, as submitting any action will move to the next step. -->
         <span>Next Page &raquo;</span>
@@ -67,12 +67,12 @@
         <div class="pdf-viewer">
             {% if current_page.original_pdf_path %}
                 <iframe src="{{ url_for('export.serve_original_pdf', filename=current_page.original_filename) }}" 
-                        width="100%" height="100%" 
-                        style="border: none;">
+                    width="100%" height="100%" 
+                    style="border: none;"{{ testid('verify-preview-frame') }}>
                     <div class="pdf-placeholder">
                         <h4>📄 {{ current_page.original_filename }}</h4>
                         <p>PDF viewer not supported.<br>
-                        <a href="{{ url_for('export.serve_original_pdf', filename=current_page.original_filename) }}" target="_blank">Open in new tab</a></p>
+                        <a href="{{ url_for('export.serve_original_pdf', filename=current_page.original_filename) }}" target="_blank"{{ testid('verify-open-in-new') }}>Open in new tab</a></p>
                     </div>
                 </iframe>
             {% else %}
@@ -83,11 +83,11 @@
             {% endif %}
         </div>
         <div class="rotate-buttons">
-            <button type="button" onclick="rotateDocument({{ current_page.id }}, -90)">↺ Rotate Left</button>
-            <button type="button" onclick="rotateDocument({{ current_page.id }}, 90)">↻ Rotate Right</button>
-            <button type="button" onclick="resetRotation({{ current_page.id }})">🔄 Reset</button>
-            <button type="button" onclick="cycleFitModeFor({{ current_page.id }}, this)" title="Cycle fit mode (auto → width → height)">🖼️ Fit: Auto</button>
-            <button type="button" id="apply-rotation-{{ current_page.id }}" onclick="applyRotation({{ current_page.id }})" style="display:none;background:#28a745;">✅ Apply Rotation</button>
+            <button type="button" onclick="rotateDocument({{ current_page.id }}, -90)"{{ testid('verify-rotate-left') }}>↺ Rotate Left</button>
+            <button type="button" onclick="rotateDocument({{ current_page.id }}, 90)"{{ testid('verify-rotate-right') }}>↻ Rotate Right</button>
+            <button type="button" onclick="resetRotation({{ current_page.id }})"{{ testid('verify-rotate-reset') }}>🔄 Reset</button>
+            <button type="button" onclick="cycleFitModeFor({{ current_page.id }}, this)" title="Cycle fit mode (auto → width → height)"{{ testid('verify-fit-mode') }}>🖼️ Fit: Auto</button>
+            <button type="button" id="apply-rotation-{{ current_page.id }}" onclick="applyRotation({{ current_page.id }})" style="display:none;background:#28a745;"{{ testid('verify-apply-rotation') }}>✅ Apply Rotation</button>
         </div>
     </div>
 

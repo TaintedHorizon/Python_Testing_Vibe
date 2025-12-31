@@ -16,6 +16,10 @@ e2e-full:
 	DB_BACKUP_DIR=$$(pwd)/doc_processor/db_backups \
 	FAST_TEST_MODE=1 SKIP_OLLAMA=1 PLAYWRIGHT_E2E=1 ./scripts/run_local_e2e.sh
 
+e2e-flows:
+	@echo "Run canonical Python Playwright flows (single + grouped)"
+	./scripts/run_e2e_flows.sh
+
 e2e-setup:
 	@echo "Prepare Python and Node dependencies for E2E"
 	python3 -m venv doc_processor/venv || true

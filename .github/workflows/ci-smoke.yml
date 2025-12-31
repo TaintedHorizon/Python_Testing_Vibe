@@ -23,6 +23,24 @@ jobs:
       - name: Install pip
         run: python -m pip install --upgrade pip
 
+      - name: "Optional: Run lightweight E2E smoke (disabled by default)"
+        if: ${{ env.RUN_E2E_SMOKE == '1' }}
+        env:
+          PLAYWRIGHT_E2E: '1'
+          FAST_TEST_MODE: '1'
+        run: |
+          set -euo pipefail
+          echo "Running lightweight E2E smoke (FAST_TEST_MODE=1)"
+          # Prepare virtualenv and install minimal dependencies
+          python -m venv venv
+          . venv/bin/activate
+          pip install --upgrade pip
+          if [ -f doc_processor/requirements.txt ]; then
+            pip install -r doc_processor/requirements.txt || true
+          fi
+          # Run the smoke runner script (script is responsible for environment checks)
+          ./scripts/run_e2e_flows.sh
+
       - name: Syntax-check all Python files
         run: |
           set -euo pipefail

@@ -37,8 +37,8 @@
 <h1>📊 Batch Control</h1>
 <p>Monitor and manage your document processing batches. To start processing new documents, use <strong>Analyze Intake</strong> from the navigation menu.</p>
 
-<form id="start-new-batch" action="{{ url_for('batch.start_new_batch') }}" method="post" style="margin-top:20px;margin-bottom:10px;text-align:right;">
-    <button type="submit" class="action-btn btn-group" style="background:#198754;font-size:0.95rem;">➕ Start New Batch</button>
+    <form id="start-new-batch" action="{{ url_for('batch.start_new_batch') }}" method="post" style="margin-top:20px;margin-bottom:10px;text-align:right;"{{ testid('start-new-batch') }}>
+    <button type="submit" class="action-btn btn-group" style="background:#198754;font-size:0.95rem;"{{ testid('start-new-batch-button') }}>➕ Start New Batch</button>
 </form>
 
 <table class="history-table">
@@ -65,13 +65,13 @@
                         {# 'intake.intake_analysis' does not exist; use analyze_intake_page and pass batch_id as query param #}
                         <a href="{{ url_for('intake.analyze_intake_page', batch_id=batch.id) }}" class="action-btn btn-verify">🔎 Analyze Intake</a>
                     {% elif batch.status == 'pending_verification' %}
-                        <a href="{{ url_for('manipulation.verify_batch', batch_id=batch.id) }}" class="action-btn btn-verify">✅ Verify</a>
+                        <a href="{{ url_for('manipulation.verify_batch', batch_id=batch.id) }}" class="action-btn btn-verify"{{ testid('verify-'+batch.id|string) }}>✅ Verify</a>
                     {% elif batch.status == 'verification_complete' %}
-                        <a href="{{ url_for('manipulation.group_documents', batch_id=batch.id) }}" class="action-btn btn-group">📂 Group ({{ batch.ungrouped_count }} ungrouped)</a>
+                        <a href="{{ url_for('manipulation.group_documents', batch_id=batch.id) }}" class="action-btn btn-group"{{ testid('group-'+batch.id|string) }}>📂 Group ({{ batch.ungrouped_count }} ungrouped)</a>
                         {% if batch.flagged_count > 0 %}
-                            <a href="{{ url_for('manipulation.review_batch', batch_id=batch.id) }}" class="action-btn btn-review">🔍 Review ({{ batch.flagged_count }} flagged)</a>
+                            <a href="{{ url_for('manipulation.review_batch', batch_id=batch.id) }}" class="action-btn btn-review"{{ testid('review-'+batch.id|string) }}>🔍 Review ({{ batch.flagged_count }} flagged)</a>
                         {% endif %}
-                        <a href="{{ url_for('manipulation.revisit_batch', batch_id=batch.id) }}" class="action-btn btn-revisit">🔄 Revisit Pages</a>
+                        <a href="{{ url_for('manipulation.revisit_batch', batch_id=batch.id) }}" class="action-btn btn-revisit"{{ testid('revisit-'+batch.id|string) }}>🔄 Revisit Pages</a>
                     {% elif batch.status == 'grouping_complete' %}
                         <a href="{{ url_for('manipulation.order_documents', batch_id=batch.id) }}" class="action-btn btn-order">📋 Order Pages</a>
                         <form action="{{ url_for('batch.reset_grouping', batch_id=batch.id) }}" method="post" style="display:inline;">
