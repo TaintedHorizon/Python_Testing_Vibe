@@ -258,6 +258,36 @@ def e2e_page(playwright, request):
     browser = playwright.chromium.launch(headless=True)
     page = browser.new_page()
     setattr(request.node, "e2e_page", page)
+
+    # Attach runtime listeners to capture browser console and network events for failed runs
+    console_logs = []
+    try:
+        def _on_console(msg):
+            try:
+                console_logs.append(f"{msg.type}: {msg.text}")
+            except Exception:
+                console_logs.append(f"console_event_error")
+        page.on("console", _on_console)
+    except Exception:
+        pass
+
+    network_events = []
+    try:
+        def _on_request(req):
+            try:
+                network_events.append({"type": "request", "method": req.method, "url": req.url})
+            except Exception:
+                pass
+        def _on_response(resp):
+            try:
+                network_events.append({"type": "response", "status": resp.status, "url": resp.url})
+            except Exception:
+                pass
+        page.on("request", _on_request)
+        page.on("response", _on_response)
+    except Exception:
+        pass
+
     yield page
 
     failed = getattr(request.node, "failed", False)
@@ -272,6 +302,21 @@ def e2e_page(playwright, request):
         try:
             with open(os.path.join(artifacts_dir, base + ".html"), "w", encoding="utf-8") as fh:
                 fh.write(page.content())
+        except Exception:
+            pass
+        try:
+            # Save captured console messages
+            with open(os.path.join(artifacts_dir, base + ".console.log"), "w", encoding="utf-8") as fh:
+                for line in console_logs:
+                    fh.write(line + "\n")
+        except Exception:
+            pass
+        try:
+            # Save network events as JSON lines for easier inspection
+            import json
+            with open(os.path.join(artifacts_dir, base + ".network.jsonl"), "w", encoding="utf-8") as fh:
+                for ev in network_events:
+                    fh.write(json.dumps(ev) + "\n")
         except Exception:
             pass
         try:
