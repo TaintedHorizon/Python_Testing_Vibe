@@ -438,14 +438,14 @@
                     {% if analysis.filename.lower().endswith(('.jpg','.jpeg','.png')) %}
                     <span class="badge" style="background:#eef; color:#225; margin-right:8px; padding:4px 6px; border-radius:4px;">Working as PDF</span>
                     {% endif %}
-                    <button type="button" onclick="rotateDocument('{{ analysis.filename }}', 90)">
+                    <button type="button" onclick="rotateDocument('{{ analysis.filename }}', 90)"{{ testid('rotate-right') }}>
                         ↻ Rotate Right
                     </button>
-                    <button type="button" onclick="rotateDocument('{{ analysis.filename }}', -90)">
+                    <button type="button" onclick="rotateDocument('{{ analysis.filename }}', -90)"{{ testid('rotate-left') }}>
                         ↺ Rotate Left
                     </button>
-                    <button type="button" onclick="cycleFitModeFor('{{ analysis.filename }}', this)" title="Cycle fit mode (auto → width → height)">🖼️ Fit: Auto</button>
-                    <button type="button" onclick="resetRotation('{{ analysis.filename }}')">
+                    <button type="button" onclick="cycleFitModeFor('{{ analysis.filename }}', this)" title="Cycle fit mode (auto → width → height)"{{ testid('fit-mode') }}>🖼️ Fit: Auto</button>
+                    <button type="button" onclick="resetRotation('{{ analysis.filename }}')"{{ testid('rotate-reset') }}>
                         🔄 Reset
                     </button>
                 </div>
@@ -495,10 +495,12 @@
                         <h6>⚙️ Processing Strategy</h6>
                         <div class="override-controls">
                             <button class="btn-sm {{ 'active' if analysis.processing_strategy == 'single_document' else '' }}" 
+                                {{ testid('analysis-strategy-single-'+loop.index|string) }}
                                     onclick="setStrategy('{{ analysis.filename }}', 'single_document')">
                                 🚀 Single
                             </button>
                             <button class="btn-sm {{ 'active' if analysis.processing_strategy == 'batch_scan' else '' }}" 
+                                {{ testid('analysis-strategy-batch-'+loop.index|string) }}
                                     onclick="setStrategy('{{ analysis.filename }}', 'batch_scan')">
                                 📋 Batch
                             </button>
@@ -521,10 +523,10 @@
                 <div class="info-card">
                     <div class="info-card-header">
                         <h6>📊 Analysis Confidence</h6>
-                        <button type="button" class="btn-sm" onclick="rescanOCR('{{ analysis.filename }}', this)">
+                        <button type="button" class="btn-sm" onclick="rescanOCR('{{ analysis.filename }}', this)"{{ testid('analysis-rescan-ocr-'+loop.index|string) }}>
                             🔍 Rescan OCR
                         </button>
-                        <button type="button" class="btn-sm" onclick="rescanOCRHigh('{{ analysis.filename }}', this)">
+                        <button type="button" class="btn-sm" onclick="rescanOCRHigh('{{ analysis.filename }}', this)"{{ testid('analysis-rescan-ocr-high-'+loop.index|string) }}>
                             🔍🔬 High-Accuracy OCR
                         </button>
                     </div>
@@ -573,7 +575,7 @@
                 <div class="info-card ai-analysis-card">
                     <div class="info-card-header">
                         <h6>🤖 AI Analysis</h6>
-                        <button type="button" class="btn-sm" onclick="reanalyzeLLM('{{ analysis.filename }}', this)">🤖 Re-analyze</button>
+                        <button type="button" class="btn-sm" onclick="reanalyzeLLM('{{ analysis.filename }}', this)"{{ testid('analysis-reanalyze-'+loop.index|string) }}>🤖 Re-analyze</button>
                     </div>
                     <div class="info-card-body">
                         <div class="llm-analysis-box">
@@ -592,7 +594,7 @@
                 <div class="info-card ai-analysis-card">
                     <div class="info-card-header">
                         <h6>🤖 AI Analysis</h6>
-                        <button type="button" class="btn-sm" onclick="reanalyzeLLM('{{ analysis.filename }}', this)">🤖 Run AI Analysis</button>
+                        <button type="button" class="btn-sm" onclick="reanalyzeLLM('{{ analysis.filename }}', this)"{{ testid('analysis-run-ai-'+loop.index|string) }}>🤖 Run AI Analysis</button>
                     </div>
                     <div class="info-card-body">
                         <div class="text-muted">No AI analysis available for this document yet. Run AI analysis to classify and extract metadata.</div>
@@ -632,7 +634,7 @@
 <div id="error-state" class="alert alert-danger text-center" style="display: none;">
     <h4>❌ Analysis Failed</h4>
     <p id="error-message">An error occurred during analysis.</p>
-    <button onclick="startAnalysis()" class="btn btn-primary">
+    <button onclick="startAnalysis()" class="btn btn-primary"{{ testid('start-analysis') }}>
         🔄 Retry Analysis
     </button>
 </div>
@@ -648,7 +650,7 @@
             <button data-testid="start-smart-processing" onclick="startBatchProcessing('smart')" class="btn-success">
                 🚀 Start Smart Processing
             </button>
-            <button onclick="refreshAnalysis()" class="btn-secondary">
+            <button onclick="refreshAnalysis()" class="btn-secondary"{{ testid('refresh-analysis') }}>
                 🔄 Refresh Analysis
             </button>
         </div>
@@ -658,7 +660,7 @@
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
             <strong>Smart Processing Progress</strong>
             <div style="display:flex; gap:10px; align-items:center;">
-                <button id="smart-cancel-btn" type="button" style="display:none; border:1px solid #dc3545; background:#fff; color:#dc3545; padding:4px 8px; border-radius:4px; font-size:11px; cursor:pointer;" title="Cancel in-flight processing">✖ Cancel</button>
+                <button id="smart-cancel-btn" type="button" style="display:none; border:1px solid #dc3545; background:#fff; color:#dc3545; padding:4px 8px; border-radius:4px; font-size:11px; cursor:pointer;" title="Cancel in-flight processing"{{ testid('smart-cancel') }}>✖ Cancel</button>
                 <small id="smart-progress-status" class="text-muted">Initializing...</small>
             </div>
         </div>

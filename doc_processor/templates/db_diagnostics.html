@@ -2,6 +2,7 @@
 {% block title %}DB Diagnostics{% endblock %}
 {% block content %}
 <h1>Database Diagnostics</h1>
+<div{{ testid('page-db-diagnostics') }}>
 <p><strong>Path:</strong> {{ db_path }}</p>
 <p><strong>Exists:</strong> {{ 'Yes' if exists else 'No' }}</p>
 <p><strong>Size:</strong> {{ size_bytes }} bytes</p>
@@ -34,3 +35,4 @@
 
 <p style="margin-top:20px;font-size:0.9em;color:#555;">If this database was not expected to be newly created, verify your working directory and DATABASE_PATH environment variable. The safety guard requires ALLOW_NEW_DB=1 for new DB creation outside FAST_TEST_MODE.</p>
 {% endblock %}
+</div>

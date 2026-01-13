@@ -205,6 +205,27 @@ def get_db_connection():
     if not db_path:
         db_path = os.getenv("DATABASE_PATH")
 
+    # Defensive override for E2E/test runs: avoid accidentally using a
+    # developer-local DB under the user's home (e.g. /home/svc-scan/db/documents.db).
+    # If running Playwright E2E or FAST_TEST_MODE, prefer an explicitly-set
+    # DATABASE_PATH env or a temp DB to ensure test isolation.
+    try:
+        is_e2e = os.getenv('PLAYWRIGHT_E2E', '0').lower() in ('1', 'true', 't')
+        fast_mode = os.getenv('FAST_TEST_MODE', '0').lower() in ('1', 'true', 't')
+        if (is_e2e or fast_mode) and db_path:
+            home_db_prefix = os.path.join(os.path.expanduser('~'), 'db')
+            if os.path.abspath(db_path).startswith(home_db_prefix):
+                # Prefer explicit env override if present
+                env_db = os.getenv('DATABASE_PATH')
+                if env_db:
+                    db_path = env_db
+                else:
+                    import tempfile
+                    db_path = os.path.join(tempfile.gettempdir(), f'doc_processor_test_{os.getpid()}.db')
+                logging.getLogger(__name__).info(f"Overriding host-local DB path for test run, using: {db_path}")
+    except Exception:
+        pass
+
     if not db_path:
         raise RuntimeError("Database path is not configured. Set in .env or via config_manager.")
 
@@ -566,6 +587,9 @@ def get_db_connection():
         _ensure_column('document_tags', 'extraction_confidence', 'REAL')
         _ensure_column('document_tags', 'llm_source', 'TEXT')
         _ensure_column('document_tags', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+        # Ensure tag_category exists for older DBs that predate tag categorization
+        _ensure_column('document_tags', 'tag_category', "TEXT")
+        _ensure_column('tag_usage_stats', 'tag_category', "TEXT")
         # Ensure a uniqueness constraint exists to prevent duplicate tag entries
         try:
             # Create a unique index if it does not already exist

@@ -5,6 +5,7 @@ import requests
 import pytest
 
 from .playwright_helpers import dump_screenshot_and_html, wait_for_analysis_complete
+from .selector_utils import click_with_fallback, wait_for_any
 
 
 ARTIFACTS_DIR = os.path.join(os.path.dirname(__file__), "artifacts")
@@ -171,13 +172,8 @@ def test_single_document_batch_flow(page):
 
         # Prefer stable data-testid selectors when FAST_TEST_MODE is enabled;
         # fall back to legacy ids/classes for compatibility.
-        try:
-            page.click("[data-testid='rotate-right']", timeout=2000)
-        except Exception:
-            try:
-                page.click("button#rotateRight, .btn-rotate-right", timeout=2000)
-            except Exception:
-                pass
+        # Prefer stable data-testid selectors when available
+        click_with_fallback(page, 'rotate-right', fallback="button#rotateRight, .btn-rotate-right", timeout=2000)
 
         page.reload()
         page.wait_for_selector("iframe[src*='serve_single_pdf']", timeout=10000)
@@ -200,7 +196,7 @@ def test_grouped_batch_flow(page):
         assert batch_id
 
         try:
-            server_db = os.environ.get('E2E_SERVER_DB') or '/home/svc-scan/db/documents.db'
+            server_db = os.environ.get('E2E_SERVER_DB') or os.environ.get('DATABASE_PATH') or os.path.join(os.path.dirname(__file__), '..', 'documents.db')
             import sqlite3
             conn = sqlite3.connect(server_db, timeout=10)
             conn.row_factory = None
@@ -293,10 +289,8 @@ def test_grouped_batch_flow(page):
             page.goto(f"{BASE}/manipulation/batch/{batch_id}")
 
         # Wait for manipulation UI; prefer testid where available
-        try:
-            page.wait_for_selector("[data-testid='manipulation-toolbar'], #manipulationToolbar, .manipulation-panel, iframe[src*='serve_single_pdf']", timeout=10000)
-        except Exception:
-            page.wait_for_selector("#manipulationToolbar, .manipulation-panel, iframe[src*='serve_single_pdf']", timeout=10000)
+        # Wait for manipulation UI; prefer testid where available
+        wait_for_any(page, 'manipulation-toolbar', fallback="#manipulationToolbar, .manipulation-panel, iframe[src*='serve_single_pdf']", timeout=10000)
 
     except Exception:
         dump_screenshot_and_html(page, os.path.join(ARTIFACTS_DIR, "group_failure"))

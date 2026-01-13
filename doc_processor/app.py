@@ -122,13 +122,37 @@ def create_app():
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
     # Initialize database
-    # TODO: Create initialize_database function if needed
-    # try:
-    #     initialize_database()
-    #     logger.info("Database initialized successfully")
-    # except Exception as e:
-    #     logger.error(f"Failed to initialize database: {e}")
-    #     # Continue anyway - some routes might still work
+    # Ensure test/CI DB schema and seed data exist early so background
+    # threads and import-time tasks can rely on categories/tables.
+    try:
+        # Use environment flags first (avoid import-order issues with app_config)
+        env_allow = os.getenv('ALLOW_NEW_DB') in ('1', 'true', 'TRUE')
+        env_fast = os.getenv('FAST_TEST_MODE') in ('1', 'true', 'TRUE')
+        env_e2e = os.getenv('PLAYWRIGHT_E2E') in ('1', 'true', 'TRUE')
+        env_test = os.getenv('TEST_MODE') in ('1', 'true', 'TRUE')
+        should_seed = env_allow or env_fast or env_e2e or env_test or getattr(app_config, 'FAST_TEST_MODE', False) or getattr(app_config, 'TEST_MODE', False)
+        if should_seed:
+            try:
+                # If tests/E2E indicate we should seed, ensure the DATABASE_PATH
+                # env var is set to the configured app DB so `create_database`
+                # operates on the expected file. This avoids cases where tests
+                # set FAST_TEST_MODE but forget to export DATABASE_PATH.
+                if not os.getenv('DATABASE_PATH'):
+                    try:
+                        cfg_db = getattr(app_config, 'DATABASE_PATH', None)
+                        if cfg_db:
+                            os.environ['DATABASE_PATH'] = cfg_db
+                            logger.debug(f"Set DATABASE_PATH from app_config for startup seeding: {cfg_db}")
+                    except Exception:
+                        pass
+                from .dev_tools.database_setup import create_database
+                create_database()
+                logger.info("Database setup invoked at app startup")
+            except Exception as db_setup_err:
+                logger.warning(f"Could not run create_database at startup: {db_setup_err}")
+    except Exception:
+        # Defensive: don't fail app startup for any unexpected env/config errors
+        logger.debug("Skipping startup DB seed due to environment/config error")
 
     # Initialize services (singleton instances)
 

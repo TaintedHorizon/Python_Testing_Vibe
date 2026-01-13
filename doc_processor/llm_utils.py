@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from typing import Optional, Dict, List
 
 try:
@@ -221,9 +222,12 @@ Provide your analysis now:"""
         reasoning = None
         lines = response.strip().split('\n')
         logging.debug(f"Raw LLM response for {filename}: {response}")
+
+        # First-pass: line-oriented parsing
         for line in lines:
             line = line.strip()
-            if line.startswith('CLASSIFICATION:') or line.startswith('**CLASSIFICATION:**'):
+            # Accept multiple label variants from different LLM outputs
+            if line.startswith('CLASSIFICATION:') or line.startswith('**CLASSIFICATION:**') or line.startswith('TYPE:'):
                 classification_text = line.split(':', 1)[1].strip().replace('*', '').upper()
                 if 'SINGLE_DOCUMENT' in classification_text or 'SINGLE' in classification_text:
                     classification = 'single_document'
@@ -236,10 +240,57 @@ Provide your analysis now:"""
                     confidence = max(0, min(100, confidence))
                 except (ValueError, IndexError):
                     confidence = 50
-            elif line.startswith('REASONING:') or line.startswith('**REASONING:**'):
+            elif line.startswith('REASONING:') or line.startswith('**REASONING:**') or line.startswith('REASON:'):
                 reasoning = line.split(':', 1)[1].strip().replace('*', '')
-            elif reasoning is not None and line and not line.startswith(('CLASSIFICATION:', 'CONFIDENCE:', '**CLASSIFICATION:**', '**CONFIDENCE:**')):
+            elif reasoning is not None and line and not line.startswith(('CLASSIFICATION:', 'CONFIDENCE:', '**CLASSIFICATION:**', '**CONFIDENCE:**', 'TYPE:', 'REASON:')):
                 reasoning += " " + line
+
+        # Fallback parsing: handle compressed/test-mode stubs where tokens may be concatenated
+        if not classification:
+            try:
+                # More tolerant classification extraction: accept ':' '=' or whitespace separators
+                m = re.search(r"(?:CLASSIFICATION|TYPE)[\s:=]*([A-Za-z_\- ]+)", response, re.IGNORECASE)
+                if m:
+                    classification_text = m.group(1).strip().upper()
+                    if 'SINGLE' in classification_text:
+                        classification = 'single_document'
+                    elif 'BATCH' in classification_text:
+                        classification = 'batch_scan'
+
+                # If still not found, look for descriptive phrases anywhere in the response
+                if not classification:
+                    if re.search(r"\bsingle\s*[_\s-]*document\b", response, re.IGNORECASE) or re.search(r"\bSINGLE_DOCUMENT\b", response):
+                        classification = 'single_document'
+                    elif re.search(r"\bbatch\s*[_\s-]*scan\b", response, re.IGNORECASE) or re.search(r"\bBATCH_SCAN\b", response):
+                        classification = 'batch_scan'
+
+                # Confidence fallback: accept digits with optional percent and with ':' or '=' separators
+                mconf = re.search(r"CONFIDENCE[\s:=]*([0-9]{1,3})%?", response, re.IGNORECASE)
+                if mconf:
+                    try:
+                        confidence = max(0, min(100, int(mconf.group(1))))
+                    except Exception:
+                        confidence = confidence
+
+                # Reasoning fallback: capture text after REASON or REASONING up to next known token
+                mreason = re.search(r"(?:REASONING|REASON)[\s:=]*(.+?)(?:\s+CONFIDENCE[\s:=]*[0-9]{1,3}|$)", response, re.IGNORECASE | re.DOTALL)
+                if mreason:
+                    reasoning = mreason.group(1).strip()
+                    # Strip any trailing tokens that may have been concatenated
+                    reasoning = re.sub(r"\s*(CONFIDENCE|CLASSIFICATION|TYPE)[:=\s].*$", "", reasoning, flags=re.IGNORECASE).strip()
+            except Exception:
+                logging.debug("Fallback parsing failed", exc_info=True)
+
+        # Last-resort: look for single/batch keywords anywhere in the text (very permissive)
+        if not classification:
+            try:
+                if re.search(r"\bsingle\b", response, re.IGNORECASE) and not re.search(r"\bbatch\b", response, re.IGNORECASE):
+                    classification = 'single_document'
+                elif re.search(r"\bbatch\b", response, re.IGNORECASE) and not re.search(r"\bsingle\b", response, re.IGNORECASE):
+                    classification = 'batch_scan'
+            except Exception:
+                logging.debug("Loose keyword parsing failed", exc_info=True)
+
         if classification:
             if not reasoning:
                 reasoning = "No explanation provided by LLM. Please check prompt or model configuration."

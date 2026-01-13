@@ -40,9 +40,9 @@
             <img id="pageImage_{{ page.id }}" src="{{ url_for('export.serve_processed_file', filepath=page.relative_image_path) }}?v={{ page.rotation_angle or 0 }}" alt="Scanned page">
         </div>
         <div class="rotate-buttons">
-            <button type="button" onclick="rotateImage({{ page.id }}, -90)">Rotate Left ↺</button>
-            <button type="button" onclick="rotateImage({{ page.id }}, 90)">Rotate Right ↻</button>
-            <button type="button" class="confirm-rotation-btn" data-pageid="{{ page.id }}" style="margin-left:10px; background:#17a2b8; color:white; border:none; border-radius:5px; padding:8px 16px; cursor:pointer;">Confirm Rotation</button>
+            <button type="button" onclick="rotateImage({{ page.id }}, -90)"{{ testid('review-rotate-left-'+page.id|string) }}>Rotate Left ↺</button>
+            <button type="button" onclick="rotateImage({{ page.id }}, 90)"{{ testid('review-rotate-right-'+page.id|string) }}>Rotate Right ↻</button>
+            <button type="button" class="confirm-rotation-btn" data-pageid="{{ page.id }}" style="margin-left:10px; background:#17a2b8; color:white; border:none; border-radius:5px; padding:8px 16px; cursor:pointer;"{{ testid('review-confirm-rotation-'+page.id|string) }}>Confirm Rotation</button>
             <span id="rotation-confirm-msg-{{ page.id }}" style="margin-left:10px; color:#28a745; display:none; font-weight:bold;">Rotation saved!</span>
         </div>
     </div>
@@ -79,8 +79,8 @@
                     <input type="text" id="other-category-input_{{ page.id }}" name="other_category">
                 </div>
                 <div class="actions">
-                                        <button type="submit" data-action="save" class="btn-approve">✅ Approve Changes</button>
-                    <button type="submit" data-action="keep-flagged" class="btn-flag">🚩 Keep Flagged</button>
+                    <button type="submit" data-action="save" class="btn-approve"{{ testid('review-approve-'+page.id|string) }}>✅ Approve Changes</button>
+                    <button type="submit" data-action="keep-flagged" class="btn-flag"{{ testid('review-keep-flagged-'+page.id|string) }}>🚩 Keep Flagged</button>
                 </div>
             </form>
         </div>
@@ -96,7 +96,7 @@
                     <input type="hidden" name="page_id" value="{{ page.id }}">
                     <input type="hidden" name="batch_id" value="{{ batch_id }}">
                     <input type="hidden" id="rotation-rerun_{{ page.id }}" name="rotation" value="{{ page.rotation_angle or 0 }}">
-                    <button type="submit" class="btn-ocr">Re-Run OCR with Rotation</button>
+                    <button type="submit" class="btn-ocr"{{ testid('review-rerun-ocr-'+page.id|string) }}>Re-Run OCR with Rotation</button>
                 </form>
             </div>
             
@@ -104,7 +104,7 @@
             <!-- Form to permanently delete the page -->
             <form action="{{ url_for('manipulation.delete_page', page_id=page.id) }}" method="post" onsubmit="return confirm('Are you sure you want to permanently delete this page? This cannot be undone.');">
                  <input type="hidden" name="batch_id" value="{{ batch_id }}">
-                <button type="submit" class="actions btn-delete" style="width:100%;">Delete Page</button>
+                <button type="submit" class="actions btn-delete" style="width:100%"{{ testid('review-delete-'+page.id|string) }}>Delete Page</button>
             </form>
         </div>
     </div>

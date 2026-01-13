@@ -15,13 +15,13 @@
         <br>
         
         <!-- The form submits a POST request to the 'batch.process_new_batch' endpoint. -->
-        <form id="batch-form" action="{{ url_for('batch.process_new_batch') }}" method="post">
-            <button id="start-button" type="submit" style="padding: 15px 30px; font-size: 1.2em; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer;">📁 Start New Batch</button>
+        <form id="batch-form" action="{{ url_for('batch.process_new_batch') }}" method="post"{{ testid('start-batch-form') }}>
+            <button id="start-button" type="submit" style="padding: 15px 30px; font-size: 1.2em; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer;"{{ testid('start-batch-button') }}>📁 Start New Batch</button>
         </form>
 
         <!-- A message can be passed to this template to show status updates. -->
         {% if message %}
-            <p style="margin-top: 2em; font-weight: bold; color: green;">✅ {{ message }}</p>
+            <p style="margin-top: 2em; font-weight: bold; color: green;"{{ testid('start-batch-message') }}>✅ {{ message }}</p>
         {% endif %}
     </div>
 

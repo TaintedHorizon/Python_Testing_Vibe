@@ -86,7 +86,7 @@ def test_single_batch_flow(playwright, browser_name):
 
         # Click rotate right if control exists
         try:
-            rotate = page.query_selector("#rotateRight, .btn-rotate-right")
+            rotate = page.query_selector('[data-testid="rotate-right"], #rotateRight, .btn-rotate-right')
             if rotate:
                 rotate.click()
         except Exception:

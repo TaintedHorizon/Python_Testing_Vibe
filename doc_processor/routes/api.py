@@ -237,7 +237,7 @@ def rescan_document_api(doc_id: int):
                     _cats = None
                 if not _cats:
                     ai_error = 'classification_skipped_no_categories'
-                    logger.error(f"[rescan] No categories available in DB; skipping classification for doc {doc_id}")
+                    logger.warning(f"[rescan] No categories available in DB; skipping classification for doc {doc_id}")
                 else:
                     logger.info(f"[rescan] Starting LLM classification doc {doc_id} mode={mode}")
                 try:

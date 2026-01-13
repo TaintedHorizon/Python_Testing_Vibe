@@ -10,10 +10,10 @@
   <p><strong>Batch:</strong> {{ batch_id }}</p>
   <p><strong>Document # in view:</strong> {{ doc_num }}</p>
   <p>This view will be replaced by the unified manipulation UI once data wiring is complete.</p>
-  <p>
-    <a href="{{ url_for('batch.batch_control') }}">Back to Batches</a>
+    <p>
+    <a href="{{ url_for('batch.batch_control') }}"{{ testid('back-to-batches') }}>Back to Batches</a>
     {% if batch_id %}
-      | <a href="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch_id) }}">Batch Manipulation Overview</a>
+      | <a href="{{ url_for('manipulation.manipulate_batch_documents', batch_id=batch_id) }}"{{ testid('batch-manipulation-overview') }}>Batch Manipulation Overview</a>
     {% endif %}
   </p>
   {% if documents %}

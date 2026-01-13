@@ -563,7 +563,9 @@ def analyze_intake_api():
         # Cache the analysis results for future use
         import tempfile
         import pickle
-        cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
+        # Use the test-friendly select_tmp_dir() so the readiness probe looks
+        # in the same temporary directory where analysis results are cached.
+        cache_file = os.path.join(select_tmp_dir(), 'intake_analysis_cache.pkl')
         try:
             with open(cache_file, 'wb') as f:
                 pickle.dump(analyses_data, f)
