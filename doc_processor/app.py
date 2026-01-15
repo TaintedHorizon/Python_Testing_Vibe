@@ -173,6 +173,12 @@ def create_app():
 
     # Register core routes (home page and basic functionality)
     register_core_routes(app)
+    # Ensure template helpers are registered for this app instance
+    try:
+        register_template_helpers(app)
+    except Exception:
+        # Non-fatal: continue even if helper registration fails
+        logger.debug("Could not register template helpers on app instance")
     # Use centralized shutdown event from config_manager so all modules
     # (even those imported at module import time) can reference the same
     # Event instance. Register an atexit handler to set it and flush logs.
