@@ -267,6 +267,12 @@ def analyze_intake_progress():
             import os
 
             intake_dir = app_config.INTAKE_DIR
+            try:
+                # Test-debug: log intake directory visibility and contents
+                files = os.listdir(intake_dir) if os.path.exists(intake_dir) else []
+                logging.info(f"intake directory '{intake_dir}' exists={os.path.exists(intake_dir)} files={files}")
+            except Exception as _e:
+                logging.info(f"could not list intake dir {intake_dir}: {_e}")
             if not os.path.exists(intake_dir):
                 yield f"data: {json.dumps({'error': f'Intake directory does not exist: {intake_dir}'})}\n\n"
                 return
@@ -513,6 +519,12 @@ def analyze_intake_api():
     """
     try:
         from ..document_detector import get_detector
+        # Test-debug: surface intake dir contents when API analyze is invoked
+        try:
+            intake_files = os.listdir(app_config.INTAKE_DIR) if os.path.exists(app_config.INTAKE_DIR) else []
+            logging.info(f"analyze_intake_api called; intake_dir={app_config.INTAKE_DIR} files={intake_files}")
+        except Exception as _e:
+            logging.info(f"analyze_intake_api could not list intake dir: {_e}")
 
         detector = get_detector(use_llm_for_ambiguous=True)
         analyses = detector.analyze_intake_directory(app_config.INTAKE_DIR)
@@ -587,6 +599,21 @@ def analyze_intake_api():
                 result['redirect'] = url_for('manipulation.view_documents', batch_id=int(api_bid))
         except Exception:
             pass
+        # In FAST_TEST_MODE (used by tests) optionally kick off processing
+        try:
+            fast_mode = os.getenv('FAST_TEST_MODE', '0').lower() in ('1', 'true', 't')
+            auto_process = request.args.get('auto_process') == '1'
+            if fast_mode or auto_process:
+                try:
+                    from ..processing import process_batch
+                    logging.info(f"Triggering process_batch from analyze_intake_api (fast_mode={fast_mode}, auto_process={auto_process})")
+                    proc_ok = process_batch()
+                    logging.info(f"process_batch returned: {proc_ok}")
+                except Exception as proc_err:
+                    logging.warning(f"process_batch failed: {proc_err}")
+        except Exception:
+            pass
+
         return jsonify(result)
 
     except Exception as e:

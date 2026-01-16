@@ -1413,6 +1413,7 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                     batch_image_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
 
                     try:
+                        logging.info(f"Attempting INSERT single_documents for file={pdf_filename} batch={batch_id} path={pdf_path_for_processing}")
                         cursor.execute("""
                             INSERT INTO single_documents (
                                 batch_id, original_filename, original_pdf_path,
@@ -1593,6 +1594,7 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
 
                     # Step 1: Insert document first with basic info (no OCR yet)
                     try:
+                        logging.info(f"Attempting INSERT single_documents (fixed batch) for file={pdf_filename} batch={batch_id} path={pdf_path_for_processing}")
                         cursor.execute("""
                             INSERT INTO single_documents (
                                 batch_id, original_filename, original_pdf_path,
