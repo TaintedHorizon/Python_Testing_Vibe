@@ -4,7 +4,9 @@
 
 {% block content %}
 <h1>System Configuration</h1>
+<div{{ testid('page-configuration') }}>
 <p>This is a placeholder configuration page. Values below may be placeholders.</p>
 
 <pre>{{ config | tojson(indent=2) }}</pre>
+</div>
 {% endblock %}

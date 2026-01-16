@@ -30,16 +30,16 @@
 <!-- Pagination controls to navigate between pages -->
 <div class="pagination">
     {% if current_page_num > 1 %}
-        <a href="{{ url_for('manipulation.revisit_batch', batch_id=batch_id, page=current_page_num - 1) }}">&laquo; Previous Page</a>
+        <a href="{{ url_for('manipulation.revisit_batch', batch_id=batch_id, page=current_page_num - 1) }}"{{ testid('revisit-prev') }}>&laquo; Previous Page</a>
     {% else %}
-        <span>&laquo; Previous Page</span>
+        <span{{ testid('revisit-prev-disabled') }}>&laquo; Previous Page</span>
     {% endif %}
     <strong>Page {{ current_page_num }} of {{ total_pages }}</strong>
     {% if current_page_num < total_pages %}
-        <a href="{{ url_for('manipulation.revisit_batch', batch_id=batch_id, page=current_page_num + 1) }}">Next Page &raquo;</a>
+        <a href="{{ url_for('manipulation.revisit_batch', batch_id=batch_id, page=current_page_num + 1) }}"{{ testid('revisit-next') }}>Next Page &raquo;</a>
     {% else %}
         <!-- On the last page, the "Next" button becomes a "Finish" button -->
-        <a href="{{ url_for('batch.batch_control') }}" style="background-color: #17a2b8;">Finish Revisiting</a>
+        <a href="{{ url_for('batch.batch_control') }}" style="background-color: #17a2b8;"{{ testid('revisit-finish') }}>Finish Revisiting</a>
     {% endif %}
 </div>
 
@@ -65,11 +65,11 @@
             {% endif %}
         </div>
         <div class="rotate-buttons">
-            <button type="button" onclick="rotateDocument({{ current_page.id }}, -90)">↺ Rotate Left</button>
-            <button type="button" onclick="rotateDocument({{ current_page.id }}, 90)">↻ Rotate Right</button>
-            <button type="button" onclick="resetRotation({{ current_page.id }})">🔄 Reset</button>
-            <button type="button" onclick="cycleFitModeFor({{ current_page.id }}, this)">🖼️ Fit: Auto</button>
-            <button type="button" id="apply-rotation-{{ current_page.id }}" onclick="applyRotation({{ current_page.id }})" style="display:none;background:#28a745;">✅ Apply Rotation</button>
+            <button type="button" onclick="rotateDocument({{ current_page.id }}, -90)"{{ testid('rotate-left') }}>↺ Rotate Left</button>
+            <button type="button" onclick="rotateDocument({{ current_page.id }}, 90)"{{ testid('rotate-right') }}>↻ Rotate Right</button>
+            <button type="button" onclick="resetRotation({{ current_page.id }})"{{ testid('rotate-reset') }}>🔄 Reset</button>
+            <button type="button" onclick="cycleFitModeFor({{ current_page.id }}, this)"{{ testid('fit-mode') }}>🖼️ Fit: Auto</button>
+            <button type="button" id="apply-rotation-{{ current_page.id }}" onclick="applyRotation({{ current_page.id }})" style="display:none;background:#28a745;"{{ testid('apply-rotation-'+current_page.id|string) }}>✅ Apply Rotation</button>
         </div>
     </div>
 
@@ -100,8 +100,8 @@
                     <input type="text" id="other-category-input" name="other_category">
                 </div>
                 <div class="actions">
-                    <button type="submit" name="action" value="correct" class="btn-correct">Save Change</button>
-                    <button type="submit" name="action" value="flag" class="btn-flag">Flag for Review</button>
+                    <button type="submit" name="action" value="correct" class="btn-correct"{{ testid('revisit-save-change') }}>Save Change</button>
+                    <button type="submit" name="action" value="flag" class="btn-flag"{{ testid('revisit-flag-review') }}>Flag for Review</button>
                 </div>
             </div>
         </form>

@@ -84,16 +84,16 @@ and a content block that child templates will override.
 <!-- The main navigation bar. It is consistent across all pages. -->
 <div class="navbar">
     <!-- Primary workflow entry point - analyze intake first -->
-    <a href="{{ url_for('intake.analyze_intake_page') }}" class="{% if request.endpoint == 'intake.analyze_intake_page' %}active{% endif %}">📋 Analyze Intake</a>
-    <a href="{{ url_for('batch.batch_control') }}" class="{% if request.endpoint == 'batch.batch_control' %}active{% endif %}">📊 Batch Control</a>
-    <a href="{{ url_for('admin.categories') }}" class="{% if request.endpoint == 'admin.categories' %}active{% endif %}">📂 Categories</a>
+    <a href="{{ url_for('intake.analyze_intake_page') }}" class="{% if request.endpoint == 'intake.analyze_intake_page' %}active{% endif %}"{{ testid('nav-analyze-intake') }}>📋 Analyze Intake</a>
+    <a href="{{ url_for('batch.batch_control') }}" class="{% if request.endpoint == 'batch.batch_control' %}active{% endif %}"{{ testid('nav-batch-control') }}>📊 Batch Control</a>
+    <a href="{{ url_for('admin.categories') }}" class="{% if request.endpoint == 'admin.categories' %}active{% endif %}"{{ testid('nav-categories') }}>📂 Categories</a>
 </div>
 
 <!-- The main content area. -->
 <div class="content">
     {% if db_meta %}
-    <div class="db-banner {% if db_meta.minimal_schema %}minimal{% endif %}">
-        DB: {{ db_meta.path|e }} ({{ db_meta.size }} bytes){% if db_meta.minimal_schema %} • MINIMAL SCHEMA DETECTED{% endif %} | <a href="{{ url_for('admin.db_diagnostics') }}">Diagnostics</a>
+        <div class="db-banner {% if db_meta.minimal_schema %}minimal{% endif %}">
+        DB: {{ db_meta.path|e }} ({{ db_meta.size }} bytes){% if db_meta.minimal_schema %} • MINIMAL SCHEMA DETECTED{% endif %} | <a href="{{ url_for('admin.db_diagnostics') }}"{{ testid('db-diagnostics') }}>Diagnostics</a>
     </div>
     {% endif %}
     <!-- Flash messages -->

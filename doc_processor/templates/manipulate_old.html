@@ -122,9 +122,11 @@
                     data-filename="{{ doc.original_filename }}" 
                     data-category="{{ doc.ai_suggested_category }}"
                     data-suggested="{{ doc.ai_suggested_filename }}"
-                    title="Preview original PDF">
+                    title="Preview original PDF"{{ testid('manipulate-old-view-pdf-'+doc.id|string) }}>
                 📄 View PDF
             </button>
+            
+            
         </div>
         
         <div class="ai-info">
@@ -168,7 +170,7 @@
                         📝 Full Text
                     </button>
                     <button type="button" class="btn-rescan-ocr" data-doc-id="{{ doc.id }}" 
-                            title="Re-extract text from PDF using OCR (rebuilds searchable PDF)">
+                            title="Re-extract text from PDF using OCR (rebuilds searchable PDF)"{{ testid('manipulate-old-rescan-ocr-'+doc.id|string) }}>
                         🔍 Rescan OCR
                     </button>
                 </div>
@@ -192,11 +194,11 @@
               <span class="rotation-status" id="rotation-status-{{ doc.id }}">Ready</span>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
-              <button type="button" class="btn btn-secondary btn-sm" onclick="rotateDocument({{ doc.id }}, -90)">↺ Left</button>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="rotateDocument({{ doc.id }}, 90)">↻ Right</button>
-              <button type="button" class="btn btn-info btn-sm" onclick="resetRotation({{ doc.id }})">🔄 Reset</button>
-              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cycleFitModeFor({{ doc.id }}, this)">🖼️ Fit: Auto</button>
-              <button type="button" class="btn btn-success btn-sm" id="apply-rotation-{{ doc.id }}" onclick="applyRotation({{ doc.id }})" style="display:none;">✅ Apply Rotation</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="rotateDocument({{ doc.id }}, -90)"{{ testid('rotate-left') }}>↺ Left</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="rotateDocument({{ doc.id }}, 90)"{{ testid('rotate-right') }}>↻ Right</button>
+              <button type="button" class="btn btn-info btn-sm" onclick="resetRotation({{ doc.id }})"{{ testid('rotate-reset') }}>🔄 Reset</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cycleFitModeFor({{ doc.id }}, this)"{{ testid('fit-mode') }}>🖼️ Fit: Auto</button>
+              <button type="button" class="btn btn-success btn-sm" id="apply-rotation-{{ doc.id }}" onclick="applyRotation({{ doc.id }})" style="display:none;"{{ testid('apply-rotation-'+doc.id|string) }}>✅ Apply Rotation</button>
             </div>
           </div>
           <small style="display:block;margin-top:5px;color:#856404;">Use rotation to correct orientation before saving. Applies physically for better downstream OCR/LLM.</small>
@@ -248,7 +250,7 @@
     {% endfor %}
     
     <div class="save-section">
-        <button type="submit" class="btn btn-primary btn-lg">Save Changes</button>
+        <button type="submit" class="btn btn-primary btn-lg"{{ testid('manipulate-old-save-changes') }}>Save Changes</button>
         <p style="margin-top: 10px; color: #666;">
             After saving, you'll return to Batch Control where the Export button will be available.
         </p>

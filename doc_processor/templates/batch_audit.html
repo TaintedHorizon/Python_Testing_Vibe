@@ -32,6 +32,7 @@
 {% if not interaction_logs %}
     <div style="color:#888;margin-top:20px;">No interaction logs found for this batch.</div>
 {% endif %}
+<div{{ testid('page-batch-audit') }}>
 <div style="text-align:center; margin-top:40px;">
     <a href="{{ url_for('batch.batch_control') }}" class="btn btn-secondary" style="background-color:#6c757d;color:white;padding:12px 32px;font-size:1.2em;border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.08);text-decoration:none;">Back to Batch Control</a>
 </div>

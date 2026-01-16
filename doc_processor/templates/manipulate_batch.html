@@ -10,7 +10,7 @@
   <p><strong>Batch:</strong> {{ batch_id }}</p>
   <p>Documents available: {{ documents|length if documents else 0 }}</p>
   <p>
-    <a href="{{ url_for('batch.batch_control') }}">Back to Batches</a>
+    <a href="{{ url_for('batch.batch_control') }}"{{ testid('back-to-batches') }}>Back to Batches</a>
   </p>
   {% if documents %}
   <details>

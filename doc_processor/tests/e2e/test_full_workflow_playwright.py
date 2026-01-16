@@ -204,7 +204,7 @@ def test_full_workflow(app_process, e2e_page):
         assert sel, 'Analysis did not produce DOM results in time'
 
     # 3) Start Smart Processing
-    smart_started = _click_if_present(page, ['button:has-text("Start Smart Processing")', 'text=Start Smart Processing', '#start-smart-btn'])
+    smart_started = _click_if_present(page, ['[data-testid="start-smart-processing"]', 'button:has-text("Start Smart Processing")', 'text=Start Smart Processing', '#start-smart-btn'])
     if not smart_started:
         # attempt to call a JS starter function if present
         try:

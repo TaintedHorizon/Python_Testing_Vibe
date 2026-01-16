@@ -15,6 +15,17 @@ def safe_move(src, dst):
         # Ensure destination directory exists
         os.makedirs(os.path.dirname(dst), exist_ok=True)
 
+        # If source and destination are the same file, skip copy/removal
+        try:
+            if os.path.exists(src) and os.path.exists(dst) and os.path.samefile(src, dst):
+                logging.info(f"Safe move skipped (same file): {src}")
+                return
+        except Exception:
+            # Fall back to path equality if samefile is not available
+            if os.path.abspath(src) == os.path.abspath(dst):
+                logging.info(f"Safe move skipped (same path): {src}")
+                return
+
         # Copy the file first
         shutil.copy2(src, dst)
 
@@ -805,30 +816,42 @@ def _process_single_page_from_file(
                 logging.error(f"    - Could not open or process image {image_path}: {e}")
                 return False
 
-        # Use a parameterized query to prevent SQL injection
-        cursor.execute(
-            "INSERT INTO pages (batch_id, source_filename, page_number, processed_image_path, ocr_text, status, rotation_angle) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                batch_id,
-                source_filename,
-                page_num,
-                image_path,
-                ocr_text,
-                app_config.STATUS_PENDING_VERIFICATION,
-                rotation,
-            ),
-        )
-        # Log human review/group action (page added to batch)
-        safe_log_interaction(
-            batch_id=batch_id,
-            document_id=None,
-            user_id=get_current_user_id(),
-            event_type="human_correction",
-            step="review_group",
-            content=f"Added page {page_num} from {source_filename} to batch {batch_id}.",
-            notes=f"Image path: {image_path}"
-        )
-        return True
+            # Persist page row in the database
+            try:
+                cursor.execute(
+                    "INSERT INTO pages (batch_id, source_filename, page_number, processed_image_path, ocr_text, status, rotation_angle) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        batch_id,
+                        source_filename,
+                        page_num,
+                        image_path,
+                        ocr_text,
+                        app_config.STATUS_PENDING_VERIFICATION,
+                        rotation,
+                    ),
+                )
+            except Exception as db_e:
+                logging.error(f"    - Failed to insert page record into DB: {db_e}")
+                # Attempt to remove orphaned image if present
+                try:
+                    if os.path.exists(image_path):
+                        os.remove(image_path)
+                except Exception:
+                    pass
+                return False
+
+            # Log human review/group action (page added to batch)
+            safe_log_interaction(
+                batch_id=batch_id,
+                document_id=None,
+                user_id=get_current_user_id(),
+                event_type="human_correction",
+                step="review_group",
+                content=f"Added page {page_num} from {source_filename} to batch {batch_id}.",
+                notes=f"Image path: {image_path}"
+            )
+
+            return True
     except Exception as e:
         logging.error(
             f"    - Failed to process Page {page_num} from file {os.path.basename(image_path)}: {e}"
@@ -1390,6 +1413,7 @@ def _process_single_documents_as_batch(single_docs: List[DocumentAnalysis]) -> O
                     batch_image_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
 
                     try:
+                        logging.info(f"Attempting INSERT single_documents for file={pdf_filename} batch={batch_id} path={pdf_path_for_processing}")
                         cursor.execute("""
                             INSERT INTO single_documents (
                                 batch_id, original_filename, original_pdf_path,
@@ -1570,6 +1594,7 @@ def _process_single_documents_as_batch_with_progress(single_docs: List[DocumentA
 
                     # Step 1: Insert document first with basic info (no OCR yet)
                     try:
+                        logging.info(f"Attempting INSERT single_documents (fixed batch) for file={pdf_filename} batch={batch_id} path={pdf_path_for_processing}")
                         cursor.execute("""
                             INSERT INTO single_documents (
                                 batch_id, original_filename, original_pdf_path,
@@ -2701,24 +2726,22 @@ def cleanup_batch_files(batch_id: int) -> bool:
     Deletes the temporary directory containing the processed images for a batch.
     This is called after a batch has been successfully exported and finalized.
     """
-    logging.info(f"--- CLEANING UP Batch ID: {batch_id} ---")
+    _safe_log(f"--- CLEANING UP Batch ID: {batch_id} ---", "info")
     if not app_config.PROCESSED_DIR:
-        logging.error("PROCESSED_DIR environment variable is not set.")
+        _safe_log("PROCESSED_DIR environment variable is not set.", "error")
         return False
 
     batch_image_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
     if os.path.isdir(batch_image_dir):
         try:
             shutil.rmtree(batch_image_dir)
-            logging.info(
-                f"  - Successfully deleted temporary directory: {batch_image_dir}"
-            )
+            _safe_log(f"  - Successfully deleted temporary directory: {batch_image_dir}", "info")
             return True
         except OSError as e:
-            logging.error(f"  - Failed to delete directory {batch_image_dir}: {e}")
+            _safe_log(f"  - Failed to delete directory {batch_image_dir}: {e}", "error")
             return False
     else:
-        logging.info(f"  - Directory not found, skipping cleanup: {batch_image_dir}")
+        _safe_log(f"  - Directory not found, skipping cleanup: {batch_image_dir}", "info")
         return True
 
     # (Removed deprecated duplicate export loop block)
@@ -2923,18 +2946,43 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
                 try:
                     orig_ext = os.path.splitext(original_pdf)[1].lower()
                     if orig_ext == '.pdf':
-                        shutil.copy2(original_pdf, dest_original)
-                        logging.info(f"📄 Copied original PDF: {original_pdf} → {dest_original}")
+                        try:
+                            same = False
+                            if os.path.exists(original_pdf) and os.path.exists(dest_original):
+                                try:
+                                    same = os.path.samefile(original_pdf, dest_original)
+                                except Exception:
+                                    same = False
+                            if same or os.path.abspath(original_pdf) == os.path.abspath(dest_original):
+                                logging.info(f"📄 Original PDF already at destination, skipping copy: {original_pdf}")
+                            else:
+                                shutil.copy2(original_pdf, dest_original)
+                                logging.info(f"📄 Copied original PDF: {original_pdf} → {dest_original}")
+                        except shutil.SameFileError:
+                            logging.info(f"📄 Original PDF already at destination (SameFileError), skipping: {original_pdf}")
+                        except Exception as e:
+                            logging.debug(f"[export] Failed copying original for doc {doc_id}: {e}")
                     else:
                         # Preserve the original image/source file using a _source suffix plus original extension
                         dest_source = os.path.join(category_dir, f"{filename_base}_source{orig_ext}")
                         try:
-                            shutil.copy2(original_pdf, dest_source)
-                            logging.info(f"🖼️ Copied original source file: {original_pdf} → {dest_source}")
+                            same = False
+                            if os.path.exists(original_pdf) and os.path.exists(dest_source):
+                                try:
+                                    same = os.path.samefile(original_pdf, dest_source)
+                                except Exception:
+                                    same = False
+                            if same or os.path.abspath(original_pdf) == os.path.abspath(dest_source):
+                                logging.info(f"🖼️ Original source already at destination, skipping copy: {original_pdf}")
+                            else:
+                                shutil.copy2(original_pdf, dest_source)
+                                logging.info(f"🖼️ Copied original source file: {original_pdf} → {dest_source}")
+                        except shutil.SameFileError:
+                            logging.info(f"🖼️ Original source already at destination (SameFileError), skipping: {original_pdf}")
                         except Exception:
                             logging.debug(f"[export] Failed to copy original source for doc {doc_id}, continuing")
                 except Exception as e:
-                    logging.error(f"[export] Failed copying original for doc {doc_id}: {e}")
+                    logging.debug(f"[export] Failed copying original for doc {doc_id}: {e}")
 
             # Ensure and copy searchable PDF
             try:
@@ -2951,10 +2999,45 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
 
             if final_searchable_source and os.path.exists(final_searchable_source):
                 try:
-                    shutil.copy2(final_searchable_source, dest_searchable)
-                    logging.info(f"📄 Copied searchable PDF: {final_searchable_source} → {dest_searchable}")
+                    same = False
+                    if os.path.exists(final_searchable_source) and os.path.exists(dest_searchable):
+                        try:
+                            same = os.path.samefile(final_searchable_source, dest_searchable)
+                        except Exception:
+                            same = False
+                    if same or os.path.abspath(final_searchable_source) == os.path.abspath(dest_searchable):
+                        logging.info(f"📄 Searchable PDF source equals destination, skipping copy: {final_searchable_source}")
+                    else:
+                        try:
+                            shutil.copy2(final_searchable_source, dest_searchable)
+                            logging.info(f"📄 Copied searchable PDF: {final_searchable_source} → {dest_searchable}")
+                        except shutil.SameFileError:
+                            logging.info(f"📄 Searchable PDF already at destination (SameFileError), skipping: {final_searchable_source}")
                 except Exception as e:
-                    logging.error(f"[export] Could not copy searchable PDF for doc {doc_id}: {e}")
+                    # Best-effort: if exception occurred, check whether the
+                    # source and destination actually refer to the same file
+                    # (covers symlink/inode race cases). If they are the same
+                    # file, treat this as a non-error and log at INFO. For all
+                    # other failures, log at DEBUG to reduce E2E noise.
+                    try:
+                        if final_searchable_source and dest_searchable and os.path.exists(final_searchable_source) and os.path.exists(dest_searchable):
+                            try:
+                                same = False
+                                try:
+                                    same = os.path.samefile(final_searchable_source, dest_searchable)
+                                except Exception:
+                                    # Fallback to realpath comparison if samefile fails
+                                    same = os.path.realpath(final_searchable_source) == os.path.realpath(dest_searchable)
+                                if same:
+                                    logging.info(f"[export] Searchable PDF source equals destination (after exception), skipping: {final_searchable_source}")
+                                else:
+                                    logging.debug(f"[export] Could not copy searchable PDF for doc {doc_id}: {e}")
+                            except Exception:
+                                logging.debug(f"[export] Could not copy searchable PDF for doc {doc_id}: {e}")
+                        else:
+                            logging.debug(f"[export] Could not copy searchable PDF for doc {doc_id}: {e}")
+                    except Exception:
+                        logging.debug(f"[export] Could not copy searchable PDF for doc {doc_id}: {e}")
 
             logging.info(f"✅ Successfully exported document {doc_id} to {category_dir}")
 
@@ -2973,10 +3056,19 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
                             try:
                                 if src and os.path.exists(src):
                                     dst = os.path.join(candidate_filing, category_dir_name, os.path.basename(src))
-                                    if os.path.abspath(src) == os.path.abspath(dst):
-                                        continue
-                                    shutil.copy2(src, dst)
-                                    logging.info(f"[export] mirrored {os.path.basename(src)} to sibling filing_cabinet: {dst}")
+                                    try:
+                                        same = False
+                                        if os.path.exists(src) and os.path.exists(dst):
+                                            try:
+                                                same = os.path.samefile(src, dst)
+                                            except Exception:
+                                                same = False
+                                        if same or os.path.abspath(src) == os.path.abspath(dst):
+                                            continue
+                                        shutil.copy2(src, dst)
+                                        logging.info(f"[export] mirrored {os.path.basename(src)} to sibling filing_cabinet: {dst}")
+                                    except shutil.SameFileError:
+                                        logging.info(f"[export] mirrored file already exists (SameFileError), skipping: {dst}")
                             except Exception:
                                 logging.debug(f"[export] failed mirroring {src} to sibling filing_cabinet")
             except Exception:
@@ -2997,7 +3089,18 @@ def finalize_single_documents_batch_with_progress(batch_id: int, progress_callba
                             try:
                                 if src and os.path.exists(src):
                                     dst = os.path.join(db_cat_dir, os.path.basename(src))
-                                    shutil.copy2(src, dst)
+                                    try:
+                                        same = False
+                                        if os.path.exists(src) and os.path.exists(dst):
+                                            try:
+                                                same = os.path.samefile(src, dst)
+                                            except Exception:
+                                                same = False
+                                        if same or os.path.abspath(src) == os.path.abspath(dst):
+                                            continue
+                                        shutil.copy2(src, dst)
+                                    except shutil.SameFileError:
+                                        logging.info(f"[export] DB-adjacent mirror already exists, skipping: {dst}")
                             except Exception:
                                 logging.debug(f"[export] failed mirroring {src} to DB-adjacent filing_cabinet")
             except Exception:

@@ -3,6 +3,7 @@
 {% block title %}Server Error{% endblock %}
 
 {% block content %}
+<div{{ testid('page-500') }}>
 <div class="container mt-5">
     <div class="row justify-content-center">
         <div class="col-md-6 text-center">
@@ -17,6 +18,7 @@
             </div>
             {% endif %}
         </div>
+    </div>
     </div>
 </div>
 {% endblock %}

@@ -157,6 +157,19 @@ def _enforce_test_environment(tmp_path_factory):
     os.environ.setdefault('FILING_CABINET_DIR', os.path.join(test_tmp, 'filing_cabinet'))
     os.environ.setdefault('PROCESSED_DIR', os.path.join(test_tmp, 'processed'))
     os.environ.setdefault('EXPORT_DIR', os.path.join(test_tmp, 'exports'))
+    # Ensure test database schema exists before tests start to avoid
+    # runtime 'no such table' or 'no such column' errors observed in E2E runs.
+    try:
+        from .dev_tools.database_setup import create_database
+        try:
+            create_database()
+        except Exception:
+            # Best-effort: if creation fails, continue and let tests surface
+            # errors rather than crashing at fixture setup time.
+            pass
+    except Exception:
+        pass
+
     yield
 
 

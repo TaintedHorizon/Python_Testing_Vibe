@@ -16,12 +16,14 @@ def _copy_fixture_into_intake(fixture_name):
     src = next((c for c in candidates if os.path.exists(c)), None)
     if not src:
         raise FileNotFoundError(f"Fixture {fixture_name} not found")
-    intake_candidates = [
-        # Prefer the environment-configured intake dir (set by app_process fixture)
-        os.environ.get('INTAKE_DIR'),
-        os.path.abspath(os.path.join(repo_root, '..', '..', 'intake')),
-        '/mnt/scans_intake'
-    ]
+    intake_candidates = []
+    # Prefer the environment-configured intake dir (set by app_process fixture)
+    env_intake = os.environ.get('INTAKE_DIR')
+    if env_intake:
+        intake_candidates.append(os.path.abspath(env_intake))
+    repo_intake = os.path.abspath(os.path.join(repo_root, '..', '..', 'intake'))
+    intake_candidates.append(repo_intake)
+    intake_candidates.append('/mnt/scans_intake')
     for d in intake_candidates:
         if not d:
             continue

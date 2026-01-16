@@ -67,12 +67,12 @@
   <div id="viewerRoot" class="viewer-root" data-url="{{ pdf_url }}" data-rotation="{{ initial_rotation|int }}">
     {% if show_banner %}<div class="viewer-banner" id="versionBanner">PDF.js {{ pdfjs_version }} | init…</div>{% endif %}
     <div class="viewer-toolbar" id="viewerToolbar" style="display:none;">
-      <button type="button" id="prevPage" disabled>&lt; Prev</button>
+      <button type="button" id="prevPage" disabled{{ testid('pdf-prev') }}>&lt; Prev</button>
       <span id="pageIndicator">Page 1</span>
-      <button type="button" id="nextPage" disabled>Next &gt;</button>
+      <button type="button" id="nextPage" disabled{{ testid('pdf-next') }}>Next &gt;</button>
       <div class="spacer"></div>
-      <button type="button" data-fit="page" class="fit-btn active" id="fitPageBtn" title="Fit entire page">Fit Page</button>
-      <button type="button" data-fit="width" class="fit-btn" id="fitWidthBtn" title="Fit page width">Fit Width</button>
+      <button type="button" data-fit="page" class="fit-btn active" id="fitPageBtn" title="Fit entire page"{{ testid('pdf-fit-page') }}>Fit Page</button>
+      <button type="button" data-fit="width" class="fit-btn" id="fitWidthBtn" title="Fit page width"{{ testid('pdf-fit-width') }}>Fit Width</button>
     </div>
     <div class="canvas-wrap">
       <canvas id="pdfCanvas"></canvas>

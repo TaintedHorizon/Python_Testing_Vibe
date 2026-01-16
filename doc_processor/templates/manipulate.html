@@ -255,7 +255,7 @@
             <!-- Action Buttons - Only show on last document -->
             {% if total_docs and current_doc_num == total_docs and total_docs > 0 %}
             <div class="actions">
-                <button type="submit" data-action="finish_batch" class="btn-save-finish">✅ Save & Finish Batch</button>
+                <button type="submit" data-action="finish_batch" class="btn-save-finish"{{ testid('manipulate-save-finish') }}>✅ Save & Finish Batch</button>
             </div>
             {% endif %}
         </form>

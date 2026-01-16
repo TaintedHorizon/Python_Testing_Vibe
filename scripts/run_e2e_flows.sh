@@ -13,6 +13,11 @@ export FAST_TEST_MODE=1
 export SKIP_OLLAMA=1
 export PLAYWRIGHT_E2E=1
 export PLAYWRIGHT_HEADLESS=0
+# Provide a test-scoped temp dir and DB so the app does not touch user-local DBs
+export TEST_TMPDIR="$ART/test_tmp"
+mkdir -p "$TEST_TMPDIR"
+export DATABASE_PATH="$ART/documents.db"
+export ALLOW_NEW_DB=1
 
 echo "Artifacts will be written to: $ART"
 

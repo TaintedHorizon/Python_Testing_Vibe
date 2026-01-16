@@ -217,6 +217,11 @@ class DocumentTypeDetector:
                     norm_root = os.getenv('TEST_TMPDIR') or os.getenv('TMPDIR') or _temp.gettempdir()
                 except Exception:
                     norm_root = os.getcwd()
+            # Defensive: if the input image does not exist, skip conversion.
+            if not image_path or not os.path.exists(image_path):
+                self.logger.warning(f"Normalize skipped - image missing: {image_path}")
+                return image_path
+
             # Hash image contents for stable identity
             import hashlib
             h = hashlib.sha256()
@@ -259,6 +264,22 @@ class DocumentTypeDetector:
         """
         self.logger.info(f"Analyzing PDF: {file_path}")
 
+        # Defensive: if the file is missing, bail out gracefully to avoid
+        # unhandled exceptions during background analysis threads.
+        if not file_path or not os.path.exists(file_path):
+            try:
+                self.logger.warning(f"Analysis skipped - file does not exist: {file_path}")
+            except Exception:
+                pass
+            return DocumentAnalysis(
+                file_path=file_path,
+                file_size_mb=0.0,
+                page_count=0,
+                processing_strategy="batch_scan",
+                confidence=0.0,
+                reasoning=["file_missing"],
+            )
+
         reasoning = []
         confidence = 0.0
         strategy = "batch_scan"  # Default to safe option
@@ -268,8 +289,45 @@ class DocumentTypeDetector:
             file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
             filename = Path(file_path).stem.lower()
 
-            # Open PDF to get page count and sample content
-            with fitz.open(file_path) as doc:
+            # Open PDF to get page count and sample content. Failures to open
+            # (eg. file still being written by tests or transient FS races) are
+            # non-fatal for the E2E harness — downgrade to a warning and
+            # return a conservative batch-scan result instead of an ERROR.
+            # Try opening the PDF with a few retries — files may still be
+            # being written by the test harness which causes transient open
+            # failures. Retry a few times with short backoff before giving up.
+            doc = None
+            open_err = None
+            for _attempt in range(3):
+                try:
+                    doc = fitz.open(file_path)
+                    open_err = None
+                    break
+                except Exception as _e:
+                    open_err = _e
+                    try:
+                        # Use debug level for interim failures, warn on final
+                        if _attempt < 2:
+                            self.logger.debug(f"Transient PDF open failure for {file_path}: {_e}; retrying")
+                        else:
+                            self.logger.warning(f"Analysis could not open PDF {file_path} after retries: {_e}")
+                    except Exception:
+                        pass
+                    try:
+                        time.sleep(0.05 * (_attempt + 1))
+                    except Exception:
+                        pass
+
+            if doc is None:
+                return DocumentAnalysis(
+                    file_path=file_path,
+                    file_size_mb=0.0,
+                    page_count=0,
+                    processing_strategy="batch_scan",
+                    confidence=0.0,
+                    reasoning=["could_not_open_file"],
+                )
+            with doc:
                 page_count = len(doc)
                 # Extract multi-point text samples for enhanced analysis
                 content_sample = ""

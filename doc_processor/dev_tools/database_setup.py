@@ -271,6 +271,9 @@ def create_database():
         )
         print("Table 'tag_usage_stats' created or already exists.")
 
+        # NOTE: compatibility ALTERs for tag_usage_stats are applied later
+        # after the `table_has_column` helper is defined.
+
         # Ensure new columns exist on existing tables (best-effort):
         def table_has_column(tbl, col):
             try:
@@ -278,6 +281,40 @@ def create_database():
                 return any(r[1] == col for r in rows)
             except Exception:
                 return False
+
+        # Backfill compatibility columns for single_documents to support
+        # older code paths and templates that expect `original_filename` etc.
+        single_doc_columns = [
+            ('original_filename', "TEXT"),
+            ('original_pdf_path', "TEXT"),
+            ('ai_suggested_category', "TEXT"),
+            ('ai_suggested_filename', "TEXT"),
+        ]
+        for col_name, col_type in single_doc_columns:
+            if not table_has_column('single_documents', col_name):
+                try:
+                    cursor.execute(f"ALTER TABLE single_documents ADD COLUMN {col_name} {col_type}")
+                    print(f"Added column '{col_name}' to 'single_documents'")
+                except Exception:
+                    # Best-effort: ignore failures (e.g., SQLite older versions,
+                    # concurrent schema changes) and continue.
+                    pass
+
+        # Ensure compatibility columns exist on tag_usage_stats for older DBs
+        tag_usage_columns = [
+            ('tag_category', 'TEXT'),
+            ('tag_value', 'TEXT'),
+            ('usage_count', 'INTEGER'),
+            ('last_used', 'TIMESTAMP'),
+        ]
+        for col_name, col_type in tag_usage_columns:
+            if not table_has_column('tag_usage_stats', col_name):
+                try:
+                    cursor.execute(f"ALTER TABLE tag_usage_stats ADD COLUMN {col_name} {col_type}")
+                    print(f"Added column '{col_name}' to 'tag_usage_stats'")
+                except Exception:
+                    # Best-effort: ignore failures and continue.
+                    pass
 
         # documents.final_filename_base
         if not table_has_column('documents', 'final_filename_base'):

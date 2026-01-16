@@ -3,6 +3,7 @@
 {% block title %}Batch Processing{% endblock %}
 
 {% block content %}
+<div{{ testid('page-batch-processing-progress') }}>
 <div class="container">
     <h1>🛡️ Batch Processing</h1>
     
@@ -53,6 +54,7 @@
             <a href="{{ url_for('batch.batch_control') }}" class="action-btn btn-revisit btn-center">🏠 Batch Control</a>
         </div>
     </div>
+</div>
 </div>
 
 <style>

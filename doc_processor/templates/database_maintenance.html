@@ -4,6 +4,7 @@
 
 {% block content %}
 <h1>Database Maintenance</h1>
+<div{{ testid('page-database-maintenance') }}>
 
 <ul>
   <li>Total batches: {{ stats.total_batches if stats else 'N/A' }}</li>
@@ -12,3 +13,5 @@
   <li>Oldest batch: {{ stats.oldest_batch if stats else 'N/A' }}</li>
   <li>Newest batch: {{ stats.newest_batch if stats else 'N/A' }}</li>
 {% endblock %}
+
+</div>

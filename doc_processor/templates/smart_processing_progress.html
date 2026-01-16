@@ -3,8 +3,9 @@
 {% block title %}Smart Processing{% endblock %}
 
 {% block content %}
+<div{{ testid('page-smart-processing-progress') }}>
 <div class="container">
-        <h1>🤖 Smart Processing Progress</h1>
+    <h1>🤖 Smart Processing Progress</h1>
     
     <!-- Processing State -->
     <div id="processing-state" class="alert alert-primary text-center">
@@ -52,6 +53,7 @@
         <div class="text-center">
             <a href="{{ url_for('batch.batch_control') }}" class="action-btn btn-revisit btn-center">🏠 Batch Control</a>
         </div>
+    </div>
     </div>
 </div>
 

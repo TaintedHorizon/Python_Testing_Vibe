@@ -320,7 +320,7 @@
             <div class="card-body text-center">
                 <h4>📁 No Documents Analyzed Yet</h4>
                 <p>Click the button below to analyze documents in the intake directory.</p>
-                <button onclick="startAnalysis()" class="btn btn-primary btn-lg">
+                <button onclick="startAnalysis()" class="btn btn-primary btn-lg"{{ testid('start-analysis') }}>
                     🚀 Start Analysis
                 </button>
             </div>
@@ -362,11 +362,11 @@
                 </div>
                 
                 <div class="viewer-controls">
-                    <button onclick="openDocumentViewer('{{ analysis.filename }}', {{ analysis.detected_rotation or 0 }})" class="btn-primary">👁️ View</button>
-                    <button onclick="rotateDocument('{{ analysis.filename }}', 90)">↻ Right</button>
-                    <button onclick="rotateDocument('{{ analysis.filename }}', -90)">↺ Left</button>
-                    <button onclick="resetRotation('{{ analysis.filename }}')">🔄 Reset</button>
-                    <button onclick="cycleFitModeFor('{{ analysis.filename }}', this)">🖼️ Fit: Auto</button>
+                    <button onclick="openDocumentViewer('{{ analysis.filename }}', {{ analysis.detected_rotation or 0 }})" class="btn-primary" data-analysis-index="{{ loop.index }}"{{ testid('analysis-view-'+loop.index|string) }}>👁️ View</button>
+                    <button onclick="rotateDocument('{{ analysis.filename }}', 90)"{{ testid('rotate-right') }}>↻ Right</button>
+                    <button onclick="rotateDocument('{{ analysis.filename }}', -90)"{{ testid('rotate-left') }}>↺ Left</button>
+                    <button onclick="resetRotation('{{ analysis.filename }}')"{{ testid('rotate-reset') }}>🔄 Reset</button>
+                    <button onclick="cycleFitModeFor('{{ analysis.filename }}', this)"{{ testid('fit-mode') }}>🖼️ Fit: Auto</button>
                 </div>
                 <div class="rotation-info">
                   <div><strong>Original:</strong> <span class="original-rotation">{{ analysis.detected_rotation or 0 }}° detected</span></div>
@@ -413,10 +413,12 @@
                         <h6>⚙️ Processing Strategy</h6>
                         <div class="override-controls">
                             <button class="btn-sm {{ 'active' if analysis.processing_strategy == 'single_document' else '' }}" 
+                                {{ testid('analysis-strategy-single-new-'+loop.index|string) }}
                                     onclick="setStrategy('{{ analysis.filename }}', 'single_document')">
                                 🚀 Single
                             </button>
                             <button class="btn-sm {{ 'active' if analysis.processing_strategy == 'batch_scan' else '' }}" 
+                                {{ testid('analysis-strategy-batch-new-'+loop.index|string) }}
                                     onclick="setStrategy('{{ analysis.filename }}', 'batch_scan')">
                                 📋 Batch
                             </button>
@@ -439,7 +441,7 @@
                 <div class="info-card">
                     <div class="info-card-header">
                         <h6>📊 Analysis Confidence</h6>
-                        <button class="btn-sm" onclick="rescanOCR('{{ analysis.filename }}')">
+                        <button class="btn-sm" onclick="rescanOCR('{{ analysis.filename }}')"{{ testid('analysis-rescan-ocr-new-'+loop.index|string) }}>
                             🔍 Rescan OCR
                         </button>
                     </div>
@@ -476,7 +478,7 @@
                 <div class="info-card">
                     <div class="info-card-header">
                         <h6>🤖 AI Analysis</h6>
-                        <button class="btn-sm" onclick="reanalyzeLLM('{{ analysis.filename }}')">
+                        <button class="btn-sm" onclick="reanalyzeLLM('{{ analysis.filename }}')"{{ testid('analysis-reanalyze-new-'+loop.index|string) }}>
                             🤖 Re-analyze
                         </button>
                     </div>
@@ -523,13 +525,13 @@
             <strong>{{ analyses|length }} documents ready for processing</strong>
         </div>
         <div class="batch-actions">
-            <button onclick="startBatchProcessing('smart')" class="btn-success">
+            <button onclick="startBatchProcessing('smart')" class="btn-success"{{ testid('start-smart-processing') }}>
                 🚀 Start Smart Processing
             </button>
-            <button onclick="refreshAnalysis()" class="btn-secondary">
+            <button onclick="refreshAnalysis()" class="btn-secondary"{{ testid('refresh-analysis') }}>
                 🔄 Refresh Analysis
             </button>
-            <button onclick="exportResults()" class="btn-primary">
+            <button onclick="exportResults()" class="btn-primary"{{ testid('export-results') }}>
                 📋 Export Results
             </button>
         </div>
