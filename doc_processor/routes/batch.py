@@ -488,11 +488,65 @@ def api_debug_latest_document():
             except Exception:
                 row = None
 
-        if not row:
-            return jsonify(create_success_response({'latest_document': None}))
+            # Compute simple table counts to aid tests in understanding DB state
+            counts = {}
+            try:
+                cur.execute("SELECT COUNT(*) FROM single_documents")
+                counts['single_documents'] = int(cur.fetchone()[0] or 0)
+            except Exception:
+                counts['single_documents'] = None
+            try:
+                cur.execute("SELECT COUNT(*) FROM documents")
+                counts['documents'] = int(cur.fetchone()[0] or 0)
+            except Exception:
+                counts['documents'] = None
+            try:
+                cur.execute("SELECT COUNT(*) FROM pages")
+                counts['pages'] = int(cur.fetchone()[0] or 0)
+            except Exception:
+                counts['pages'] = None
 
-        doc = {'id': int(row[0]), 'batch_id': int(row[1]) if row[1] is not None else None, 'original_filename': row[2], 'original_pdf_path': row[3]}
-        return jsonify(create_success_response({'latest_document': doc}))
+            logger.info(f"[debug] latest_document counts: {counts}")
+
+            if not row:
+                # Fallback probes: if no `single_documents` rows exist yet, try
+                # to surface a recent document from other tables so tests can
+                # reliably discover work in-flight. Check in order: `documents`,
+                # `pages`, and finally any batches recently marked exported.
+                fallback_doc = None
+                try:
+                    # Try grouped documents table
+                    cur.execute("SELECT id, batch_id, document_name FROM documents ORDER BY id DESC LIMIT 1")
+                    drow = cur.fetchone()
+                    if drow:
+                        fallback_doc = {'id': int(drow[0]), 'batch_id': int(drow[1]) if drow[1] is not None else None, 'original_filename': drow[2], 'original_pdf_path': None}
+                except Exception:
+                    fallback_doc = None
+
+                if not fallback_doc:
+                    try:
+                        # Try pages table as an indicator (map page -> batch)
+                        cur.execute("SELECT batch_id, source_filename FROM pages ORDER BY id DESC LIMIT 1")
+                        prow = cur.fetchone()
+                        if prow and prow[0]:
+                            fallback_doc = {'id': None, 'batch_id': int(prow[0]), 'original_filename': prow[1], 'original_pdf_path': None}
+                    except Exception:
+                        fallback_doc = None
+
+                if not fallback_doc:
+                    try:
+                        # As a last resort, find recently exported batches and point to them
+                        cur.execute("SELECT id FROM batches WHERE status = ? ORDER BY id DESC LIMIT 1", (app_config.STATUS_EXPORTED,))
+                        brow = cur.fetchone()
+                        if brow and brow[0]:
+                            fallback_doc = {'id': None, 'batch_id': int(brow[0]), 'original_filename': None, 'original_pdf_path': None}
+                    except Exception:
+                        fallback_doc = None
+
+                return jsonify(create_success_response({'latest_document': fallback_doc, 'counts': counts}))
+
+            doc = {'id': int(row[0]), 'batch_id': int(row[1]) if row[1] is not None else None, 'original_filename': row[2], 'original_pdf_path': row[3]}
+            return jsonify(create_success_response({'latest_document': doc, 'counts': counts}))
     except Exception as e:
         logger.error(f"Debug latest_document failed: {e}")
         return jsonify(create_error_response(str(e)))

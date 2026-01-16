@@ -40,11 +40,11 @@ def _copy_fixture_into_intake(fixture_name):
         raise FileNotFoundError(f"Fixture {fixture_name} not found in expected locations: {src_candidates}")
 
     candidates = []
-    repo_intake = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "intake"))
-    candidates.append(repo_intake)
     env_intake = os.environ.get('INTAKE_DIR')
     if env_intake:
         candidates.append(os.path.abspath(env_intake))
+    repo_intake = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "intake"))
+    candidates.append(repo_intake)
     candidates.append('/mnt/scans_intake')
 
     last_dst = None
@@ -201,7 +201,10 @@ def test_grouped_batch_flow(page):
             conn = sqlite3.connect(server_db, timeout=10)
             conn.row_factory = None
             cur = conn.cursor()
-            cand_dir = os.environ.get('INTAKE_DIR') or '/mnt/scans_intake'
+            repo_intake = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "intake"))
+            cand_dir = os.environ.get('INTAKE_DIR') or repo_intake
+            if not os.path.exists(cand_dir):
+                cand_dir = '/mnt/scans_intake'
             files = [f for f in os.listdir(cand_dir) if f.lower().endswith('.pdf')]
             created = 0
             for f in files:

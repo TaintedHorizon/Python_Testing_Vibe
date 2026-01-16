@@ -315,7 +315,9 @@ def get_db_connection():
                     caller = f"{frame.function} @ {frame.filename}:{frame.lineno}"
                 except Exception:
                     caller = None
-                logging.getLogger(__name__).debug(
+                # Emit an INFO-level connection message so test logs capture which
+                # SQLite file each component is using (helps diagnose DB-mismatch).
+                logging.getLogger(__name__).info(
                     f"[DB CONNECT] pid={os.getpid()} thread={threading.get_ident()} attempt={attempt}/{max_attempts} path={db_path} caller={caller}"
                 )
             except Exception:

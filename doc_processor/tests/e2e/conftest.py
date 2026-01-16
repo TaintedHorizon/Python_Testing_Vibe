@@ -403,5 +403,26 @@ def resolve_final_batch_id(base_url, initial_batch_id, timeout=10):
         except Exception:
             pass
         _time.sleep(0.25)
+    # Fallback: if the debug endpoint did not reveal a batch id, try reading
+    # the in-process server's test database directly (app_process exposes
+    # its DB path via E2E_SERVER_DB). This avoids an HTTP race when the
+    # server has finalized a batch but the debug endpoint didn't reflect it
+    # yet for the test client.
+    db_path = os.getenv('E2E_SERVER_DB') or os.getenv('DATABASE_PATH')
+    if db_path:
+        try:
+            import sqlite3 as _sqlite
+            conn = _sqlite.connect(db_path, timeout=5)
+            cur = conn.cursor()
+            cur.execute("SELECT id, batch_id FROM single_documents ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            conn.close()
+            if row and row[1]:
+                try:
+                    return int(row[1])
+                except Exception:
+                    return initial_batch_id
+        except Exception:
+            pass
     return initial_batch_id
 

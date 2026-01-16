@@ -10,6 +10,63 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# Ensure .env is loaded into the test process environment early so tests
+# that read os.environ directly (rather than using config_manager) see the
+# project defaults configured in `doc_processor/.env`.
+try:
+    from dotenv import load_dotenv
+except Exception:
+    def load_dotenv(*a, **kw):
+        return False
+
+env_path = Path(__file__).resolve().parents[1] / '.env'
+load_dotenv(dotenv_path=str(env_path))
+
+
+@pytest.fixture(autouse=True)
+def _prevent_copy_outside_intake(monkeypatch):
+    """Prevent tests from copying fixtures into directories outside the
+    configured `app_config.INTAKE_DIR`. This wraps `shutil.copyfile` and
+    `shutil.copy2` to validate destination paths and fails fast if a test
+    attempts to write outside the allowed intake directory.
+    """
+    try:
+        from config_manager import app_config
+    except Exception:
+        # If config_manager can't be imported, skip protection (tests will
+        # still fail later if misconfigured).
+        yield
+        return
+
+    import shutil, os
+
+    orig_copyfile = shutil.copyfile
+    orig_copy2 = getattr(shutil, 'copy2', None)
+
+    def _check_and_copyfile(src, dst, *a, **kw):
+        intake = os.path.abspath(os.environ.get('INTAKE_DIR') or app_config.INTAKE_DIR)
+        dst_dir = os.path.abspath(os.path.dirname(dst))
+        # Only restrict writes into /mnt paths (mounted host intake) unless
+        # the configured intake explicitly points there. Allow writes to
+        # pytest tempdirs and backup dirs used by tests.
+        if dst_dir.startswith('/mnt') and not dst_dir.startswith(intake):
+            raise RuntimeError(f"Tests may only copy files into INTAKE_DIR ({intake}), attempted: {dst}")
+        return orig_copyfile(src, dst, *a, **kw)
+
+    monkeypatch.setattr(shutil, 'copyfile', _check_and_copyfile)
+
+    if orig_copy2 is not None:
+        def _check_and_copy2(src, dst, *a, **kw):
+            intake = os.path.abspath(os.environ.get('INTAKE_DIR') or app_config.INTAKE_DIR)
+            dst_dir = os.path.abspath(os.path.dirname(dst))
+            if dst_dir.startswith('/mnt') and not dst_dir.startswith(intake):
+                raise RuntimeError(f"Tests may only copy files into INTAKE_DIR ({intake}), attempted: {dst}")
+            return orig_copy2(src, dst, *a, **kw)
+
+        monkeypatch.setattr(shutil, 'copy2', _check_and_copy2)
+
+    yield
+
 
 @pytest.fixture(autouse=True)
 def _force_skip_ollama(monkeypatch):
@@ -205,3 +262,77 @@ if os.getenv('FAST_TEST_MODE','0').lower() in ('1','true','t'):
     warnings.filterwarnings('ignore', category=DeprecationWarning, module=r'pytesseract')
     warnings.filterwarnings('ignore', category=DeprecationWarning, module=r'easyocr')
     warnings.filterwarnings('ignore', category=DeprecationWarning, message=r'.*SwigPy.*')
+
+
+@pytest.fixture(autouse=True)
+def hermetic_files_cleanup(tmp_path, monkeypatch):
+    """Autouse fixture to remove test-created intake and filing artifacts.
+
+    Runs after each test. Only deletes files inside safe test-owned
+    directories (tmp dirs, configured `INTAKE_DIR`, and configured
+    `FILING_CABINET_DIR` or DB-adjacent filing_cabinet). Protects
+    against accidental deletion of host-mounted `/mnt` data unless the
+    configured intake explicitly points there.
+    """
+    yield
+    import logging, shutil, os
+
+    try:
+        from doc_processor import config_manager
+        app_cfg = config_manager.app_config
+    except Exception:
+        app_cfg = None
+
+    def _safe_remove_tree(target_path):
+        if not target_path:
+            return
+        try:
+            target = os.path.abspath(str(target_path))
+        except Exception:
+            return
+
+        # Protect mounted host areas unless explicitly configured
+        intake_cfg = os.path.abspath(os.environ.get('INTAKE_DIR') or (getattr(app_cfg,'INTAKE_DIR', '') if app_cfg else ''))
+        allowed_roots = [str(tmp_path), os.path.abspath('/tmp'), intake_cfg]
+        # Normalize and check allowed prefixes
+        if target.startswith('/mnt') and not any(target.startswith(p) and p for p in allowed_roots if p):
+            logging.warning(f"Skipping cleanup for protected path outside intake: {target}")
+            return
+
+        if not os.path.exists(target):
+            return
+
+        # Remove files and subdirectories but avoid removing a non-test parent
+        for root, dirs, files in os.walk(target, topdown=False):
+            for name in files:
+                fp = os.path.join(root, name)
+                try:
+                    os.remove(fp)
+                except Exception:
+                    logging.debug(f"Could not remove file during cleanup: {fp}")
+            for name in dirs:
+                dp = os.path.join(root, name)
+                try:
+                    shutil.rmtree(dp)
+                except Exception:
+                    logging.debug(f"Could not remove dir during cleanup: {dp}")
+
+    # Primary targets: configured intake and configured filing cabinet
+    try:
+        intake_target = os.environ.get('INTAKE_DIR') or (getattr(app_cfg, 'INTAKE_DIR', None) if app_cfg else None)
+        filing_target = os.environ.get('FILING_CABINET_DIR') or (getattr(app_cfg, 'FILING_CABINET_DIR', None) if app_cfg else None)
+    except Exception:
+        intake_target = os.environ.get('INTAKE_DIR')
+        filing_target = os.environ.get('FILING_CABINET_DIR')
+
+    _safe_remove_tree(intake_target)
+    _safe_remove_tree(filing_target)
+
+    # Also attempt DB-adjacent filing_cabinet cleanup when DATABASE_PATH is set
+    db_path = os.environ.get('DATABASE_PATH') or os.environ.get('E2E_SERVER_DB') or (getattr(app_cfg, 'DATABASE_PATH', None) if app_cfg else None)
+    try:
+        if db_path:
+            db_dir = os.path.dirname(db_path)
+            _safe_remove_tree(os.path.join(db_dir, 'filing_cabinet'))
+    except Exception:
+        pass
