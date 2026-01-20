@@ -36,6 +36,8 @@ processing_lock = threading.Lock()
 smart_tokens: dict[str, dict] = {}
 SMART_TOKEN_TTL_SECONDS = 3600  # 1 hour expiry
 _smart_cleanup_started = False
+# How often to send SSE heartbeats (seconds). Keep low to avoid client aborts.
+SMART_SSE_HEARTBEAT_SECONDS = int(os.getenv('SMART_SSE_HEARTBEAT_SECONDS', '5'))
 
 def _start_smart_token_cleanup_thread():
     """Start background thread to purge expired smart processing tokens."""
@@ -379,42 +381,161 @@ def smart_processing_progress_sse():
         batch_id_int = None
     strategy_overrides = meta.get('strategy_overrides', {})
 
+    try:
+        logger.info(f"[smart] SSE connection opened for token {token} from {request.remote_addr}")
+    except Exception:
+        pass
+
+    # Signal any waiter that the SSE client has connected for this token.
+    try:
+        meta = smart_tokens.get(token)
+        if meta is not None:
+            meta['sse_connected'] = True
+            ev = meta.get('sse_event')
+            if ev:
+                try:
+                    ev.set()
+                except Exception:
+                    logger.debug(f"[smart] Could not set sse_event for token {token}")
+    except Exception:
+        pass
+
     def event_stream():
         import time as _t
         last_emit = _t.time()
-        yield f"data: {json.dumps({'message':'Token accepted','progress':0,'total':0})}\n\n"
-        for update in _orchestrate_smart_processing(batch_id_int if batch_id_int is not None else batch_id, strategy_overrides, token):
-            yield f"data: {json.dumps(update)}\n\n"
-            last_emit = _t.time()
-            if update.get('complete'):
-                break
-
-            # Allow early termination if shutdown requested
+        # helper to safely yield SSE payloads and log yield-time errors
+        def safe_yield(obj):
             try:
-                from ..config_manager import SHUTDOWN_EVENT
-                if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
-                    yield f"data: {json.dumps({'message': 'Shutdown requested by server', 'complete': True})}\n\n"
-                    break
+                payload_text = json.dumps(obj) if not isinstance(obj, str) else obj
+            except Exception:
+                try:
+                    payload_text = str(obj)
+                except Exception:
+                    payload_text = '<unserializable-payload>'
+            # Persist last event for token so clients can poll fallback status
+            try:
+                meta = smart_tokens.get(token)
+                if meta is not None:
+                    meta['last_event'] = obj if isinstance(obj, dict) else {'message': str(obj)}
             except Exception:
                 pass
+            try:
+                logger.info(f"[smart SSE] emitting (truncated): {payload_text[:200]}")
+            except Exception:
+                pass
+            try:
+                yield f"data: {payload_text}\n\n"
+            except Exception as ye:
+                try:
+                    logger.warning(f"[smart SSE] yield error (client disconnected?): {ye} token={token} payload={payload_text[:200]}")
+                except Exception:
+                    pass
+                raise
 
-            # Heartbeat if silence > 15s (rare because generator usually emits)
-            if _t.time() - last_emit > 15:
-                yield f"data: {json.dumps({'heartbeat': True, 'ts': _t.time()})}\n\n"
-                last_emit = _t.time()
-
-        # Cleanup token when finished or aborted
         try:
-            smart_tokens.pop(token, None)
-        except Exception:
-            pass
+            yield from safe_yield({'message': 'Token accepted', 'progress': 0, 'total': 0})
+            for update in _orchestrate_smart_processing(batch_id_int if batch_id_int is not None else batch_id, strategy_overrides, token):
+                yield from safe_yield(update)
+                last_emit = _t.time()
+                if update.get('complete'):
+                    break
+
+                # Allow early termination if shutdown requested
+                try:
+                    from ..config_manager import SHUTDOWN_EVENT
+                    if SHUTDOWN_EVENT is not None and SHUTDOWN_EVENT.is_set():
+                        yield from safe_yield({'message': 'Shutdown requested by server', 'complete': True})
+                        break
+                except Exception:
+                    pass
+
+                # Heartbeat if silence > SMART_SSE_HEARTBEAT_SECONDS
+                try:
+                    hb_interval = SMART_SSE_HEARTBEAT_SECONDS
+                except Exception:
+                    hb_interval = 5
+                if _t.time() - last_emit > hb_interval:
+                    # Emit an SSE comment ping first (keeps connections/proxies alive)
+                    try:
+                        yield ': ping\n\n'
+                    except Exception:
+                        pass
+                    yield from safe_yield({'heartbeat': True, 'ts': _t.time()})
+                    last_emit = _t.time()
+
+            # Cleanup token when finished or aborted
+            try:
+                smart_tokens.pop(token, None)
+            except Exception:
+                pass
+        finally:
+            try:
+                logger.info(f"[smart] SSE connection closing for token {token}")
+            except Exception:
+                pass
 
     headers = {
         'Cache-Control': 'no-cache',
         'Content-Type': 'text/event-stream',
         'X-Accel-Buffering': 'no'
     }
-    return Response(stream_with_context(event_stream()), headers=headers)
+
+    # Traced wrapper for SSE streams to log each emitted payload and lifecycle
+    def _traced_stream(gen, label=f'smart:{token}'):
+        try:
+            for item in gen:
+                try:
+                    snippet = item if isinstance(item, str) and len(item) < 200 else (item[:200] + '...')
+                    logger.info(f"SSE[{label}] emit ts={time.time()} payload={snippet}")
+                except Exception:
+                    logger.exception("Failed to log smart SSE emit")
+                yield item
+        finally:
+            try:
+                logger.info(f"SSE[{label}] closed ts={time.time()}")
+            except Exception:
+                pass
+
+    # Send an immediate small "connected" SSE event before delegating
+    # to the traced event stream. This gives clients an immediate flush
+    # so Playwright/other browsers don't abort the connection while the
+    # server prepares processing.
+    def preamble_stream():
+        try:
+            try:
+                logger.info(f"[smart] SSE preamble for token {token} - sending connected ping")
+            except Exception:
+                pass
+            # JSON payload to keep client-side parsing consistent with other SSE messages
+            # record preamble as last_event
+            try:
+                m = smart_tokens.get(token)
+                if m is not None:
+                    m['last_event'] = {'connected': True, 'ts': time.time()}
+            except Exception:
+                pass
+            yield 'data: {"connected": true}\n\n'
+            yield from _traced_stream(event_stream())
+        finally:
+            try:
+                logger.info(f"[smart] SSE preamble stream finished for token {token}")
+            except Exception:
+                pass
+
+    return Response(stream_with_context(preamble_stream()), headers=headers)
+
+
+@bp.route('/api/smart_processing_status')
+def smart_processing_status():
+    """Fallback JSON status endpoint returning the most recent event for a token."""
+    token = request.args.get('token')
+    if not token or token not in smart_tokens:
+        return jsonify(create_error_response('Invalid or expired token'))
+    meta = smart_tokens.get(token)
+    if not meta:
+        return jsonify(create_error_response('Token metadata unavailable (expired)'))
+    last = meta.get('last_event')
+    return jsonify(create_success_response({'last_event': last}))
 
 
 @bp.route('/api/debug/batch_documents/<int:batch_id>')
@@ -918,10 +1039,18 @@ def process_batch_smart():
             except Exception as persist_e:
                 logger.warning(f"[smart] Strategy persistence skipped: {persist_e}")
         token = uuid.uuid4().hex
+        # Coordination event allows the issuer to optionally wait for the
+        # SSE client to open a connection for this token before starting
+        # immediate processing. Tests benefit from this to avoid startup
+        # races between token issuance and SSE connect.
+        sse_event = threading.Event()
         smart_tokens[token] = {
             'created': time.time(),
             'batch_id': batch_id,
             'strategy_overrides': strategy_overrides or {},
+            'sse_event': sse_event,
+            'sse_connected': False,
+            'last_event': None,
         }
         # Lightweight cleanup of expired tokens
         now = time.time()
@@ -1025,7 +1154,42 @@ def process_batch_smart():
                     except Exception:
                         pass
 
-            threading.Thread(target=_run_now, args=(token,), daemon=True, name=f"SmartRun-{token[:6]}").start()
+            # Start a background starter thread that will wait for the SSE client
+            # to connect (up to configurable timeout) before invoking the
+            # immediate processing runner. Return the token to the caller
+            # immediately so API semantics are preserved.
+            def _starter(tok: str):
+                try:
+                    try:
+                        wait_secs = int(os.getenv('SMART_WAIT_FOR_SSE_SECONDS', '30'))
+                    except Exception:
+                        wait_secs = 30
+                    meta = smart_tokens.get(tok)
+                    ev = meta.get('sse_event') if meta else None
+                    if ev:
+                        logger.info(f"[smart] Starter waiting up to {wait_secs}s for SSE client to connect for token {tok}")
+                        try:
+                            connected = ev.wait(timeout=wait_secs)
+                        except Exception:
+                            connected = False
+                        if not connected:
+                            logger.warning(f"[smart] SSE client did not connect within {wait_secs}s for token {tok}; proceeding")
+                        else:
+                            logger.info(f"[smart] SSE client connected for token {tok}")
+                            # record last_event for fallback polling
+                            try:
+                                meta['last_event'] = {'sse_connected': True, 'ts': time.time()}
+                            except Exception:
+                                pass
+                    else:
+                        logger.debug(f"[smart] No sse_event present for token {tok}; proceeding immediately")
+
+                    # Now run processing (in this same background thread)
+                    _run_now(tok)
+                except Exception as e:
+                    logger.error(f"[smart] Starter thread failed for token {tok}: {e}")
+
+            threading.Thread(target=_starter, args=(token,), daemon=True, name=f"SmartStarter-{token[:6]}").start()
         return jsonify(create_success_response({
             'message': 'Smart processing token issued',
             'batch_id': batch_id,

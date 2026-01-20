@@ -2726,22 +2726,22 @@ def cleanup_batch_files(batch_id: int) -> bool:
     Deletes the temporary directory containing the processed images for a batch.
     This is called after a batch has been successfully exported and finalized.
     """
-    _safe_log(f"--- CLEANING UP Batch ID: {batch_id} ---", "info")
+    logging.info("--- CLEANING UP Batch ID: %s ---", batch_id)
     if not app_config.PROCESSED_DIR:
-        _safe_log("PROCESSED_DIR environment variable is not set.", "error")
+        logging.error("PROCESSED_DIR environment variable is not set.")
         return False
 
     batch_image_dir = os.path.join(app_config.PROCESSED_DIR, str(batch_id))
     if os.path.isdir(batch_image_dir):
         try:
             shutil.rmtree(batch_image_dir)
-            _safe_log(f"  - Successfully deleted temporary directory: {batch_image_dir}", "info")
+            logging.info("  - Successfully deleted temporary directory: %s", batch_image_dir)
             return True
         except OSError as e:
-            _safe_log(f"  - Failed to delete directory {batch_image_dir}: {e}", "error")
+            logging.error("  - Failed to delete directory %s: %s", batch_image_dir, e)
             return False
     else:
-        _safe_log(f"  - Directory not found, skipping cleanup: {batch_image_dir}", "info")
+        logging.info("  - Directory not found, skipping cleanup: %s", batch_image_dir)
         return True
 
     # (Removed deprecated duplicate export loop block)

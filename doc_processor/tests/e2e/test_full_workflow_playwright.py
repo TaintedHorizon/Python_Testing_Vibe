@@ -264,7 +264,8 @@ def test_full_workflow(app_process, e2e_page):
 
     # 8) DB sanity checks: ensure exported status present for the batch/documents
     try:
-        db_path = app_config.DATABASE_PATH
+        # Prefer the in-process app fixture DB path when available (deterministic)
+        db_path = app_process.get('database_path') if isinstance(app_process, dict) and app_process.get('database_path') else app_config.DATABASE_PATH
         if os.path.exists(db_path):
             conn = sqlite3.connect(db_path)
             cur = conn.cursor()
