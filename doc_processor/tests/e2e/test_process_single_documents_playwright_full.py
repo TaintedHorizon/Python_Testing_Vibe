@@ -194,6 +194,42 @@ with sync_playwright() as p:
                         print('Triggered client SSE via page.evaluate, startSmartSSE returned:', started)
                     except Exception as _e:
                         print('Could not instruct page to open SSE:', _e)
+
+                    # Fallback: poll the server-side status endpoint to recover progress if SSE is aborted.
+                    # This mirrors `poll_smart_processing_status` behavior but keeps the polling local
+                    # to the Playwright helper process (no extra imports required by pytest fixtures).
+                    try:
+                        import requests as _r2
+                        status_url = f"{BASE_URL}/batch/api/smart_processing_status?token={token}"
+                        last = None
+                        last_prog = None
+                        stall = 0
+                        for i in range(60):
+                            try:
+                                resp = _r2.get(status_url, timeout=5)
+                                if resp.status_code == 200:
+                                    j = resp.json()
+                                    last = j.get('data', {}).get('last_event') if isinstance(j, dict) else None
+                                    if isinstance(last, dict):
+                                        prog = last.get('progress')
+                                        complete = bool(last.get('complete'))
+                                        if prog is not None:
+                                            if prog != last_prog:
+                                                last_prog = prog
+                                                stall = 0
+                                            else:
+                                                stall += 1
+                                        else:
+                                            stall += 1
+                                        if complete or stall >= 10:
+                                            print('Fallback poll result:', last, 'meta:', {'polls': i+1, 'stalled': stall >= 10, 'completed': complete})
+                                            break
+                            except Exception:
+                                pass
+                            time.sleep(1)
+                    except Exception:
+                        pass
+
                     # Wait briefly for the panel or redirect
                     for _ in range(30):
                         cur_url = page.url
