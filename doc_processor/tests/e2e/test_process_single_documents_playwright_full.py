@@ -249,6 +249,12 @@ with sync_playwright() as p:
         # Wait for either the inline smart progress panel to appear OR for the page to redirect to /batch
         waited = 0
         found = False
+        # If fallback polling discovered a batch_id, consider it found already
+        try:
+            if isinstance(last, dict) and last.get('batch_id'):
+                found = True
+        except Exception:
+            pass
         while waited < 60:
             try:
                 if page.query_selector('#smart-progress-panel'):
