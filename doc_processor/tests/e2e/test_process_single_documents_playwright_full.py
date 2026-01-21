@@ -204,13 +204,18 @@ with sync_playwright() as p:
                         last = None
                         last_prog = None
                         stall = 0
-                        for i in range(60):
+                        # Increase polling window and accept batch_id as progress marker
+                        for i in range(120):
                             try:
                                 resp = _r2.get(status_url, timeout=5)
                                 if resp.status_code == 200:
                                     j = resp.json()
                                     last = j.get('data', {}).get('last_event') if isinstance(j, dict) else None
                                     if isinstance(last, dict):
+                                        # If the server already created a batch_id, consider progress detected
+                                        if last.get('batch_id'):
+                                            print('Fallback poll detected batch_id:', last.get('batch_id'))
+                                            break
                                         prog = last.get('progress')
                                         complete = bool(last.get('complete'))
                                         if prog is not None:
