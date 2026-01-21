@@ -195,45 +195,17 @@ with sync_playwright() as p:
                     except Exception as _e:
                         print('Could not instruct page to open SSE:', _e)
 
-                    # Fallback: poll the server-side status endpoint to recover progress if SSE is aborted.
-                    # This mirrors `poll_smart_processing_status` behavior but keeps the polling local
-                    # to the Playwright helper process (no extra imports required by pytest fixtures).
+                    # Fallback: use the centralized helper to poll the server-side status endpoint
                     try:
-                        import requests as _r2
-                        status_url = f"{BASE_URL}/batch/api/smart_processing_status?token={token}"
-                        last = None
-                        last_prog = None
-                        stall = 0
-                        # Increase polling window and accept batch_id as progress marker
-                        for i in range(120):
-                            try:
-                                resp = _r2.get(status_url, timeout=5)
-                                if resp.status_code == 200:
-                                    j = resp.json()
-                                    last = j.get('data', {}).get('last_event') if isinstance(j, dict) else None
-                                    if isinstance(last, dict):
-                                        # If the server already created a batch_id, consider progress detected
-                                        if last.get('batch_id'):
-                                            print('Fallback poll detected batch_id:', last.get('batch_id'))
-                                            break
-                                        prog = last.get('progress')
-                                        complete = bool(last.get('complete'))
-                                        if prog is not None:
-                                            if prog != last_prog:
-                                                last_prog = prog
-                                                stall = 0
-                                            else:
-                                                stall += 1
-                                        else:
-                                            stall += 1
-                                        if complete or stall >= 10:
-                                            print('Fallback poll result:', last, 'meta:', {'polls': i+1, 'stalled': stall >= 10, 'completed': complete})
-                                            break
-                            except Exception:
-                                pass
-                            time.sleep(1)
-                    except Exception:
-                        pass
+                        import sys, os
+                        sys.path.insert(0, os.getcwd())
+                        from doc_processor.tests.e2e.helpers.smart_status_helper import poll_smart_processing_status
+                        last_event, meta = poll_smart_processing_status(token, base_url=BASE_URL, max_polls=120, stall_limit=10, poll_interval=1.0)
+                        print('Fallback helper returned last_event:', last_event, 'meta:', meta)
+                        # align local `last` variable used later in the helper
+                        last = last_event
+                    except Exception as _e:
+                        print('Fallback helper import/poll error:', _e)
 
                     # Wait briefly for the panel or redirect unless fallback poll already detected completion
                     if not (isinstance(last, dict) and bool(last.get('complete'))):
