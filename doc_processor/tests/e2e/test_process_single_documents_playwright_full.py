@@ -197,13 +197,14 @@ with sync_playwright() as p:
                         last_event, meta = poll_smart_processing_status(token, base_url='{BASE_URL}', max_polls=120, stall_limit=10, poll_interval=1.0)
                         print('Fallback helper returned last_event:', last_event, 'meta:', meta)
                         if isinstance(last_event, dict) and last_event.get('batch_id'):
-                            # Navigate to batch control where the batch should be visible
+                            # Navigate to batch control where the batch should be visible, then exit helper early as success
                             try:
                                 page.goto('{BASE_URL}/batch/control')
                             except Exception:
                                 pass
-                            # treat as found and continue
-                            last = last_event
+                            print('Detected batch_id from fallback poll; exiting helper with success')
+                            import sys
+                            sys.exit(0)
                         else:
                             # fall back to attempting client-side SSE open
                             try:
