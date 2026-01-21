@@ -200,7 +200,7 @@ with sync_playwright() as p:
                         import sys, os
                         sys.path.insert(0, os.getcwd())
                         from doc_processor.tests.e2e.helpers.smart_status_helper import poll_smart_processing_status
-                        last_event, meta = poll_smart_processing_status(token, base_url=BASE_URL, max_polls=120, stall_limit=10, poll_interval=1.0)
+                        last_event, meta = poll_smart_processing_status(token, base_url='{BASE_URL}', max_polls=120, stall_limit=10, poll_interval=1.0)
                         print('Fallback helper returned last_event:', last_event, 'meta:', meta)
                         # align local `last` variable used later in the helper
                         last = last_event
