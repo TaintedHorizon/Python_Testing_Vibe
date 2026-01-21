@@ -230,12 +230,13 @@ with sync_playwright() as p:
                     except Exception:
                         pass
 
-                    # Wait briefly for the panel or redirect
-                    for _ in range(30):
-                        cur_url = page.url
-                        if '#smart' in cur_url or '/batch' in cur_url or page.query_selector('#smart-progress-panel'):
-                            break
-                        time.sleep(1)
+                    # Wait briefly for the panel or redirect unless fallback poll already detected completion
+                    if not (isinstance(last, dict) and bool(last.get('complete'))):
+                        for _ in range(30):
+                            cur_url = page.url
+                            if '#smart' in cur_url or '/batch' in cur_url or page.query_selector('#smart-progress-panel'):
+                                break
+                            time.sleep(1)
                 else:
                     print('API fallback did not return a token; failing')
                     raise SystemExit(3)
