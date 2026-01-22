@@ -79,3 +79,4 @@ def _cleanup_repo_intake_after_tests():
     except Exception:
         # Do not raise during teardown
         pass
+    pass
