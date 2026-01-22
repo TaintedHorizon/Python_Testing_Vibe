@@ -20,6 +20,9 @@ import logging
 import json
 import os
 from pathlib import Path
+import time
+import threading
+import tempfile
 
 # Create blueprint for intake routes
 intake_bp = Blueprint('intake', __name__)
@@ -148,6 +151,87 @@ def _resolve_working_pdf_path(original_filename: str) -> str:
         # Unknown type, return original
         return orig_path
 
+
+def background_analysis_worker(intake_dir, cache_file, batch_id=None):
+    """Module-level background worker that performs analysis and writes cache atomically."""
+    try:
+        logging.info(f"Background analysis worker starting for {intake_dir}")
+        detector = get_detector(use_llm_for_ambiguous=True)
+        analyses = detector.analyze_intake_directory(intake_dir)
+
+        # Convert analysis objects to serializable dicts similar to analyze_intake_api
+        analyses_data = []
+        single_count = 0
+        batch_count = 0
+        # load persisted rotations
+        persisted = {}
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("CREATE TABLE IF NOT EXISTS intake_rotations (filename TEXT PRIMARY KEY, rotation INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+            for row in cur.execute("SELECT filename, rotation FROM intake_rotations"):
+                persisted[row[0]] = int(row[1])
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+        for analysis in analyses:
+            filename_only = os.path.basename(analysis.file_path)
+            detected_rot = persisted.get(filename_only, analysis.detected_rotation)
+            analysis_data = {
+                'filename': filename_only,
+                'file_size_mb': analysis.file_size_mb,
+                'page_count': analysis.page_count,
+                'processing_strategy': analysis.processing_strategy,
+                'confidence': analysis.confidence,
+                'reasoning': analysis.reasoning,
+                'filename_hints': analysis.filename_hints,
+                'content_sample': analysis.content_sample,
+                'llm_analysis': analysis.llm_analysis,
+                'detected_rotation': detected_rot
+            }
+            analyses_data.append(analysis_data)
+            if analysis.processing_strategy == 'single_document':
+                single_count += 1
+            else:
+                batch_count += 1
+
+        # Atomic write: write to temp file then replace
+        try:
+            tmp_target = f"{cache_file}.tmp"
+            import pickle as _pickle
+            with open(tmp_target, 'wb') as f:
+                _pickle.dump(analyses_data, f)
+            os.replace(tmp_target, cache_file)
+            logging.info(f"Background analysis cached to {cache_file}")
+        except Exception as e:
+            logging.warning(f"Failed to atomically write cache in background worker: {e}")
+
+        # Trigger process_batch in FAST_TEST_MODE after cache written
+        try:
+            if os.getenv('FAST_TEST_MODE', '0').lower() in ('1', 'true', 't'):
+                from ..processing import process_batch
+                logging.info("FAST_TEST_MODE: background worker triggering process_batch")
+                try:
+                    process_batch()
+                except Exception as e:
+                    logging.warning(f"process_batch in background failed: {e}")
+        except Exception:
+            pass
+
+    except Exception as e:
+        logging.error(f"Error in background analysis worker: {e}")
+    finally:
+        # Remove lock file if present
+        try:
+            lf = os.path.join(select_tmp_dir(), 'intake_analysis_in_progress.lock')
+            if os.path.exists(lf):
+                os.remove(lf)
+        except Exception:
+            pass
+
 @intake_bp.route("/analyze_intake")
 def analyze_intake_page():
     """Display the intake analysis page with cached results if available."""
@@ -261,254 +345,101 @@ def analyze_intake_progress():
 
     This endpoint provides live updates during the document detection and analysis process.
     """
+    # Capture remote address once (avoid accessing `request` inside generator)
+    try:
+        _remote_addr = request.remote_addr
+    except Exception:
+        _remote_addr = None
+
+    
+
     def generate_progress():
-        try:
-            # Import here to avoid circular imports
-            import os
+        """SSE generator that spawns background analysis and polls for cached results."""
+        logging.info(f"SSE connection opened for analyze_intake_progress from {_remote_addr}")
 
-            intake_dir = app_config.INTAKE_DIR
+        intake_dir = app_config.INTAKE_DIR
+        if not os.path.exists(intake_dir):
+            payload = {'error': f'Intake directory does not exist: {intake_dir}'}
+            yield f"data: {json.dumps(payload)}\n\n"
+            return
+
+        tmp_dir = select_tmp_dir()
+        os.makedirs(tmp_dir, exist_ok=True)
+        cache_file = os.path.join(tmp_dir, 'intake_analysis_cache.pkl')
+        lock_file = os.path.join(tmp_dir, 'intake_analysis_in_progress.lock')
+
+        # If no analysis in progress and no cache, start background worker
+        if not os.path.exists(cache_file) and not os.path.exists(lock_file):
             try:
-                # Test-debug: log intake directory visibility and contents
-                files = os.listdir(intake_dir) if os.path.exists(intake_dir) else []
-                logging.info(f"intake directory '{intake_dir}' exists={os.path.exists(intake_dir)} files={files}")
-            except Exception as _e:
-                logging.info(f"could not list intake dir {intake_dir}: {_e}")
-            if not os.path.exists(intake_dir):
-                yield f"data: {json.dumps({'error': f'Intake directory does not exist: {intake_dir}'})}\n\n"
-                return
-
-            # Clean up any old converted PDFs to ensure fresh start
-            import tempfile
-            import glob
-            temp_dir = select_tmp_dir()
-            old_converted_pdfs = glob.glob(os.path.join(temp_dir, "*_converted.pdf"))
-            for old_pdf in old_converted_pdfs:
-                try:
-                    os.remove(old_pdf)
-                    logging.info(f"Cleaned up old converted PDF: {os.path.basename(old_pdf)}")
-                except Exception as e:
-                    logging.warning(f"Failed to clean up {old_pdf}: {e}")
-
-            # Ensure mapping table exists; we'll repopulate mappings during this run
-            try:
-                conn = get_db_connection()
-                cur = conn.cursor()
-                cur.execute("CREATE TABLE IF NOT EXISTS intake_working_files (filename TEXT PRIMARY KEY, working_pdf TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
-                conn.commit()
-                conn.close()
-            except Exception as db_err:
-                logging.warning(f"Could not ensure intake_working_files table: {db_err}")
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-
-            # Scan intake directory for files - treat ALL as needing conversion
-            original_pdf_files = []
-            image_files = []
-
-            for f in os.listdir(intake_dir):
-                file_ext = os.path.splitext(f)[1].lower()
-                file_path = os.path.join(intake_dir, f)
-                if file_ext == '.pdf':
-                    original_pdf_files.append(file_path)
-                elif file_ext in ['.png', '.jpg', '.jpeg']:
-                    image_files.append(file_path)
-
-            total_files = len(original_pdf_files) + len(image_files)
-            # Total operations = convert all files (PDFs + images) + analyze all converted PDFs
-            total_operations = total_files + total_files  # Convert everything + analyze everything
-
-            if total_files == 0:
-                yield f"data: {json.dumps({'complete': True, 'analyses': [], 'total': 0, 'single_count': 0, 'batch_count': 0, 'success': True})}\n\n"
-                return
-
-            # Send initial progress
-            logging.info(f"Starting two-phase analysis for {total_files} files ({len(original_pdf_files)} PDFs, {len(image_files)} images)")
-            yield f"data: {json.dumps({'progress': 0, 'total': total_operations, 'current_file': None, 'message': f'Found {total_files} files - starting two-phase processing...'})}\n\n"
-
-            # Phase 1: Convert ALL files to standardized PDFs
-            all_converted_pdfs = []
-            detector = get_detector(use_llm_for_ambiguous=True)
-            current_operation = 0
-
-            yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': None, 'message': f'Phase 1: Converting {total_files} files to standardized PDFs...'})}\n\n"
-
-            # Convert images to PDFs
-            for i, image_path in enumerate(image_files):
-                image_name = os.path.basename(image_path)
-                current_operation += 1
-                yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': image_name, 'message': f'Converting image {i+1}/{len(image_files)}: {image_name}...'})}\n\n"
-
-                converted_pdf = detector._convert_image_to_pdf(image_path)
-                all_converted_pdfs.append(converted_pdf)
-                logging.info(f"Converted image: {image_name} -> {os.path.basename(converted_pdf)}")
-
-                # Persist mapping image -> converted PDF
-                try:
-                    conn = get_db_connection()
-                    cur = conn.cursor()
-                    cur.execute("CREATE TABLE IF NOT EXISTS intake_working_files (filename TEXT PRIMARY KEY, working_pdf TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
-                    cur.execute("UPDATE intake_working_files SET working_pdf = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?", (converted_pdf, image_name))
-                    if cur.rowcount == 0:
-                        cur.execute("INSERT INTO intake_working_files (filename, working_pdf) VALUES (?, ?)", (image_name, converted_pdf))
-                    conn.commit()
-                    conn.close()
-                except Exception as db_err:
-                    logging.warning(f"Failed to persist mapping for {image_name}: {db_err}")
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-
-            # Copy original PDFs to temp directory for consistent handling
-            for i, pdf_path in enumerate(original_pdf_files):
-                pdf_name = os.path.basename(pdf_path)
-                current_operation += 1
-                yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': pdf_name, 'message': f'Standardizing PDF {i+1}/{len(original_pdf_files)}: {pdf_name}...'})}\n\n"
-
-                # Copy to temp with consistent naming
-                temp_pdf_path = os.path.join(temp_dir, f"{Path(pdf_path).stem}_standardized.pdf")
-                import shutil
-                shutil.copy2(pdf_path, temp_pdf_path)
-                all_converted_pdfs.append(temp_pdf_path)
-                logging.info(f"Standardized PDF: {pdf_name} -> {os.path.basename(temp_pdf_path)}")
-
-                # Persist mapping original PDF -> standardized copy
-                try:
-                    conn = get_db_connection()
-                    cur = conn.cursor()
-                    cur.execute("CREATE TABLE IF NOT EXISTS intake_working_files (filename TEXT PRIMARY KEY, working_pdf TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
-                    cur.execute("UPDATE intake_working_files SET working_pdf = ?, updated_at = CURRENT_TIMESTAMP WHERE filename = ?", (temp_pdf_path, pdf_name))
-                    if cur.rowcount == 0:
-                        cur.execute("INSERT INTO intake_working_files (filename, working_pdf) VALUES (?, ?)", (pdf_name, temp_pdf_path))
-                    conn.commit()
-                    conn.close()
-                except Exception as db_err:
-                    logging.warning(f"Failed to persist mapping for {pdf_name}: {db_err}")
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-
-            # Phase 2: Analyze all standardized PDFs
-            total_pdfs = len(all_converted_pdfs)
-            yield f"data: {json.dumps({'progress': current_operation, 'total': total_operations, 'current_file': None, 'message': f'Phase 2: Analyzing {total_pdfs} standardized PDFs...'})}\n\n"
-
-            analyses = []
-            single_count = 0
-            batch_count = 0
-
-            for i, pdf_path in enumerate(all_converted_pdfs):
-                pdf_name = os.path.basename(pdf_path)
-                current_operation += 1
-
-                # Send progress update for current PDF analysis. We emit both the
-                # aggregate operation counters (progress/total) and PDF-centric
-                # counters (pdf_progress/pdf_total) so the UI can show a
-                # user-friendly "X of Y PDFs" message while internal logic can
-                # still track convert+analyze operations.
-                payload = {
-                    'progress': current_operation,
-                    'total': total_operations,
-                    'pdf_progress': i + 1,
-                    'pdf_total': total_pdfs,
-                    'current_file': pdf_name,
-                    'message': f'Analyzing PDF {i+1}/{total_pdfs}: {pdf_name}...'
-                }
-                yield f"data: {json.dumps(payload)}\n\n"
-
-                # Analyze the standardized PDF
-                analysis = detector.analyze_pdf(pdf_path)
-
-                # Determine original filename for display
-                original_filename = pdf_name
-                if "_converted.pdf" in pdf_name:
-                    # Find the original image name
-                    original_filename = pdf_name.replace("_converted.pdf", "")
-                    # Add back original extension
-                    for img_path in image_files:
-                        if Path(img_path).stem == original_filename:
-                            original_filename = os.path.basename(img_path)
-                            break
-                elif "_standardized.pdf" in pdf_name:
-                    # Find the original PDF name
-                    original_filename = pdf_name.replace("_standardized.pdf", ".pdf")
-
-                # Load any persisted rotation for this filename
-                persisted_rotation = None
-                try:
-                    conn = get_db_connection()
-                    cur = conn.cursor()
-                    cur.execute("CREATE TABLE IF NOT EXISTS intake_rotations (filename TEXT PRIMARY KEY, rotation INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
-                    row = cur.execute("SELECT rotation FROM intake_rotations WHERE filename = ?", (original_filename,)).fetchone()
-                    if row:
-                        persisted_rotation = int(row[0])
-                except Exception as rot_err:
-                    logging.warning(f"Could not read persisted rotation for {original_filename}: {rot_err}")
-                finally:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-
-                # Prepare analysis data (prefer persisted rotation when available)
-                analysis_data = {
-                    'filename': original_filename,  # Use original filename for display
-                    'file_size_mb': analysis.file_size_mb,
-                    'page_count': analysis.page_count,
-                    'processing_strategy': analysis.processing_strategy,
-                    'confidence': analysis.confidence,
-                    'reasoning': analysis.reasoning,
-                    'filename_hints': analysis.filename_hints,
-                    'content_sample': analysis.content_sample,
-                    'llm_analysis': analysis.llm_analysis,  # Include LLM analysis data
-                    'detected_rotation': persisted_rotation if persisted_rotation is not None else analysis.detected_rotation,
-                    'pdf_path': pdf_path  # Store the actual PDF path for serving
-                }
-
-                analyses.append(analysis_data)
-
-                if analysis.processing_strategy == "single_document":
-                    single_count += 1
-                else:
-                    batch_count += 1
-
-            # Cache the analysis results for future use
-            import tempfile
-            import pickle
-            cache_file = os.path.join(tempfile.gettempdir(), 'intake_analysis_cache.pkl')
-            try:
-                with open(cache_file, 'wb') as f:
-                    pickle.dump(analyses, f)
-                logging.info(f"Cached analysis results to {cache_file}")
-            except Exception as cache_err:
-                logging.warning(f"Failed to cache analysis results: {cache_err}")
-
-            # Build completion payload. If caller requested a batch_id, include a redirect
-            # to the manipulation view for that batch so the client can follow automatically.
-            complete_payload = {
-                'complete': True,
-                'analyses': analyses,
-                'total': total_operations,
-                'single_count': single_count,
-                'batch_count': batch_count,
-                'success': True
-            }
-            # Respect batch_id query param (if provided by client) for post-analysis redirect
-            try:
-                b_id = request.args.get('batch_id')
-                if b_id:
-                    complete_payload['redirect'] = url_for('manipulation.view_documents', batch_id=int(b_id))
+                # create lock file to indicate work started
+                with open(lock_file, 'w') as lf:
+                    lf.write(str(time.time()))
             except Exception:
                 pass
-            yield f"data: {json.dumps(complete_payload)}\n\n"
+            try:
+                t = threading.Thread(target=background_analysis_worker, args=(intake_dir, cache_file), daemon=True)
+                t.start()
+                logging.info("Spawned background analysis thread")
+            except Exception as e:
+                logging.warning(f"Failed to spawn background analysis thread: {e}")
 
-        except Exception as e:
-            logging.error(f"Error in intake analysis SSE: {e}")
-            yield f"data: {json.dumps({'error': str(e), 'complete': True, 'success': False})}\n\n"
+        # Emit queued message then poll for cache; send keep-alive comments while waiting
+        try:
+            payload = {'queued': True, 'message': 'Analysis started in background'}
+            yield f"data: {json.dumps(payload)}\n\n"
+            # Poll for cache or final result
+            waited = 0
+            while True:
+                if os.path.exists(cache_file):
+                    try:
+                        import pickle
+                        with open(cache_file, 'rb') as f:
+                            analyses = pickle.load(f)
+                        complete_payload = {
+                            'complete': True,
+                            'analyses': analyses,
+                            'total': len(analyses),
+                            'single_count': sum(1 for a in analyses if a.get('processing_strategy') == 'single_document'),
+                            'batch_count': sum(1 for a in analyses if a.get('processing_strategy') != 'single_document'),
+                            'success': True
+                        }
+                        yield f"data: {json.dumps(complete_payload)}\n\n"
+                    except Exception as e:
+                        yield f"data: {json.dumps({'error': str(e), 'success': False})}\n\n"
+                    break
 
-    return Response(generate_progress(), mimetype='text/event-stream')
+                # Keep-alive comment to avoid client timeouts
+                yield f": keep-alive\n\n"
+                time.sleep(1)
+                waited += 1
+                # Safety timeout: after ~5 minutes stop polling
+                if waited > 300:
+                    yield f"data: {json.dumps({'error': 'Timeout waiting for analysis to complete', 'success': False})}\n\n"
+                    break
+        finally:
+            try:
+                logging.info(f"SSE connection closed for analyze_intake_progress from {_remote_addr}")
+            except Exception:
+                pass
+
+    # Wrap the generator to trace each emitted SSE payload and lifecycle
+    def _traced_stream(gen, label='intake'):
+        try:
+            for item in gen:
+                try:
+                    # Log a short summary of emission (trim large payloads)
+                    snippet = item if isinstance(item, str) and len(item) < 200 else (item[:200] + '...')
+                    logging.info(f"SSE[{label}] emit ts={time.time()} payload={snippet}")
+                except Exception:
+                    logging.exception("Failed to log SSE emit")
+                yield item
+        finally:
+            try:
+                logging.info(f"SSE[{label}] closed ts={time.time()}")
+            except Exception:
+                pass
+
+    return Response(_traced_stream(generate_progress(), 'analyze_intake'), mimetype='text/event-stream')
 
 @intake_bp.route("/api/analyze_intake")
 def analyze_intake_api():
@@ -526,95 +457,52 @@ def analyze_intake_api():
         except Exception as _e:
             logging.info(f"analyze_intake_api could not list intake dir: {_e}")
 
-        detector = get_detector(use_llm_for_ambiguous=True)
-        analyses = detector.analyze_intake_directory(app_config.INTAKE_DIR)
+        # Use the test-friendly select_tmp_dir() so tests and SSE use same cache
+        cache_file = os.path.join(select_tmp_dir(), 'intake_analysis_cache.pkl')
+        lock_file = os.path.join(select_tmp_dir(), 'intake_analysis_in_progress.lock')
 
-        # Convert analyses to JSON-serializable format
-        analyses_data = []
-        single_count = 0
-        batch_count = 0
-
-        # Load persisted rotations once
-        persisted = {}
-        try:
-            conn = get_db_connection()
-            cur = conn.cursor()
-            cur.execute("CREATE TABLE IF NOT EXISTS intake_rotations (filename TEXT PRIMARY KEY, rotation INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
-            for row in cur.execute("SELECT filename, rotation FROM intake_rotations"):
-                persisted[row[0]] = int(row[1])
-        except Exception as rot_err:
-            logging.warning(f"Could not load persisted intake rotations: {rot_err}")
-        finally:
+        # If cache is already present, return it synchronously
+        if os.path.exists(cache_file):
             try:
-                conn.close()
+                import pickle
+                with open(cache_file, 'rb') as f:
+                    analyses = pickle.load(f)
+                result = {
+                    'analyses': analyses,
+                    'total': len(analyses),
+                    'single_count': sum(1 for a in analyses if a.get('processing_strategy') == 'single_document'),
+                    'batch_count': sum(1 for a in analyses if a.get('processing_strategy') != 'single_document'),
+                    'success': True,
+                    'redirect': None
+                }
+                try:
+                    api_bid = request.args.get('batch_id')
+                    if api_bid:
+                        result['redirect'] = url_for('manipulation.view_documents', batch_id=int(api_bid))
+                except Exception:
+                    pass
+                return jsonify(result)
+            except Exception as e:
+                logging.warning(f"Failed to read existing analysis cache: {e}")
+
+        # If an analysis is in progress, respond with 202 Accepted
+        if os.path.exists(lock_file):
+            return jsonify({'accepted': True, 'message': 'Analysis already in progress'}), 202
+
+        # Start analysis in background and return 202
+        try:
+            try:
+                with open(lock_file, 'w') as lf:
+                    lf.write(str(time.time()))
             except Exception:
                 pass
-
-        for analysis in analyses:
-            filename_only = os.path.basename(analysis.file_path)
-            detected_rot = persisted.get(filename_only, analysis.detected_rotation)
-            analysis_data = {
-                'filename': os.path.basename(analysis.file_path),
-                'file_size_mb': analysis.file_size_mb,
-                'page_count': analysis.page_count,
-                'processing_strategy': analysis.processing_strategy,
-                'confidence': analysis.confidence,
-                'reasoning': analysis.reasoning,
-                'filename_hints': analysis.filename_hints,
-                'content_sample': analysis.content_sample,
-                'llm_analysis': analysis.llm_analysis,  # Include LLM analysis data
-                'detected_rotation': detected_rot  # Include rotation info (persisted if available)
-            }
-            analyses_data.append(analysis_data)
-
-            if analysis.processing_strategy == "single_document":
-                single_count += 1
-            else:
-                batch_count += 1
-
-        # Cache the analysis results for future use
-        import tempfile
-        import pickle
-        # Use the test-friendly select_tmp_dir() so the readiness probe looks
-        # in the same temporary directory where analysis results are cached.
-        cache_file = os.path.join(select_tmp_dir(), 'intake_analysis_cache.pkl')
-        try:
-            with open(cache_file, 'wb') as f:
-                pickle.dump(analyses_data, f)
-            logging.info(f"Cached analysis results to {cache_file}")
-        except Exception as cache_err:
-            logging.warning(f"Failed to cache analysis results: {cache_err}")
-
-        result = {
-            'analyses': analyses_data,
-            'total': len(analyses_data),
-            'single_count': single_count,
-            'batch_count': batch_count,
-            'success': True,
-            'redirect': None
-        }
-        try:
-            api_bid = request.args.get('batch_id')
-            if api_bid:
-                result['redirect'] = url_for('manipulation.view_documents', batch_id=int(api_bid))
-        except Exception:
-            pass
-        # In FAST_TEST_MODE (used by tests) optionally kick off processing
-        try:
-            fast_mode = os.getenv('FAST_TEST_MODE', '0').lower() in ('1', 'true', 't')
-            auto_process = request.args.get('auto_process') == '1'
-            if fast_mode or auto_process:
-                try:
-                    from ..processing import process_batch
-                    logging.info(f"Triggering process_batch from analyze_intake_api (fast_mode={fast_mode}, auto_process={auto_process})")
-                    proc_ok = process_batch()
-                    logging.info(f"process_batch returned: {proc_ok}")
-                except Exception as proc_err:
-                    logging.warning(f"process_batch failed: {proc_err}")
-        except Exception:
-            pass
-
-        return jsonify(result)
+            t = threading.Thread(target=background_analysis_worker, args=(app_config.INTAKE_DIR, cache_file), daemon=True)
+            t.start()
+            logging.info("Started background analysis from analyze_intake_api")
+            return jsonify({'accepted': True, 'message': 'Analysis started in background'}), 202
+        except Exception as e:
+            logging.error(f"Failed to start background analysis: {e}")
+            return jsonify({'error': str(e), 'success': False}), 500
 
     except Exception as e:
         logging.error(f"Error in analyze_intake_api: {e}")

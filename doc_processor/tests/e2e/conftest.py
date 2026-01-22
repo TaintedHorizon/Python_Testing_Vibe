@@ -426,3 +426,21 @@ def resolve_final_batch_id(base_url, initial_batch_id, timeout=10):
             pass
     return initial_batch_id
 
+
+@pytest.fixture(scope='session')
+def base_url():
+    """Session-scoped base URL for E2E tests (from env or default)."""
+    return os.environ.get('BASE_URL', 'http://127.0.0.1:5000')
+
+
+@pytest.fixture(scope='function')
+def poll_smart_status(base_url):
+    """Provide a callable for tests to poll smart processing fallback status.
+
+    Usage:
+        last_event, meta = poll_smart_status(token)
+    """
+    def _poll(token, **kwargs):
+        return __import__('doc_processor.tests.e2e.helpers.smart_status_helper', fromlist=['']).poll_smart_processing_status(token, base_url=base_url, **kwargs)
+    return _poll
+
