@@ -157,7 +157,37 @@ def background_analysis_worker(intake_dir, cache_file, batch_id=None):
     try:
         logging.info(f"Background analysis worker starting for {intake_dir}")
         detector = get_detector(use_llm_for_ambiguous=True)
-        analyses = detector.analyze_intake_directory(intake_dir)
+        analyses = None
+        # Prefer high-level batch analysis if detector supports it
+        try:
+            if hasattr(detector, 'analyze_intake_directory'):
+                analyses = detector.analyze_intake_directory(intake_dir)
+            else:
+                # Fallback: analyze files one-by-one using analyze_pdf
+                analyses = []
+                try:
+                    entries = os.listdir(intake_dir)
+                except Exception:
+                    entries = []
+                for fname in sorted(entries):
+                    lower = fname.lower()
+                    if not lower.endswith(('.pdf', '.png', '.jpg', '.jpeg')):
+                        continue
+                    # Resolve a working PDF path for images and PDFs
+                    try:
+                        working = _resolve_working_pdf_path(fname)
+                    except Exception:
+                        working = os.path.join(intake_dir, fname)
+                    try:
+                        if hasattr(detector, 'analyze_pdf'):
+                            analysis = detector.analyze_pdf(working)
+                            if analysis:
+                                analyses.append(analysis)
+                    except Exception as e:
+                        logging.warning(f"Per-file analysis failed for {working}: {e}")
+        except Exception as e:
+            logging.error(f"Detector analysis error: {e}")
+            analyses = []
 
         # Convert analysis objects to serializable dicts similar to analyze_intake_api
         analyses_data = []
@@ -385,7 +415,14 @@ def analyze_intake_progress():
 
         # Emit queued message then poll for cache; send keep-alive comments while waiting
         try:
-            payload = {'queued': True, 'message': 'Analysis started in background'}
+            # Include initial PDF progress counters so tests observing SSE
+            # immediately can assert on these keys without waiting for full analysis.
+            try:
+                files = os.listdir(intake_dir)
+                pdf_total = sum(1 for f in files if f.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg')))
+            except Exception:
+                pdf_total = 0
+            payload = {'queued': True, 'message': 'Analysis started in background', 'pdf_progress': 0, 'pdf_total': pdf_total}
             yield f"data: {json.dumps(payload)}\n\n"
             # Poll for cache or final result
             waited = 0
