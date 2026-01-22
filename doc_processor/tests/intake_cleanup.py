@@ -19,6 +19,7 @@ def _cleanup_repo_intake_after_tests():
     start_time = time.time()
     intake_dir = os.environ.get('INTAKE_DIR') or str(Path(__file__).resolve().parents[2] / 'intake')
     initial = set()
+
     try:
         p = Path(intake_dir)
         if p.exists() and p.is_dir():
@@ -36,6 +37,7 @@ def _cleanup_repo_intake_after_tests():
     try:
         p = Path(intake_dir)
         repo_root = Path(__file__).resolve().parents[2]
+
         # Safety: only operate if intake_dir is inside repo_root
         try:
             if not p.resolve().is_relative_to(repo_root.resolve()):
@@ -64,6 +66,7 @@ def _cleanup_repo_intake_after_tests():
                     continue
                 name = f.name.lower()
                 ext = f.suffix.lower()
+
                 # conservative matching: sample*, test_* or name contains 'sample'
                 if name.startswith('sample') or name.startswith('test_') or 'sample' in name:
                     # only remove common document/image extensions
