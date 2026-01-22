@@ -6,17 +6,13 @@ import pytest
 
 @pytest.fixture(scope="session", autouse=True)
 def _cleanup_repo_intake_after_tests():
-    """If tests run against the repository intake directory, safely remove
-    test-created sample files after the test session.
+    """Safely remove test-created sample files from the repo intake directory.
 
-    Behaviour:
-    - Snapshot files present at start; on teardown remove any new files that
-      match conservative test patterns (contain 'sample' or start with 'test_'
-      and have common document/image extensions).
-    - Only operates when the intake dir is inside the repository to avoid
-      accidental deletion of user data elsewhere.
+    This fixture snapshots existing files at test start and removes new files
+    that match conservative patterns (contain 'sample' or start with 'test_'
+    and have common document/image extensions) during teardown. It only
+    operates when the intake directory is inside the repository root.
     """
-    start_time = time.time()
     intake_dir = os.environ.get('INTAKE_DIR') or str(Path(__file__).resolve().parents[2] / 'intake')
     initial = set()
 
@@ -27,7 +23,7 @@ def _cleanup_repo_intake_after_tests():
                 try:
                     initial.add(f.resolve())
                 except Exception:
-                    continue
+                    pass
     except Exception:
         initial = set()
 
@@ -38,7 +34,7 @@ def _cleanup_repo_intake_after_tests():
         p = Path(intake_dir)
         repo_root = Path(__file__).resolve().parents[2]
 
-        # Safety: only operate if intake_dir is inside repo_root
+        # Safety: ensure intake_dir is inside repository root
         try:
             if not p.resolve().is_relative_to(repo_root.resolve()):
                 return
@@ -58,8 +54,7 @@ def _cleanup_repo_intake_after_tests():
             except Exception:
                 continue
 
-        new_files = current - initial
-        for fpath in new_files:
+        for fpath in current - initial:
             try:
                 f = Path(fpath)
                 if not f.exists() or not f.is_file():
@@ -67,16 +62,13 @@ def _cleanup_repo_intake_after_tests():
                 name = f.name.lower()
                 ext = f.suffix.lower()
 
-                # conservative matching: sample*, test_* or name contains 'sample'
-                if name.startswith('sample') or name.startswith('test_') or 'sample' in name:
-                    # only remove common document/image extensions
-                    if ext in ('.pdf', '.png', '.jpg', '.jpeg', '.tif', '.tiff'):
-                        try:
-                            f.unlink()
-                        except Exception:
-                            # best-effort; skip if we cannot remove
-                            continue
+                if (name.startswith('sample') or name.startswith('test_') or 'sample' in name) and ext in ('.pdf', '.png', '.jpg', '.jpeg', '.tif', '.tiff'):
+                    try:
+                        f.unlink()
+                    except Exception:
+                        pass
+            except Exception:
+                continue
     except Exception:
-        # Do not raise during teardown
+        # Never raise during test teardown
         pass
-    pass
