@@ -45,6 +45,16 @@ fi
 cd "$REPO_ROOT"
 echo -e "${GREEN}Changed to repo root: $(pwd)${NC}"
 
+# Load environment variables from doc_processor/.env if present
+ENV_FILE="$REPO_ROOT/doc_processor/.env"
+if [ -f "$ENV_FILE" ]; then
+    echo -e "${YELLOW}Loading environment from ${ENV_FILE}${NC}"
+    set -o allexport
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +o allexport
+fi
+
 # Activate virtual environment
 echo -e "${YELLOW}Activating virtual environment...${NC}"
 source "$VENV_DIR/bin/activate"

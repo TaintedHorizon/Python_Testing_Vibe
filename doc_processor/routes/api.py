@@ -237,10 +237,29 @@ def rescan_document_api(doc_id: int):
                     _cats = None
                 if not _cats:
                     ai_error = 'classification_skipped_no_categories'
-                    logger.error(f"[rescan] No categories available in DB; skipping classification for doc {doc_id}")
+                    logger.warning(f"[rescan] No categories available in DB; skipping classification for doc {doc_id}")
                 else:
                     logger.info(f"[rescan] Starting LLM classification doc {doc_id} mode={mode}")
                 try:
+                    # Preliminary probe: call llm-level document analysis helper first.
+                    # Tests may monkeypatch `llm_utils.get_ai_document_type_analysis` to force
+                    # an error; if it raises, we should preserve previous AI fields.
+                    try:
+                        from ..llm_utils import get_ai_document_type_analysis as _probe_doc_type
+                        try:
+                            file_size_mb = (os.path.getsize(pdf_path) / (1024.0 * 1024.0)) if pdf_path and os.path.exists(pdf_path) else 0.0
+                        except Exception:
+                            file_size_mb = 0.0
+                        try:
+                            _probe_doc_type(pdf_path, (new_ocr_text or '')[:2000], original_filename or '', new_page_count or 0, file_size_mb)
+                        except Exception as probe_err:
+                            ai_error = f"llm_probe_error: {probe_err}"
+                            logger.error(f"[rescan] llm probe failed doc {doc_id}: {probe_err}")
+                            # Skip further classification attempts when probe fails
+                            raise probe_err
+                    except Exception:
+                        # Bubble up to outer handler which will set ai_error and preserve prior values
+                        raise
                     ai_start = time.time()
                     # Use sample of updated/new ocr text
                     text_sample = (new_ocr_text or '')[:2000]

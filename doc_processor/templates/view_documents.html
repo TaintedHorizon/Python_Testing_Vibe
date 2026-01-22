@@ -31,7 +31,7 @@
                         <td>{{ doc.filename }}</td>
                         <td>
                             {% if doc.searchable_pdf_path %}
-                            <a href="{{ url_for('export.serve_processed_file', filepath='searchable_pdfs/' + doc.original_filename.replace('.pdf', '_searchable.pdf')) }}" target="_blank">📄 View PDF</a>
+                            <a href="{{ url_for('export.serve_processed_file', filepath='searchable_pdfs/' + doc.original_filename.replace('.pdf', '_searchable.pdf')) }}" target="_blank"{{ testid('view-pdf-'+doc.id|string) }}>📄 View PDF</a>
                             {% else %}
                             <span style="color: #999;">PDF not available</span>
                             {% endif %}
@@ -49,6 +49,6 @@
 {% endif %}
 
 <div style="padding: 24px 0 0 0; text-align: center;">
-    <a href="{{ url_for('batch.batch_control') }}" style="min-width: 180px; background-color: #6c757d; color: white; border-radius: 5px; padding: 10px 20px; text-decoration: none; display: inline-block;">Back to Batch Control</a>
+    <a href="{{ url_for('batch.batch_control') }}" style="min-width: 180px; background-color: #6c757d; color: white; border-radius: 5px; padding: 10px 20px; text-decoration: none; display: inline-block;"{{ testid('back-to-batch-control') }}>Back to Batch Control</a>
 </div>
 {% endblock %}

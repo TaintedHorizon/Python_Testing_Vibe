@@ -125,9 +125,9 @@
         <div style="margin-bottom: 18px; display: flex; align-items: center; gap: 18px;">
             <label for="filename-input" style="font-size:1.1em; font-weight:normal;">Filename:&nbsp;</label>
             <input type="text" id="filename-input" name="filename" value="{{ suggested_filename or '' }}" style="font-size:1.1em; width: 380px; padding: 4px 8px; border: 1.5px solid #007BFF; border-radius: 4px; color:#222; font-weight:bold;">
-            <button type="button" id="suggest-name-btn" class="btn btn-ai">🤖 Suggest Name</button>
-            <button type="button" id="apply-name-btn" class="btn btn-save">Apply Name</button>
-            <button type="button" id="revert-name-btn" class="btn btn-cancel" style="display:none;">Revert</button>
+            <button type="button" id="suggest-name-btn" class="btn btn-ai"{{ testid('order-suggest-name') }}>🤖 Suggest Name</button>
+            <button type="button" id="apply-name-btn" class="btn btn-save"{{ testid('order-apply-name') }}>Apply Name</button>
+            <button type="button" id="revert-name-btn" class="btn btn-cancel" style="display:none;"{{ testid('order-revert-name') }}>Revert</button>
         </div>
 
         <!-- The form that will submit the final page order -->
@@ -152,9 +152,9 @@
             <div class="actions-container">
                 <p id="status-message" class="status-message"></p>
                 <div class="actions">
-                    <a href="{{ url_for('manipulation.order_documents', batch_id=batch_id) }}" class="btn btn-cancel">Cancel</a>
-                    <button type="button" id="suggest-order-btn" class="btn btn-ai">🤖 Suggest Order</button>
-                    <button type="submit" class="btn btn-save">Finish Reordering</button>
+                    <a href="{{ url_for('manipulation.order_documents', batch_id=batch_id) }}" class="btn btn-cancel"{{ testid('order-cancel') }}>Cancel</a>
+                    <button type="button" id="suggest-order-btn" class="btn btn-ai"{{ testid('order-suggest-order') }}>🤖 Suggest Order</button>
+                    <button type="submit" class="btn btn-save"{{ testid('order-finish-reordering') }}>Finish Reordering</button>
                 </div>
             </div>
         </form>

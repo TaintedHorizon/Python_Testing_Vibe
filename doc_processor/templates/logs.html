@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1>Application Logs</h1>
-
+<div{{ testid('page-logs') }}>
 {% if logs and logs|length > 0 %}
 <pre style="max-height:60vh; overflow:auto; background:#111; color:#ddd; padding:12px; border-radius:6px;">
 {% for line in logs %}{{ line }}{% endfor %}
@@ -12,4 +12,5 @@
 {% else %}
 <p>No logs to display.</p>
 {% endif %}
+</div>
 {% endblock %}

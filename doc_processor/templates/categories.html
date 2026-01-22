@@ -36,7 +36,7 @@ form + form { margin-left:4px; }
     <input type="text" id="name" name="name" placeholder="e.g. Insurance Policy" required />
     <label for="notes">Notes (optional)</label>
     <textarea id="notes" name="notes" rows="2" placeholder="Context or LLM guidance"></textarea>
-                <button type="submit">➕ Add Category</button>
+                <button type="submit"{{ testid('add-category') }}>➕ Add Category</button>
   </form>
 </div>
 
@@ -84,7 +84,7 @@ form + form { margin-left:4px; }
         <form action="{{ url_for('admin.rename_category', cat_id=cat.id) }}" method="post" class="inline-edit" style="flex-direction:column; align-items:stretch; gap:4px;">
           <div style="display:flex; gap:6px;">
             <input type="text" name="new_name" placeholder="New name" />
-            <button type="submit" class="small-btn rename-btn">Rename</button>
+            <button type="submit" class="small-btn rename-btn"{{ testid('rename-category-'+cat.id|string) }}>Rename</button>
           </div>
             <label style="font-size:0.65rem; display:flex; align-items:center; gap:4px; color:#555;">
               <input type="checkbox" name="skip_backfill" /> No backfill
@@ -94,11 +94,11 @@ form + form { margin-left:4px; }
       <td>
         {% if cat.is_active %}
           <form action="{{ url_for('admin.delete_category', cat_id=cat.id) }}" method="post" class="action-form" onsubmit="return confirm('Hide (soft delete) this category? It can be restored later.');">
-            <button type="submit" class="small-btn delete-btn">Remove</button>
+            <button type="submit" class="small-btn delete-btn"{{ testid('remove-category-'+cat.id|string) }}>Remove</button>
           </form>
         {% else %}
           <form action="{{ url_for('admin.restore_category', cat_id=cat.id) }}" method="post" class="action-form">
-            <button type="submit" class="small-btn restore-btn">Restore</button>
+            <button type="submit" class="small-btn restore-btn"{{ testid('restore-category-'+cat.id|string) }}>Restore</button>
           </form>
         {% endif %}
       </td>
@@ -120,8 +120,8 @@ form + form { margin-left:4px; }
     <input type="number" name="limit" id="limit" min="1" max="200" value="{{ request.args.get('limit','25') }}" style="padding:4px 6px; width:100px;" />
   </div>
   <div>
-    <button type="submit" class="small-btn" style="background:#2c5282;">Apply</button>
-    <a href="{{ url_for('admin.categories') }}" class="small-btn" style="background:#6c757d; text-decoration:none;">Reset</a>
+    <button type="submit" class="small-btn" style="background:#2c5282;"{{ testid('apply-category-filter') }}>Apply</button>
+    <a href="{{ url_for('admin.categories') }}" class="small-btn" style="background:#6c757d; text-decoration:none;"{{ testid('reset-category-filter') }}>Reset</a>
   </div>
 </form>
 <p class="note">Showing the {{ history|length }} most recent changes (add, rename, remove, restore). Backfilled renames include pages_updated; skipped backfill shows "Renamed (no backfill)".</p>
@@ -153,6 +153,6 @@ form + form { margin-left:4px; }
 </table>
 
 <div style="text-align:center; margin-top:30px;">
-  <a href="{{ url_for('batch.batch_control') }}" style="background:#6c757d; color:#fff; padding:10px 22px; border-radius:5px; text-decoration:none;">Back to Batch Control</a>
+  <a href="{{ url_for('batch.batch_control') }}" style="background:#6c757d; color:#fff; padding:10px 22px; border-radius:5px; text-decoration:none;"{{ testid('back-to-batch-control') }}>Back to Batch Control</a>
 </div>
 {% endblock %}

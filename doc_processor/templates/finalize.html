@@ -46,8 +46,8 @@
                         <input type="hidden" name="document_ids" value="{{ doc.id }}">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <input type="text" name="final_filenames" class="filename-input" value="{{ doc.suggested_filename }}" id="filename-input-{{ doc.id }}">
-                            <button type="button" class="btn btn-ai suggest-btn" data-doc-id="{{ doc.id }}" title="Suggest filename">🤖</button>
-                            <button type="button" class="btn btn-cancel revert-btn" data-doc-id="{{ doc.id }}" style="display:none;" title="Revert filename">⟲</button>
+                            <button type="button" class="btn btn-ai suggest-btn" data-doc-id="{{ doc.id }}" title="Suggest filename"{{ testid('suggest-filename-'+doc.id|string) }}>🤖</button>
+                            <button type="button" class="btn btn-cancel revert-btn" data-doc-id="{{ doc.id }}" style="display:none;" title="Revert filename"{{ testid('revert-filename-'+doc.id|string) }}>⟲</button>
                         </div>
 <style>
     .btn { display: inline-block; padding: 6px 14px; text-decoration: none; color: white; border-radius: 5px; border: none; font-size: 1em; cursor: pointer; }

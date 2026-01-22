@@ -258,6 +258,36 @@ def e2e_page(playwright, request):
     browser = playwright.chromium.launch(headless=True)
     page = browser.new_page()
     setattr(request.node, "e2e_page", page)
+
+    # Attach runtime listeners to capture browser console and network events for failed runs
+    console_logs = []
+    try:
+        def _on_console(msg):
+            try:
+                console_logs.append(f"{msg.type}: {msg.text}")
+            except Exception:
+                console_logs.append(f"console_event_error")
+        page.on("console", _on_console)
+    except Exception:
+        pass
+
+    network_events = []
+    try:
+        def _on_request(req):
+            try:
+                network_events.append({"type": "request", "method": req.method, "url": req.url})
+            except Exception:
+                pass
+        def _on_response(resp):
+            try:
+                network_events.append({"type": "response", "status": resp.status, "url": resp.url})
+            except Exception:
+                pass
+        page.on("request", _on_request)
+        page.on("response", _on_response)
+    except Exception:
+        pass
+
     yield page
 
     failed = getattr(request.node, "failed", False)
@@ -272,6 +302,21 @@ def e2e_page(playwright, request):
         try:
             with open(os.path.join(artifacts_dir, base + ".html"), "w", encoding="utf-8") as fh:
                 fh.write(page.content())
+        except Exception:
+            pass
+        try:
+            # Save captured console messages
+            with open(os.path.join(artifacts_dir, base + ".console.log"), "w", encoding="utf-8") as fh:
+                for line in console_logs:
+                    fh.write(line + "\n")
+        except Exception:
+            pass
+        try:
+            # Save network events as JSON lines for easier inspection
+            import json
+            with open(os.path.join(artifacts_dir, base + ".network.jsonl"), "w", encoding="utf-8") as fh:
+                for ev in network_events:
+                    fh.write(json.dumps(ev) + "\n")
         except Exception:
             pass
         try:
@@ -358,5 +403,26 @@ def resolve_final_batch_id(base_url, initial_batch_id, timeout=10):
         except Exception:
             pass
         _time.sleep(0.25)
+    # Fallback: if the debug endpoint did not reveal a batch id, try reading
+    # the in-process server's test database directly (app_process exposes
+    # its DB path via E2E_SERVER_DB). This avoids an HTTP race when the
+    # server has finalized a batch but the debug endpoint didn't reflect it
+    # yet for the test client.
+    db_path = os.getenv('E2E_SERVER_DB') or os.getenv('DATABASE_PATH')
+    if db_path:
+        try:
+            import sqlite3 as _sqlite
+            conn = _sqlite.connect(db_path, timeout=5)
+            cur = conn.cursor()
+            cur.execute("SELECT id, batch_id FROM single_documents ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            conn.close()
+            if row and row[1]:
+                try:
+                    return int(row[1])
+                except Exception:
+                    return initial_batch_id
+        except Exception:
+            pass
     return initial_batch_id
 

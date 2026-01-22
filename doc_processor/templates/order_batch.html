@@ -53,10 +53,10 @@
                     <!-- Provide a link to the ordering page for this specific document -->
                     {% if doc.status == 'order_set' %}
                         <form method="post" action="{{ url_for('manipulation.revisit_ordering_document', document_id=doc.id) }}" style="display:inline;">
-                            <button type="submit" class="action-btn btn-revisit" onclick="event.stopPropagation();">Revisit Order</button>
+                            <button type="submit" class="action-btn btn-revisit" onclick="event.stopPropagation();"{{ testid('revisit-order-'+doc.id|string) }}>Revisit Order</button>
                         </form>
                     {% else %}
-                        <a href="{{ url_for('manipulation.order_single_document', document_id=doc.id) }}" class="action-btn btn-order">Order Pages</a>
+                        <a href="{{ url_for('manipulation.order_single_document', document_id=doc.id) }}" class="action-btn btn-order"{{ testid('order-pages-'+doc.id|string) }}>Order Pages</a>
                     {% endif %}
                 </td>
             </tr>
@@ -71,7 +71,7 @@
 
     <!-- Form to finish ordering and return to Batch Control -->
     <form class="finish-form" action="{{ url_for('manipulation.finish_ordering', batch_id=batch_id) }}" method="post">
-        <button type="submit" class="finish-btn">Finish Ordering</button>
+        <button type="submit" class="finish-btn"{{ testid('finish-ordering') }}>Finish Ordering</button>
     </form>
     <script>
     // Intercept the document-level revisit order form submit to redirect to the correct document after POST

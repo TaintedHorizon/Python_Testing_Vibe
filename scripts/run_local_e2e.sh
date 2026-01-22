@@ -38,7 +38,8 @@ chmod +x ./start_app.sh
 
 # If something is already listening on :5000, do not try to start another server.
 USE_EXISTING_APP=0
-if ss -ltn "sport = :5000" >/dev/null 2>&1 || lsof -i :5000 >/dev/null 2>&1; then
+DEFAULT_PORT=${PORT:-5000}
+if ss -ltn "sport = :${DEFAULT_PORT}" >/dev/null 2>&1 || lsof -i TCP:${DEFAULT_PORT} >/dev/null 2>&1; then
   echo "Port 5000 already in use; will reuse existing server if reachable."
   USE_EXISTING_APP=1
 fi
@@ -63,9 +64,9 @@ else
   echo "Skipping start_app.sh because port 5000 is in use."
 fi
 
-echo "Waiting for app to respond on http://127.0.0.1:5000/ (60s timeout)"
+echo "Waiting for app to respond on http://127.0.0.1:${DEFAULT_PORT}/ (60s timeout)"
 for i in {1..60}; do
-  if curl -sSf http://127.0.0.1:5000/ >/dev/null 2>&1; then
+  if curl -sSf http://127.0.0.1:${DEFAULT_PORT}/ >/dev/null 2>&1; then
     echo "app is up"
     break
   fi
