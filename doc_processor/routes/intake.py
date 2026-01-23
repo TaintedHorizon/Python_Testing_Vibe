@@ -158,35 +158,32 @@ def background_analysis_worker(intake_dir, cache_file, batch_id=None):
         logging.info(f"Background analysis worker starting for {intake_dir}")
         detector = get_detector(use_llm_for_ambiguous=True)
         analyses = None
-        # Prefer high-level batch analysis if detector supports it
+        # Prefer bulk analyze if available; otherwise fall back to per-file analyze
         try:
             if hasattr(detector, 'analyze_intake_directory'):
                 analyses = detector.analyze_intake_directory(intake_dir)
             else:
-                # Fallback: analyze files one-by-one using analyze_pdf
                 analyses = []
-                try:
-                    entries = os.listdir(intake_dir)
-                except Exception:
-                    entries = []
-                for fname in sorted(entries):
-                    lower = fname.lower()
-                    if not lower.endswith(('.pdf', '.png', '.jpg', '.jpeg')):
-                        continue
-                    # Resolve a working PDF path for images and PDFs
+                for fn in os.listdir(intake_dir):
+                    path = os.path.join(intake_dir, fn)
+                    ext = os.path.splitext(fn)[1].lower()
+                    # Convert images to PDFs when possible for analyzer
                     try:
-                        working = _resolve_working_pdf_path(fname)
-                    except Exception:
-                        working = os.path.join(intake_dir, fname)
-                    try:
-                        if hasattr(detector, 'analyze_pdf'):
-                            analysis = detector.analyze_pdf(working)
-                            if analysis:
-                                analyses.append(analysis)
+                        if ext in ('.png', '.jpg', '.jpeg') and hasattr(detector, '_convert_image_to_pdf'):
+                            try:
+                                pdfp = detector._convert_image_to_pdf(path)
+                                analysis = detector.analyze_pdf(pdfp)
+                            except Exception:
+                                analysis = detector.analyze_pdf(path)
+                        else:
+                            analysis = detector.analyze_pdf(path)
                     except Exception as e:
-                        logging.warning(f"Per-file analysis failed for {working}: {e}")
+                        logging.warning(f"Per-file analysis failed for {fn}: {e}")
+                        continue
+                    if analysis:
+                        analyses.append(analysis)
         except Exception as e:
-            logging.error(f"Detector analysis error: {e}")
+            logging.error(f"Detector analysis failed: {e}")
             analyses = []
 
         # Convert analysis objects to serializable dicts similar to analyze_intake_api
@@ -415,15 +412,21 @@ def analyze_intake_progress():
 
         # Emit queued message then poll for cache; send keep-alive comments while waiting
         try:
-            # Include initial PDF progress counters so tests observing SSE
-            # immediately can assert on these keys without waiting for full analysis.
+            # Emit an initial PDF-centric progress payload so clients/tests can
+            # immediately know how many PDFs (or converted images) we expect.
             try:
-                files = os.listdir(intake_dir)
-                pdf_total = sum(1 for f in files if f.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg')))
+                files = [f for f in os.listdir(intake_dir) if os.path.splitext(f)[1].lower() in ['.pdf', '.png', '.jpg', '.jpeg']]
+                pdf_total = len(files)
             except Exception:
                 pdf_total = 0
-            payload = {'queued': True, 'message': 'Analysis started in background', 'pdf_progress': 0, 'pdf_total': pdf_total}
-            yield f"data: {json.dumps(payload)}\n\n"
+            # Initial progress = 0
+            try:
+                payload_init = {'queued': True, 'message': 'Analysis started in background', 'pdf_progress': 0, 'pdf_total': pdf_total}
+                yield f"data: {json.dumps(payload_init)}\n\n"
+            except Exception:
+                # Fallback queued payload
+                payload = {'queued': True, 'message': 'Analysis started in background'}
+                yield f"data: {json.dumps(payload)}\n\n"
             # Poll for cache or final result
             waited = 0
             while True:
