@@ -1,0 +1,27 @@
+name: "Label PRs for Auto-merge"
+
+on:
+  pull_request:
+    types: [opened, edited, reopened]
+
+jobs:
+  add-automerge-label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title/body for [automerge]
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          OWNER=${{ github.repository_owner }}
+          REPO=${{ github.event.repository.name }}
+          TITLE="${{ github.event.pull_request.title }}"
+          BODY="${{ github.event.pull_request.body }}"
+          if echo "$TITLE" | grep -qi '\[automerge\]' || echo "$BODY" | grep -qi 'automerge'; then
+            echo "Adding label 'automerge' to PR #$PR_NUMBER"
+            curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$OWNER/$REPO/issues/$PR_NUMBER/labels" \
+              -d '{"labels":["automerge"]}'
+          else
+            echo "No [automerge] marker found; skipping"
+          fi
