@@ -154,3 +154,4 @@ ui_tests/node_modules/
 doc_processor/tests/e2e/artifacts/
 doc_processor/db_prod_backups/
 !doc_processor/tests/e2e/artifacts/.gitkeep
+tmppytest/
