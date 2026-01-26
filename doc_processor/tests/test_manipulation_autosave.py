@@ -31,8 +31,10 @@ def client(tmp_path, monkeypatch):
     INSERT INTO batches(id,status) VALUES (1,'processing');
     """)
 
+    from .test_utils import write_valid_pdf
+
     alpha = tmp_path / 'alpha.pdf'
-    alpha.write_bytes(b'%PDF-1.4 ALPHA')
+    write_valid_pdf(alpha)
     cur.execute(
         "INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, page_count, ocr_text, ocr_confidence_avg, ai_suggested_category, ai_suggested_filename, ai_confidence) VALUES (?,?,?,?,?,?,?,?,?)",
         (1, 'alpha.pdf', str(alpha), 1, 'OCR BODY', 81.2, 'Reports', 'alpha_ai', 0.91)

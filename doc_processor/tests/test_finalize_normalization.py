@@ -34,9 +34,10 @@ def client(tmp_path, monkeypatch):
     alpha = tmp_path / 'alpha.pdf'
     beta = tmp_path / 'beta.pdf'
     gamma = tmp_path / 'gamma.pdf'
-    alpha.write_bytes(b'%PDF-1.4 ALPHA')
-    beta.write_bytes(b'%PDF-1.4 BETA')
-    gamma.write_bytes(b'%PDF-1.4 GAMMA')
+    from .test_utils import write_valid_pdf
+    write_valid_pdf(alpha)
+    write_valid_pdf(beta)
+    write_valid_pdf(gamma)
     cur.execute("INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, page_count, ai_suggested_category, ai_suggested_filename) VALUES (?,?,?,?,?,?)",
                 (1, 'alpha.pdf', str(alpha), 1, 'Reports', 'alpha_ai'))
     cur.execute("INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, page_count, ai_suggested_category, ai_suggested_filename) VALUES (?,?,?,?,?,?)",

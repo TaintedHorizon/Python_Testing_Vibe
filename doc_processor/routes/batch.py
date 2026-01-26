@@ -693,6 +693,39 @@ def api_debug_batch_documents(batch_id: int):
         return jsonify(create_error_response(str(e)))
 
 
+@bp.route('/api/debug/smart_token/<token>')
+def api_debug_smart_token(token: str):
+    """Test-only: return stored smart token metadata (last_event, sse_connected, batch_id).
+
+    Accessible only in FAST_TEST_MODE or from localhost. This helps tests
+    deterministically map a token to the batch_id or last_event without
+    relying on client SSE timing.
+    """
+    try:
+        from ..config_manager import app_config as _cfg
+        if not getattr(_cfg, 'FAST_TEST_MODE', False):
+            if request.remote_addr not in ('127.0.0.1', '::1', None):
+                return jsonify(create_error_response('Debug API disabled')), 403
+
+        meta = smart_tokens.get(token)
+        if not meta:
+            return jsonify(create_success_response({'found': False, 'token': token, 'last_event': None}))
+
+        # Prepare a sanitized view of the token meta
+        view = {
+            'found': True,
+            'token': token,
+            'batch_id': meta.get('batch_id'),
+            'sse_connected': bool(meta.get('sse_connected')),
+            'last_event': meta.get('last_event'),
+            'created': meta.get('created')
+        }
+        return jsonify(create_success_response(view))
+    except Exception as e:
+        logger.error(f"Debug smart_token failed: {e}")
+        return jsonify(create_error_response(str(e))), 500
+
+
 @bp.route('/api/debug/latest_document')
 def api_debug_latest_document():
     """Test-only: return the latest single_documents row (id + batch_id + filename).
@@ -1397,12 +1430,24 @@ def process_batch_smart():
                     logger.error(f"[smart] Starter thread failed for token {tok}: {e}")
 
             threading.Thread(target=_starter, args=(token,), daemon=True, name=f"SmartStarter-{token[:6]}").start()
-        return jsonify(create_success_response({
+        # Prepare success payload. Keep values inside `data` for the
+        # standardized response shape, but also include `token` and
+        # `batch_id` at the top-level for backwards compatibility with
+        # callers that expect them directly on the response object.
+        payload = create_success_response({
             'message': 'Smart processing token issued',
             'batch_id': batch_id,
             'token': token,
             'strategy_overrides_count': len(strategy_overrides)
-        }))
+        })
+        try:
+            # Expose top-level convenience fields without overwriting
+            # the canonical `data` payload.
+            payload.setdefault('token', token)
+            payload.setdefault('batch_id', batch_id)
+        except Exception:
+            pass
+        return jsonify(payload)
 
     except Exception as e:
         logger.error(f"Error starting smart processing: {e}")

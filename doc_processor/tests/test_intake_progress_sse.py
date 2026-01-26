@@ -36,7 +36,17 @@ def test_analyze_intake_progress_emits_pdf_counters(monkeypatch, tmp_path):
     intake.mkdir()
     (intake / 'a.pdf').write_text('%PDF-1')
     (intake / 'b.pdf').write_text('%PDF-2')
-    (intake / 'c.png').write_text('PNG-PLACEHOLDER')
+    # write a minimal 1x1 PNG so image-processing paths can open it
+    # Try to create a tiny valid PNG using Pillow when available; fallback to base64 bytes
+    try:
+        from PIL import Image
+        img = Image.new('RGBA', (1, 1), (0, 0, 0, 0))
+        img.save(intake / 'c.png', format='PNG')
+    except Exception:
+        import base64
+        png_b64 = b'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII='
+        png_bytes = base64.b64decode(png_b64)
+        (intake / 'c.png').write_bytes(png_bytes)
 
     # Point config to temp intake
     monkeypatch.setattr(app_config, 'INTAKE_DIR', str(intake))

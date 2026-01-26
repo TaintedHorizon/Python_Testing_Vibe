@@ -441,6 +441,7 @@ def poll_smart_status(base_url):
         last_event, meta = poll_smart_status(token)
     """
     def _poll(token, **kwargs):
-        return __import__('doc_processor.tests.e2e.helpers.smart_status_helper', fromlist=['']).poll_smart_processing_status(token, base_url=base_url, **kwargs)
+        # Prefer the canonical helper at doc_processor.tests.e2e.smart_status_helper
+        return __import__('doc_processor.tests.e2e.smart_status_helper', fromlist=['']).poll_smart_processing_status(token, base_url=base_url, **kwargs)
     return _poll
 
