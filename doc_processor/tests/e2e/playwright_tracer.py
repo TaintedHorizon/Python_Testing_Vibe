@@ -7,7 +7,7 @@ import sys
 import os
 # Ensure helper module can be imported when tracer is run as a script
 sys.path.insert(0, os.path.dirname(__file__))
-from helpers.smart_status_helper import poll_smart_processing_status
+from doc_processor.tests.e2e.smart_status_helper import poll_smart_processing_status
 
 BASE_URL = os.environ.get('BASE_URL') or 'http://127.0.0.1:51700'
 

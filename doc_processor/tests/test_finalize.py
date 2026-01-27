@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import tempfile
 import shutil
 import sqlite3
@@ -51,10 +52,9 @@ def test_finalize_happy_path(tmp_env_dirs):
     original = os.path.join(intake, 'doc1.pdf')
     searchable = os.path.join(processed, '1', 'searchable_pdfs', 'doc1_searchable.pdf')
     os.makedirs(os.path.dirname(searchable), exist_ok=True)
-    with open(original, 'wb') as f:
-        f.write(b'%PDF-1.4\n%fake')
-    with open(searchable, 'wb') as f:
-        f.write(b'%PDF-1.4\n%searchable')
+    from .test_utils import write_valid_pdf
+    write_valid_pdf(Path(original))
+    write_valid_pdf(Path(searchable))
 
     # Insert batch and single_documents row
     from doc_processor.database import get_or_create_test_batch
@@ -88,8 +88,8 @@ def test_finalize_missing_searchable_creates_fallback(tmp_env_dirs):
 
     original = os.path.join(intake, 'doc2.pdf')
     # Note: no searchable created
-    with open(original, 'wb') as f:
-        f.write(b'%PDF-1.4\n%fake2')
+    from .test_utils import write_valid_pdf
+    write_valid_pdf(Path(original))
 
     from doc_processor.database import get_or_create_test_batch
     batch_id = get_or_create_test_batch('finalize_tests')

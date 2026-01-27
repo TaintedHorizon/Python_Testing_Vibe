@@ -40,8 +40,10 @@ def client(tmp_path, monkeypatch):
     # Insert initial data with temp paths
     cur.execute("INSERT INTO categories(name,is_active) VALUES (?,?)", ('Invoices', 1))
     cur.execute("INSERT INTO batches(id,status) VALUES (?,?)", (1, 'processing'))
+    from .test_utils import write_valid_pdf
+
     sample_pdf = tmp_path / 'sample.pdf'
-    sample_pdf.write_bytes(b"%PDF-1.4 sample")
+    write_valid_pdf(sample_pdf)
     cur.execute(
         "INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, ai_suggested_category, ai_suggested_filename, ai_confidence, ai_summary, ocr_text, ocr_confidence_avg) VALUES (?,?,?,?,?,?,?,?,?)",
         (1, 'sample.pdf', str(sample_pdf), 'Invoices', 'invoice_sample', 0.87, 'Summary', 'OCR TEXT', 78.5)

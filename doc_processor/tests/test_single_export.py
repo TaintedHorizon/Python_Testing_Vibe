@@ -61,13 +61,18 @@ def client(tmp_path, monkeypatch):
     """)
     # Create three sample docs mixing pdf and image to exercise raw image export path
     # Real files are not strictly required because finalize just copies if exists; create dummy files.
+    from .test_utils import write_valid_pdf, write_valid_jpeg
+
     for idx,(fname,ext,cat) in enumerate([
         ('alpha','pdf','Reports'),
         ('scan1','jpg','Reports'),
         ('notes','pdf','Reports')
     ], start=1):
         src_path = intake / f"{fname}.{ext}"
-        with open(src_path,'wb') as f: f.write(b'%PDF-1.4' if ext=='pdf' else b'\xff\xd8jpgmock')
+        if ext == 'pdf':
+            write_valid_pdf(src_path)
+        else:
+            write_valid_jpeg(src_path)
         cur.execute("""INSERT INTO single_documents(batch_id, original_filename, original_pdf_path, page_count, ai_suggested_category, ai_suggested_filename, final_category, final_filename)
                        VALUES (1,?,?,?,?,?,?,?)""",
                     (f"{fname}.{ext}", str(src_path), 1, cat, f"{fname}_ai", cat, f"{fname}_final"))
