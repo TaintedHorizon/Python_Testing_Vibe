@@ -27,6 +27,8 @@
 - Total CI time: < 10 minutes
 - E2E tests are NOT required for merge (manual trigger only)
 
+**Important:** Whenever the assistant asks you to open a PR, the PR must be configured to enable GitHub auto-merge (or the `automerge` label must be applied) so that the PR will merge automatically once required checks pass. This repository's automation expects PRs created by the assistant to be auto-merge-ready.
+
 #### **✅ If CI Fails:**
 - **ci-basic failure**: Fix Python syntax errors or flake8 issues
 - **test-unit failure**: Review test output but known flaky tests are OK
