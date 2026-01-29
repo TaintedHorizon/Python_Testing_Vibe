@@ -621,14 +621,108 @@ def get_or_create_test_batch(name: str = 'pytest_shared') -> int:
     try:
         cur = conn.cursor()
         special_status = f"test_batch:{name}"
+        # Durable trace: record that we're about to SELECT for this test batch
+        try:
+            import threading, traceback, datetime
+            trace_dir = os.environ.get('TEST_RUN_TRACE_DIR', os.path.join(os.getcwd(), 'test_runs', 'full_suite'))
+            os.makedirs(trace_dir, exist_ok=True)
+            trace_file = os.path.join(trace_dir, 'batch_inserts.log')
+            sel_entry = {
+                'event': 'select_attempt',
+                'status': special_status,
+                'pid': os.getpid(),
+                'thread_id': threading.get_ident(),
+                'ts': datetime.datetime.utcnow().isoformat() + 'Z',
+                'stack': traceback.format_stack(limit=6)
+            }
+            with open(trace_file, 'a', encoding='utf-8') as tf:
+                tf.write(json.dumps(sel_entry) + "\n")
+        except Exception:
+            pass
+        # Fast-path read
         cur.execute("SELECT id FROM batches WHERE status = ? LIMIT 1", (special_status,))
         row = cur.fetchone()
         if row:
-            return int(row[0])
-        # Create a new test batch row atomically
-        cur.execute("INSERT INTO batches (status) VALUES (?)", (special_status,))
-        batch_id = cur.lastrowid
-        conn.commit()
+            batch_id = int(row[0])
+            # Log reuse of existing test batch to durable trace for diagnostics
+            try:
+                _trace = {
+                    'event': 'reuse',
+                    'batch_id': batch_id,
+                    'status': special_status,
+                    'pid': os.getpid(),
+                }
+                trace_dir = os.environ.get('TEST_RUN_TRACE_DIR', os.path.join(os.getcwd(), 'test_runs', 'full_suite'))
+                os.makedirs(trace_dir, exist_ok=True)
+                trace_file = os.path.join(trace_dir, 'batch_inserts.log')
+                with open(trace_file, 'a', encoding='utf-8') as tf:
+                    tf.write(json.dumps(_trace) + "\n")
+            except Exception:
+                pass
+            return batch_id
+        # Ensure a uniqueness constraint for test batches and perform an
+        # atomic insert-or-ignore followed by a SELECT to obtain the id.
+        # We create a partial UNIQUE INDEX only for statuses that start with
+        # 'test_batch:' so normal production statuses are unaffected.
+        try:
+            try:
+                cur.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_batches_status_test_batch "
+                    "ON batches(status) WHERE status LIKE 'test_batch:%'"
+                )
+            except Exception:
+                # Non-fatal if index creation fails for any reason; proceed
+                pass
+
+            # Attempt an atomic insert that will be ignored if another
+            # process/thread already created the same test status row.
+            try:
+                cur.execute("INSERT OR IGNORE INTO batches (status) VALUES (?)", (special_status,))
+                conn.commit()
+            except Exception:
+                # If insert-or-ignore fails for some reason, ignore and continue
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
+            # In all cases, select the (possibly pre-existing) batch id.
+            cur.execute("SELECT id FROM batches WHERE status = ? LIMIT 1", (special_status,))
+            row2 = cur.fetchone()
+            if row2:
+                batch_id = int(row2[0])
+            else:
+                # As a last-resort fallback, perform a simple insert then select.
+                cur.execute("INSERT INTO batches (status) VALUES (?)", (special_status,))
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+                batch_id = int(cur.lastrowid)
+        except Exception:
+            # If anything unexpected happens, re-raise so callers can observe
+            # the failure rather than silently returning an invalid id.
+            raise
+        # Durable trace for new batch creation: write minimal context to file
+        try:
+            import threading, traceback, datetime
+            trace_dir = os.environ.get('TEST_RUN_TRACE_DIR', os.path.join(os.getcwd(), 'test_runs', 'full_suite'))
+            os.makedirs(trace_dir, exist_ok=True)
+            trace_file = os.path.join(trace_dir, 'batch_inserts.log')
+            stack = traceback.format_stack(limit=6)
+            entry = {
+                'event': 'create',
+                'batch_id': int(batch_id),
+                'status': special_status,
+                'pid': os.getpid(),
+                'thread_id': threading.get_ident(),
+                'ts': datetime.datetime.utcnow().isoformat() + 'Z',
+                'stack': stack
+            }
+            with open(trace_file, 'a', encoding='utf-8') as tf:
+                tf.write(json.dumps(entry) + "\n")
+        except Exception:
+            pass
         return int(batch_id)
     finally:
         conn.close()

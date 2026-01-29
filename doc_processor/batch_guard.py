@@ -221,32 +221,19 @@ def get_or_create_processing_batch() -> int:
                 return existing_batch_id
 
         # No existing processing batch, create new one
-        with database_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO batches (status) VALUES (?)
-            """, ("processing",))
-            new_batch_id = _ensure_lastrowid(cursor)
-            conn.commit()
-
-            logging.info(f"✨ Created new processing batch {new_batch_id}")
-            return new_batch_id
+        new_batch_id = create_new_batch("processing")
+        logging.info(f"✨ Created new processing batch {new_batch_id}")
+        return new_batch_id
 
     except Exception as e:
         logging.error(f"Error in get_or_create_processing_batch: {e}")
         # Fallback - create new batch
         try:
-            with database_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO batches (status) VALUES (?)
-                """, ("processing",))
-                fallback_batch_id = _ensure_lastrowid(cursor)
-                conn.commit()
-                logging.warning(f"Created fallback batch {fallback_batch_id}")
-                return fallback_batch_id
+            fallback_batch_id = create_new_batch("processing")
+            logging.warning(f"Created fallback batch {fallback_batch_id}")
+            return fallback_batch_id
         except Exception as fallback_error:
-            logging.error(f"Fallback batch creation failed: {fallback_error}")
+            logging.error(f"Fallback batch creation failed: {fallback_batch_id}")
             raise
 
 
@@ -400,22 +387,16 @@ def get_or_create_intake_batch() -> int:
                     logging.info(f"♻️  Reusing existing intake batch {newest} (post-lock check)")
                     return newest
 
-                # No existing batch: safe to insert
-                cursor.execute("INSERT INTO batches (status) VALUES (?)", ("intake",))
-                new_id = _ensure_lastrowid(cursor)
-                conn.commit()
+                # No existing batch: delegate to centralized creation (with tracing)
+                new_id = create_new_batch("intake")
                 logging.info(f"✨ Created new intake batch {new_id}")
                 return new_id
     except Exception as e:
         logging.error(f"Error creating intake batch: {e}")
         # Fallback: try a minimal raw insert (best-effort)
         try:
-            with database_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("INSERT INTO batches VALUES (NULL, 'intake')")
-                new_id = _ensure_lastrowid(cursor)
-                conn.commit()
-                return new_id
+            new_id = create_new_batch("intake")
+            return new_id
         except Exception as e2:
             logging.error(f"Fallback intake batch creation failed: {e2}")
             raise
@@ -466,6 +447,26 @@ def create_new_batch(status: str) -> int:
             logging.info(f"✨ Created new batch {new_id} with status '{status}'")
             # Note: If this batch remains empty, the startup cleanup / orphaning
             # workflow will mark or delete it per policy; this log helps trace origin.
+            # Durable trace: append JSON entry to a trace file so test runs
+            # that teardown DBs still leave an audit trail of who created batches.
+            try:
+                import threading, traceback, datetime
+                trace_dir = os.environ.get('TEST_RUN_TRACE_DIR', os.path.join(os.getcwd(), 'test_runs', 'full_suite'))
+                os.makedirs(trace_dir, exist_ok=True)
+                trace_file = os.path.join(trace_dir, 'batch_inserts.log')
+                entry = {
+                    'event': 'create',
+                    'batch_id': int(new_id),
+                    'status': status,
+                    'pid': os.getpid(),
+                    'thread_id': threading.get_ident(),
+                    'ts': datetime.datetime.utcnow().isoformat() + 'Z',
+                    'stack': traceback.format_stack(limit=6)
+                }
+                with open(trace_file, 'a', encoding='utf-8') as tf:
+                    tf.write(json.dumps(entry) + "\n")
+            except Exception:
+                pass
             return new_id
     except Exception as e:
         logging.error(f"Error creating new batch with status '{status}': {e}")
@@ -476,6 +477,24 @@ def create_new_batch(status: str) -> int:
                 cursor.execute("INSERT INTO batches VALUES (NULL, ?)", (status,))
                 new_id = _ensure_lastrowid(cursor)
                 conn.commit()
+                try:
+                    import threading, traceback, datetime
+                    trace_dir = os.environ.get('TEST_RUN_TRACE_DIR', os.path.join(os.getcwd(), 'test_runs', 'full_suite'))
+                    os.makedirs(trace_dir, exist_ok=True)
+                    trace_file = os.path.join(trace_dir, 'batch_inserts.log')
+                    entry = {
+                        'event': 'create_fallback',
+                        'batch_id': int(new_id),
+                        'status': status,
+                        'pid': os.getpid(),
+                        'thread_id': threading.get_ident(),
+                        'ts': datetime.datetime.utcnow().isoformat() + 'Z',
+                        'stack': traceback.format_stack(limit=6)
+                    }
+                    with open(trace_file, 'a', encoding='utf-8') as tf:
+                        tf.write(json.dumps(entry) + "\n")
+                except Exception:
+                    pass
                 logging.warning(f"Fallback created new batch {new_id} with status '{status}'")
                 return new_id
         except Exception as e2:
