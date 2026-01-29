@@ -23,6 +23,26 @@ env_path = Path(__file__).resolve().parents[1] / '.env'
 load_dotenv(dotenv_path=str(env_path))
 
 
+@pytest.fixture(scope="session", autouse=True)
+def enforce_fast_test_mode_session():
+    """Ensure `FAST_TEST_MODE` is set to '1' for the entire pytest session.
+
+    Some tests (and background threads) inspect the environment at runtime
+    and may observe different values when tests run together. Enforce the
+    env var at session scope to make test behaviour deterministic.
+    """
+    old = os.environ.get('FAST_TEST_MODE')
+    os.environ['FAST_TEST_MODE'] = '1'
+    try:
+        yield
+    finally:
+        # Restore previous value if any
+        if old is None:
+            os.environ.pop('FAST_TEST_MODE', None)
+        else:
+            os.environ['FAST_TEST_MODE'] = old
+
+
 @pytest.fixture(autouse=True)
 def _prevent_copy_outside_intake(monkeypatch):
     """Prevent tests from copying fixtures into directories outside the
@@ -336,3 +356,109 @@ def hermetic_files_cleanup(tmp_path, monkeypatch):
             _safe_remove_tree(os.path.join(db_dir, 'filing_cabinet'))
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def hermetic_process_cleanup():
+    """Autouse fixture to ensure processes started during a test are terminated.
+
+    Captures the set of existing PIDs before the test runs and after the test
+    attempts to gracefully terminate any *new* processes whose command line
+    suggests they are test servers or browser/test-runner helpers (for
+    example `python -m doc_processor.app`, Playwright test-server, or
+    Chromium headless). This avoids leaving long-running background servers
+    around when tests forget to shut them down.
+    """
+    import subprocess, time, signal
+
+    def _list_procs():
+        # ps output: PID ETIMES CMD
+        out = subprocess.check_output(["ps", "-eo", "pid,etimes,cmd", "--no-headers"], text=True)
+        procs = {}
+        for line in out.splitlines():
+            parts = line.strip().split(None, 2)
+            if len(parts) < 3:
+                continue
+            pid_s, etimes_s, cmd = parts
+            try:
+                pid = int(pid_s)
+                etimes = int(etimes_s)
+            except Exception:
+                continue
+            procs[pid] = dict(cmd=cmd, etimes=etimes)
+        return procs
+
+    before = _list_procs()
+    yield
+
+    after = _list_procs()
+    # determine newly-created pids
+    new_pids = set(after.keys()) - set(before.keys())
+    if not new_pids:
+        return
+
+    # target command patterns indicating a test server/browser helper
+    patterns = [
+        'python -m doc_processor.app',
+        'doc_processor.app',
+        'playwright',
+        'test-server',
+        'chromium',
+        'chrome',
+        'headless'
+    ]
+
+    candidates = []
+    for pid in new_pids:
+        info = after.get(pid)
+        if not info:
+            continue
+        cmd = info.get('cmd', '')
+        low = cmd.lower()
+        if any(pat in low for pat in patterns):
+            candidates.append((pid, cmd, info.get('etimes', 0)))
+
+    if not candidates:
+        return
+
+    # Attempt graceful termination, then force kill if needed
+    for pid, cmd, etimes in candidates:
+        try:
+            # First, ignore very-old processes (they might be unrelated)
+            # If etimes is large (> 3600s), skip killing to avoid interfering
+            # with long-lived editors/servers outside test scope.
+            if etimes > 3600:
+                continue
+            print(f"[test-cleanup] terminating test-started process {pid}: {cmd}")
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        except Exception:
+            continue
+
+    # wait up to 5s for processes to exit
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        remaining = []
+        for pid, cmd, etimes in candidates:
+            try:
+                os.kill(pid, 0)
+                remaining.append((pid, cmd))
+            except ProcessLookupError:
+                continue
+            except Exception:
+                remaining.append((pid, cmd))
+        if not remaining:
+            break
+        time.sleep(0.25)
+
+    # Force kill any remaining
+    for pid, cmd, etimes in candidates:
+        try:
+            os.kill(pid, 0)
+            print(f"[test-cleanup] force-killing lingering process {pid}: {cmd}")
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            continue
+        except Exception:
+            continue
