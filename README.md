@@ -500,3 +500,4 @@ Planned Enhancements:
 - Lightweight assertion test for pre-OCR normalization side-effects (e.g., verifying searchable text alignment vs rotation).
 
 ---
+\n<!-- ci: recreate status checks -->
