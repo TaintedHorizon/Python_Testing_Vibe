@@ -10,7 +10,14 @@ ISSUE=55
 REF="main"
 INTERVAL=${1:-120}   # 2 minutes
 TIMEOUT=${2:-21600}  # 6 hours
-LOG=/tmp/auto-close-issue-55.log
+
+# Use .github directories for operational logs/pids by default
+LOG_DIR=${LOG_DIR:-.github/logs}
+SCRIPTS_DIR=${SCRIPTS_DIR:-.github/scripts}
+mkdir -p "$LOG_DIR" "$SCRIPTS_DIR"
+
+LOG="$LOG_DIR/auto_close_issue_55.log"
+PIDFILE="$SCRIPTS_DIR/auto_close_issue_55.pid"
 
 echo "$(date -u) | Starting auto-close watcher for issue #${ISSUE} (poll ${INTERVAL}s, timeout ${TIMEOUT}s)" >> "$LOG"
 START_TS=$(date +%s)
@@ -24,6 +31,10 @@ if [[ -z "$SHA" ]]; then
 fi
 
 echo "$(date -u) | Monitoring commit $SHA" >> "$LOG"
+
+# write pidfile and ensure cleanup
+echo $$ > "$PIDFILE"
+trap 'rm -f "$PIDFILE"' EXIT INT TERM
 
 while [[ $(date +%s) -le $END_TS ]]; do
   echo "$(date -u) | Checking check-suites for ${SHA}..." >> "$LOG"

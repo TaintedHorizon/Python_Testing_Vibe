@@ -7,9 +7,11 @@ LOG_FILE="$LOG_DIR/pr_watch.log"
 PID_FILE=".github/scripts/watch_prs.pid"
 PRS=(52 53 54)
 
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOG_DIR" "$(dirname "$PID_FILE")"
 echo "Starting PR watcher at $(date --iso-8601=seconds)" >> "$LOG_FILE"
 echo $$ > "$PID_FILE"
+# Ensure pidfile is removed on exit
+trap 'rm -f "$PID_FILE"' EXIT INT TERM
 
 last_states=""
 
@@ -41,7 +43,7 @@ while true; do
     last_states="$state_line"
   fi
 
-  if [ "$all_merged" = true ]; then
+    if [ "$all_merged" = true ]; then
     echo "[$now] All watched PRs merged — exiting watcher." >> "$LOG_FILE"
     rm -f "$PID_FILE"
     exit 0
