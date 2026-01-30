@@ -1,0 +1,27 @@
+PR #102 — Combined Unit Test Logs Summary
+Date: 2026-01-30
+
+Overview:
+- Source logs (preserved in run artifacts):
+  - /home/svc-scan/Python_Testing_Vibe/test_runs/ci_pr_102_unit_tests_clean/21494039103.log.txt (Python 3.12 job)
+  - /home/svc-scan/Python_Testing_Vibe/test_runs/ci_pr_102_unit_tests_clean/21494278550.log.txt (Python 3.11 job)
+  - Secret Gist with raw logs: https://gist.github.com/TaintedHorizon/bf4474952c0bfc875e82da928927fff4
+
+Quick results (extracted):
+- Python 3.12 run (21494039103): 51 passed, 18 skipped, 4 deselected, 27 warnings
+- Python 3.11 run (21494278550): 51 passed, 18 skipped, 4 deselected, 1 warning
+
+Notes:
+- No failing tests observed in the two unit-test job logs attached to PR #102.
+- Warnings observed (examples):
+  - DeprecationWarning: invalid escape sequence '\s' in `tests/e2e/test_process_single_documents_playwright_full.py`
+  - Deprecation/Style warnings referencing use of `datetime.utcnow()` in `doc_processor/batch_guard.py` and `doc_processor/database.py` (consider switching to timezone-aware `datetime.now(timezone.utc)` where appropriate).
+
+Recommended next steps for reviewers:
+1) Inspect the full raw logs via the attached Gist (linked above) for any environment or install anomalies.
+2) If reviewers want the complete raw logs in-repo, I can push them under `docs/test-logs/` (currently added a compact summary file).
+3) If you prefer direct tracebacks for specific flaky reproductions, tell me which run(s) and I will paste the relevant tracebacks into the PR comment.
+
+Context: These logs were produced after applying the DB-level mitigation for duplicate-batch creation and local reproducer/instrumentation. The unit-test jobs attached to PR #102 show no failing tests in these runs; CI Basic checks previously failed on lint/syntax and were fixed in follow-up commits.
+
+File created by automation to provide an easily discoverable, in-repo pointer to unit-test artifacts for PR #102.
