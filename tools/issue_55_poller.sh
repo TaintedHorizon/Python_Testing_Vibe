@@ -2,12 +2,24 @@
 set -euo pipefail
 # Poll GitHub and the auto-close watcher log every 30 minutes and append a status line
 REPO="TaintedHorizon/Python_Testing_Vibe"
-LOG=".auto_close_issue_55.status.log"
-WATCHER_LOG=".auto_close_issue_55.log"
+# Respect a LOG_DIR env var; default to .github/logs for operational scripts
+LOG_DIR=${LOG_DIR:-.github/logs}
+SCRIPTS_DIR=${SCRIPTS_DIR:-.github/scripts}
+mkdir -p "$LOG_DIR" "$SCRIPTS_DIR"
+
+LOG="$LOG_DIR/auto_close_issue_55.status.log"
+WATCHER_LOG="$LOG_DIR/auto_close_issue_55.watcher.log"
+PIDFILE="$SCRIPTS_DIR/issue_55_poller.pid"
+
 PR_NUMBER=86
 INTERVAL=${INTERVAL_SECONDS:-1800}
 
 echo "Starting issue_55 poller (interval ${INTERVAL}s)" >> "$LOG"
+
+# write pidfile and ensure cleanup on exit
+echo $$ > "$PIDFILE"
+trap 'rm -f "$PIDFILE"' EXIT INT TERM
+
 while true; do
   TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   ISSUE_STATE=$(gh issue view 55 --repo "$REPO" --json state --jq '.state' 2>/dev/null || echo "UNKNOWN")

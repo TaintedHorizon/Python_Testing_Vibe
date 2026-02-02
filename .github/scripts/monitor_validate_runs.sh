@@ -40,9 +40,15 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 LOG_DIR=".github/logs"
-SEEN_FILE=".github/scripts/monitor_seen.txt"
-mkdir -p "$LOG_DIR"
+SCRIPTS_DIR=".github/scripts"
+SEEN_FILE="$SCRIPTS_DIR/monitor_seen.txt"
+mkdir -p "$LOG_DIR" "$SCRIPTS_DIR"
 touch "$SEEN_FILE"
+
+# write pidfile to scripts dir and clean up on exit
+PIDFILE="$SCRIPTS_DIR/monitor_validate_runs.pid"
+echo $$ > "$PIDFILE"
+trap 'rm -f "$PIDFILE"' EXIT INT TERM
 
 echo "Starting monitor for workflow 'validate-workflows' in repo ${REPO}"
 echo "Interval: ${INTERVAL}s, iterations: ${ITERATIONS} (total ~$((${INTERVAL}*${ITERATIONS}))s)"
