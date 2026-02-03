@@ -32,10 +32,12 @@ def isolate_database_path(tmp_path_factory):
     `tmp_path_factory` to create a session temp directory and `monkeypatch`
     to export `DATABASE_PATH` for the duration of the session.
     """
-    db_dir = tmp_path_factory.mktemp("test_db")
-    db_file = db_dir / "documents.db"
-    # Set environment variable directly (monkeypatch is function-scoped)
-    os.environ['DATABASE_PATH'] = str(db_file)
+    # If an external DATABASE_PATH is already set (CI or user), respect it.
+    if not os.environ.get('DATABASE_PATH'):
+        db_dir = tmp_path_factory.mktemp("test_db")
+        db_file = db_dir / "documents.db"
+        # Set environment variable directly (monkeypatch is function-scoped)
+        os.environ['DATABASE_PATH'] = str(db_file)
     # Do not reload config_manager here; let individual tests/fixtures
     # perform any reloads after they set up per-test DATABASE_PATH.
     yield
@@ -83,6 +85,7 @@ def backup_and_restore_host_db():
             continue
 
 
+@pytest.fixture(scope="session", autouse=True)
 def enforce_fast_test_mode_session():
     """Ensure `FAST_TEST_MODE` is set to '1' for the entire pytest session.
 
