@@ -56,6 +56,9 @@ jobs:
         working-directory: doc_processor
         env:
           PYTHONPATH: ${{ github.workspace }}
+          # Use an ephemeral DB for CI test runs to avoid contaminating any host database
+          DATABASE_PATH: ${{ runner.temp }}/documents.db
+          FAST_TEST_MODE: '1'
         run: |
           echo "Running unit tests (no E2E, no UI tests)..."
           if [ -d "tests" ]; then

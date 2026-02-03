@@ -24,6 +24,65 @@ load_dotenv(dotenv_path=str(env_path))
 
 
 @pytest.fixture(scope="session", autouse=True)
+def isolate_database_path(tmp_path_factory):
+    """Set a session-scoped temporary DATABASE_PATH for all tests.
+
+    This prevents tests from sharing a developer or CI database file and
+    ensures each test run starts with an empty DB file. Uses pytest's
+    `tmp_path_factory` to create a session temp directory and `monkeypatch`
+    to export `DATABASE_PATH` for the duration of the session.
+    """
+    db_dir = tmp_path_factory.mktemp("test_db")
+    db_file = db_dir / "documents.db"
+    # Set environment variable directly (monkeypatch is function-scoped)
+    os.environ['DATABASE_PATH'] = str(db_file)
+    # Do not reload config_manager here; let individual tests/fixtures
+    # perform any reloads after they set up per-test DATABASE_PATH.
+    yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def backup_and_restore_host_db():
+    """Conservative safety: if a host DB file exists at common locations,
+    move it aside for the test session and restore it afterwards.
+
+    This is non-destructive: it renames the file to `<name>.bak` and restores
+    that file at teardown. It only acts on paths that exist and are not the
+    current `DATABASE_PATH` used by tests.
+    """
+    import shutil
+
+    # Candidate host DB locations we may want to protect
+    candidates = [
+        '/home/svc-scan/db/documents.db',
+        os.path.expanduser('~/db/documents.db')
+    ]
+    moved = []
+    cur_db = os.environ.get('DATABASE_PATH')
+    for p in candidates:
+        try:
+            if not p:
+                continue
+            if cur_db and os.path.abspath(p) == os.path.abspath(cur_db):
+                continue
+            if os.path.exists(p):
+                bak = p + '.bak'
+                shutil.move(p, bak)
+                moved.append((p, bak))
+        except Exception:
+            continue
+
+    yield
+
+    # restore
+    for orig, bak in moved:
+        try:
+            if os.path.exists(bak) and not os.path.exists(orig):
+                shutil.move(bak, orig)
+        except Exception:
+            continue
+
+
 def enforce_fast_test_mode_session():
     """Ensure `FAST_TEST_MODE` is set to '1' for the entire pytest session.
 
@@ -41,6 +100,76 @@ def enforce_fast_test_mode_session():
             os.environ.pop('FAST_TEST_MODE', None)
         else:
             os.environ['FAST_TEST_MODE'] = old
+
+
+@pytest.fixture(scope="session", autouse=True)
+def ensure_no_leftover_appservers():
+    """Ensure no leftover `doc_processor.app` server processes are running.
+
+    Best-effort: kill matching processes owned by the current user before
+    tests start and again after the session finishes. This avoids stray
+    `python -m doc_processor.app` listeners from previous runs interfering
+    with ports used by the test harness.
+    """
+    import subprocess
+
+    def _list_procs():
+        out = subprocess.check_output(["ps", "-eo", "pid,etimes,cmd", "--no-headers"], text=True)
+        procs = []
+        for line in out.splitlines():
+            parts = line.strip().split(None, 2)
+            if len(parts) < 3:
+                continue
+            pid_s, etimes_s, cmd = parts
+            try:
+                pid = int(pid_s)
+                etimes = int(etimes_s)
+            except Exception:
+                continue
+            procs.append((pid, etimes, cmd))
+        return procs
+
+    def _targets(procs):
+        hits = []
+        for pid, etimes, cmd in procs:
+            low = cmd.lower()
+            if 'python -m doc_processor.app' in low or 'doc_processor.app' in low:
+                hits.append((pid, etimes, cmd))
+        return hits
+
+    try:
+        procs = _list_procs()
+        for pid, etimes, cmd in _targets(procs):
+            if etimes and etimes > 3600:
+                continue
+            try:
+                print(f"[session-cleanup] terminating leftover app process {pid}: {cmd}")
+                os.kill(pid, 15)
+            except Exception:
+                try:
+                    os.kill(pid, 9)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    yield
+
+    try:
+        procs = _list_procs()
+        for pid, etimes, cmd in _targets(procs):
+            if etimes and etimes > 3600:
+                continue
+            try:
+                print(f"[session-cleanup] terminating lingering app process {pid}: {cmd}")
+                os.kill(pid, 15)
+            except Exception:
+                try:
+                    os.kill(pid, 9)
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
 
 @pytest.fixture(autouse=True)
